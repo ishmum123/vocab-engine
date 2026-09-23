@@ -22,3 +22,10 @@
 - Placement has a fixed 2/3 alternating item count per bucket. Consider making it pack-configurable.
 - The Sounds hint text on Today is generic. Consider an optional pack field for it.
 - There is no service worker or offline manifest, as in hsk.
+
+## Follow-up: `speak` question type (decided 2026-09-23)
+Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; Firefox flag-only; needs HTTPS + mic, not file://).
+- Optional per learner (toggle in Progress), off by default; enabled only when API exists and `pack.stt` locale is set (e.g. "it-IT", "fa-IR").
+- Items: meaning → say the word; sentence cloze → say the missing word. Pass = normalised transcript (or any `maxAlternatives`) contains the target / an `alt`. No pronunciation score (recognisers auto-correct near-misses; a % would be fake precision).
+- Never blocks: on no result / error fall back to `type`. Excluded from placement.
+- Chrome 139+ has on-device mode (`processLocally`); default is server-based and needs network.
