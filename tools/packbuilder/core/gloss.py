@@ -18,8 +18,8 @@ DEFINITIONAL_RE = re.compile(
 
 
 def cap_parts(parts):
-    """At most 3 comma alternatives and MAX_GLOSS chars."""
-    parts = parts[:3]
+    """At most 3 distinct comma alternatives and MAX_GLOSS chars."""
+    parts = list(dict.fromkeys(parts))[:3]
     g = ", ".join(parts)
     if len(g) > MAX_GLOSS:
         out = []
@@ -74,6 +74,9 @@ def clean_gloss(g, cap=True, all_groups=False):
     parts = [p.strip() for p in g.split(",") if re.search(r"[A-Za-z]", p) and p.strip() and not re.match(r"^(pl\.?|see|cf\.?) ", p.strip())]
     # strong English profanity never leads a learner gloss (fregare "to fuck, to screw")
     parts = [p for p in parts if not EN_PROFANE_RE.search(p)] or parts
+    # "grandmother, female equivalent of abuelo": a form-of note, not a sense
+    parts = [p for p in parts if not re.match(r"^(fe)?male equivalent of ", p)] or parts
+    parts = list(dict.fromkeys(parts))              # "to wait, to wait" -> "to wait"
     # "shop, a store" -> "shop, store": a bare article on a short alternative
     parts = [re.sub(r"^(a|an|the) (?!(lot|little|bit|few|while|long)\b)", "", p) if len(p.split()) <= 3 else p
              for p in parts]
@@ -173,3 +176,41 @@ def compose_gloss(rows):
     if second:
         gloss = f"{gloss}; {second['g']}"
     return gloss, top
+
+
+# Style leaks in Wiktionary glosses, stripped from a finished learner gloss by
+# languages that opt in (strip_gloss_style): grammatical labels, archaic English
+# alternatives, placeholder phrases, quote marks.
+STYLE_LABEL_RE = re.compile(r"\s*\b(mutually reflexive|reflexive|intransitive|transitive)\s*$|^(diminutive|augmentative|"
+                            r"endearing|pejorative|colloquial|informal)\s*:\s*", re.I)
+STYLE_DROP_PART_RE = re.compile(r"^(thy|thee|thine|\w*hither|\w*whence|thence|nevermore|"
+                                r"to dun|one wants|\w*somewhy|indefinite pronoun|.*(\.\.\.|…).*)$", re.I)
+
+
+def strip_gloss_style(gloss):
+    """'to gather, to assemble mutually reflexive' -> 'to gather, to assemble';
+    'your, yours, thy' -> 'your, yours'; 'perhaps, possibly, as ... as possible'
+    -> 'perhaps, possibly'. A trailing '(...)' suffix (gender/aspect) is kept."""
+    m = re.search(r"\s*\((m|f|n|m/f|pl\.|impf\.|pf\.|impf\./pf\.)\)$", gloss)
+    suffix = m.group(0) if m else ""
+    body = gloss[: m.start()] if m else gloss
+    def split_top(text, sep):
+        out, depth, cur = [], 0, ""
+        for ch in text:
+            depth += (ch == "(") - (ch == ")")
+            if ch == sep and depth == 0:
+                out.append(cur)
+                cur = ""
+            else:
+                cur += ch
+        return out + [cur]
+    segs = []
+    for seg in split_top(body, ";"):
+        parts = []
+        for p in split_top(seg, ","):
+            p = STYLE_LABEL_RE.sub("", p.strip()).strip().replace('"', "").replace("“", "").replace("”", "")
+            if p and not STYLE_DROP_PART_RE.match(re.sub(r"\([^()]*\)", "", p).strip()):
+                parts.append(p)
+        if parts:
+            segs.append(", ".join(parts))
+    return ("; ".join(segs) or body.strip()) + suffix

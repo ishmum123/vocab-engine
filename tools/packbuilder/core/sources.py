@@ -89,6 +89,16 @@ def corpus_path(env):
     return env.derived / f"corpus_{ver}_{sig}.json.gz"
 
 
+def _link_lines(path):
+    if path.name.endswith(".tar.bz2"):
+        with tarfile.open(path, "r:bz2") as tf:
+            member = next(m for m in tf.getmembers() if m.name.endswith("links.csv"))
+            yield from io.TextIOWrapper(tf.extractfile(member), encoding="utf-8")
+    else:
+        with bz2.open(path, "rt", encoding="utf-8") as f:
+            yield from f
+
+
 def stage_corpus(env):
     sp = env.spec
     out = corpus_path(env)
@@ -110,18 +120,18 @@ def stage_corpus(env):
         if len(p) >= 3:
             eng[int(p[0])] = p[2]
     del data
-    # links.csv: sentence_id <tab> translation_id (both directions listed)
+    # links: sentence_id <tab> translation_id, from the all-languages
+    # links.tar.bz2 (links.csv, both directions listed) or a per-pair
+    # <iso3>-eng_links.tsv.bz2 export
     best_en = {}
-    with tarfile.open(env.cache / sp.links_file, "r:bz2") as tf:
-        member = next(m for m in tf.getmembers() if m.name.endswith("links.csv"))
-        for raw in io.TextIOWrapper(tf.extractfile(member), encoding="utf-8"):
-            p = raw.rstrip("\n").split("\t")
-            if len(p) < 2:
-                continue
-            a, b = int(p[0]), int(p[1])
-            if a in tgt and b in eng:
-                if a not in best_en or b < best_en[a]:
-                    best_en[a] = b  # lowest English id: deterministic choice
+    for raw in _link_lines(env.cache / sp.links_file):
+        p = raw.rstrip("\n").split("\t")
+        if len(p) < 2:
+            continue
+        a, b = int(p[0]), int(p[1])
+        if a in tgt and b in eng:
+            if a not in best_en or b < best_en[a]:
+                best_en[a] = b  # lowest English id: deterministic choice
     # sentences_with_audio.csv columns: sentence_id, audio_id, username,
     # license, attribution_url (verified against the Tatoeba API: sentence
     # 4369 -> audio 1009973).

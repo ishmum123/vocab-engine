@@ -151,6 +151,9 @@ class Italian(LanguageSpec):
     def pronominal_form(self, lemma):
         return (lemma[:-2] if lemma.endswith("rre") else lemma[:-1]) + "si"
 
+    def clitic_stem_tries(self, stem):
+        return [stem, stem + "e", stem + "'"]        # dir+lo -> dire, di'+mi
+
     def carries_refl_clitic(self, toks, i):
         """Lenient check for the -rsi gate: a reflexive-form clitic attached to the
         verb surface ("fidarti", "muoviti": spaCy's lemma is often garbled there)

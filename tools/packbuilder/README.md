@@ -30,6 +30,7 @@ packbuilder/
     pipeline.py       stage driver, pack.json, attribution.json
   langs/base.py       LanguageSpec: the interface and its defaults
   langs/it.py         Italian
+  langs/ru.py         Russian (ё/е folding, pron = stressed form, aspect/gender gloss suffixes)
   qa/check.py         hard gate: schema, ids, levels, coverage, spec.check_word
   qa/scans.py         review scans 1-3 (gloss junk, articles/closed sets, non-lemmas)
   qa/sample.py        stratified word/sentence samples for hand QA
@@ -127,6 +128,54 @@ pip install https://github.com/explosion/spacy-models/releases/download/es_core_
     - Create a public repo `<language>` with `engine/` as a submodule, and commit `pack/`, `index.html` and `tools/` data.
     - Enable GitHub Pages from the repo root.
     - When the language module is new or changed in vocab-engine, commit that there first. Then bump the submodule in the language repo with `git submodule update --remote engine`, rebuild, and check that `./check.sh` passes.
+
+## Normalisation and finishing hooks
+
+Added for Russian; each defaults to a no-op, so other languages are unchanged.
+
+- `fold(s)`: spelling folded on every matching side (Wiktionary headwords and form targets, frequency-list and wordfreq surfaces, summed). ru: ё -> е, stress marks stripped.
+- `tag_text(text)` / `fix_token(tok)`: the sentence text fed to spaCy and a per-token fix of the stored `[text, lemma, upos, morph]`. Bump `versions["tag"]` when they change.
+- `morph_keep`: UD features kept in the tagged corpus (ru adds Case and Aspect).
+- `fallback_lemma(surface, lemma)`: rejects a simplemma fallback lemma (ru: abbreviation expansions such as мм -> миллиметр).
+- `sentence_rank(toks, lv)`: sort penalty when choosing example sentences (ru: A1 prefers Nom/Acc nouns).
+- `shares_gloss(lemma, other)`: exempts a pair from the gloss-collision rule (ru: aspect partners).
+- `finalize_words(env, ctx, words)`: last pass over the word list after sentences; may set `pron` (ru: display spelling, stressed form, aspect suffix).
+- Flags: `numeral_verb_rule` (off in ru: "три" is not тереть), `rare_zipf` (rare-reading threshold), `finite_verb_lemma` (a finite token keeps the tagger lemma over a same-spelling infinitive: ru "есть" = is).
+- `extra_wordfreq(raw)`: extra wordfreq surfaces after the main loop (ru: hyphenated words such as кто-то, which wordfreq splits at the hyphen).
+- `surface_link_ok(tok)`: may an unresolved token fall back to linking by surface (ru: not "О нет!" -> о "about").
+- `refill_unexampled`: words left with no example sentence (and not forced) are dropped and the next words by rank take their place (one extra words+sentences pass).
+- `caps_proper_pool`: gates the capitalisation-based proper-noun test in word selection, separately from `caps_mark_names` (ru: off, so Земля and Бог stay).
+- `core/gloss.strip_gloss_style(gloss)`: shared strip list for Wiktionary style leaks ("mutually reflexive", "diminutive:", quoted words, thy/hither/whither, "to dun", "one wants", "as ... as"); not called by core, a spec calls it (ru from `finalize_words`).
+
+## Lemma, gloss and selection hooks
+
+Added for Spanish; each defaults to off or a no-op, so Italian stays byte-identical.
+
+- `accent_candidates(s)`: accent-split readings of a surface (es: si/sí, el/él, solo/sólo).
+- `clitic_stem_tries(stem)`: stems tried when stripping enclitics (it: stem, stem+e, stem+'; es: host check for dímelo, dándole).
+- `surface_lemma(surface, upos)`: fixed lemma, or (lemma, group), for a surface (es: mis -> mi DET, eso own lemma, cómo PRON -> ADV).
+- `sentence_openers`: characters stripped before truecasing (es: ¿¡). Bump `versions["tag"]`.
+- `lemma_tiebreak_corpus`: ties between lemmas sharing a form break on corpus lemma votes (creo: creer over crear).
+- `copula_inflected`, `numeral_may_be_verb`, `after_article_is_noun`, `object_clitics`, `post_resolve`: in-context POS fixes (es: "son animales" is a noun, "un poco" not a noun, "la amo" a verb, fue a -> ir).
+- `form_colon_translation`: form-of glosses "X of Y: translation" also yield the translation (es: tía).
+- `strict_selection`: drops "?" POS keys, single letters, English homographs rare in the corpus, and noun keys whose entry is not a noun.
+- `phrase_bound_share` / `phrase_absorbs_parts`: words mostly bound in a taught phrase are dropped, and a phrase match removes its literal part links (embargo in sin embargo).
+- `imperative_homograph(lexicon, lemma)`: noun homographs of an imperative+clitic.
+- `revert_dedupe_gloss`: a reverted -se verb whose base and reflexive glosses lead the same shows one gloss (on for es; would change 4 Italian glosses).
+- `marks_sentence(toks)`: extra top-level marker (es: voseo and regional slang kept out of A1/A2).
+- `phrase_token_spans`: phrases match by token after splitting `art_prep` contractions ("a pesar del"); every token inside a match links only the phrase, and a contraction's leftover article still links.
+- `closed_surfaces` / `function_lemmas`: surfaces resolved to a fixed (lemma, group) whatever the tag, even PROPN, and always counted as function words (es: vosotros, contigo).
+- `numeral_group(lexicon, surface, lemma)`: group for a NUM token (es: only cardinals stay NUM; ambos, medio take their dictionary POS).
+- `sense_tags(tags)`: lex-time sense tag normalisation (es: a sense tagged for Spain, Latin America or 3+ countries is standard). Bump `versions["lex"]`.
+- `propn_lowercase_rescue`: a lemma seen lowercase mid-sentence this often is not a proper noun (es: tierra, dios).
+- `homograph_by_translation` / `homograph_cues`: when a lemma has two entries, the English translation picks the one whose gloss (or cue) words it contains (solo "only" vs "alone").
+- `needs_gender_evidence(lexicon, lemma)`: a noun with separate m and f entries links only with gender evidence (el frente / la frente).
+- `initial_noun_verb_homograph`: a bare clause-initial noun with a verb reading, not followed by a finite verb, is the verb ("Estudio inglés").
+- `translation_mismatch(toks, en)`: drop a sentence whose English contradicts it (es: pronoun gender).
+- `prefer_headword_sentence`: sentence choice puts first a sentence showing the headword or an alt, then (verbs) one with a 3sg present form, so the engine's first example shows the word as taught.
+- `derived_form_tags`: lex: form-of senses with these tags (es: diminutive, augmentative) are words of their own, not inflections of the base (señorita is not señora). Bump `versions["lex"]`.
+- `fallback_rarity_margin`: when no reading fits the tagged POS, keep the tagger's lemma rather than a surface reading this many zipf rarer (es "linda" is not lindar); the token then links nothing.
+- `sensitive_re`: sentences matching it (text or English) are kept to the top level, except as examples of a word that itself matches (and then levelled at the top). Cross-pack policy: sexual content and threats/violence stay out of A1/A2. `langs/base.py` `SENSITIVE_EN` is the shared English half; each spec adds its own-language terms (es: matar, asesinar, disparar, "estás muerto").
 
 ## Determinism
 

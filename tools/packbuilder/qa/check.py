@@ -41,6 +41,13 @@ def check(spec):
         err = spec.check_word(w)
         if err:
             fail(err)
+        # engine convention (PACK_SCHEMA.md): when w carries an article or
+        # clitic, alt[0] is the bare form, a whole trailing token of w
+        alt = w.get("alt") or []
+        if alt and (" " in w["w"] or "'" in w["w"]) and w["pos"] != "phrase":
+            a0 = alt[0]
+            if not (w["w"].endswith(" " + a0) or w["w"].endswith("'" + a0)):
+                fail(f"word {w['id']} {w['w']!r}: alt[0] {a0!r} is not its trailing bare form")
         if w.get("lv") not in valid_levels:
             fail(f"word {w['id']} has invalid lv: {w.get('lv')}")
         else:

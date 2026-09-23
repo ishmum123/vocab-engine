@@ -11,14 +11,16 @@ from .util import log, stat
 MORPH_KEEP = ("Gender", "Number", "Tense", "Mood", "VerbForm", "Person", "Clitic")
 
 
-def truecase_stats(rows, word_re):
+def truecase_stats(rows, word_re, openers=""):
     """For each lowercase word: (#mid-sentence lowercase, #mid-sentence
-    capitalised) occurrences in the corpus."""
+    capitalised) occurrences in the corpus. `openers` are extra characters that
+    open a sentence (es: ¿ ¡) and are skipped like quotes."""
     low, cap = Counter(), Counter()
+    strip = " \"'«»“”‘’-—()" + openers
     for r in rows:
         text = r[1]
         for m in word_re.finditer(text):
-            before = text[:m.start()].rstrip(" \"'«»“”‘’-—()")
+            before = text[:m.start()].rstrip(strip)
             if not before or before[-1] in ".!?:;…":
                 continue            # sentence-initial (also after an internal full stop)
             t = m.group(0)
@@ -66,10 +68,13 @@ def stage_tag(env, corpus):
     import spacy
     t0 = time.time()
     rows = corpus["rows"]
-    low, cap = truecase_stats(rows, sp.word_re)
+    low, cap = truecase_stats(rows, sp.word_re, sp.sentence_openers)
     texts = [truecase(r[1], low, cap, sp.word_re) for r in rows]
     n_lowered = sum(1 for r, t in zip(rows, texts) if r[1] != t)
+    texts = [sp.tag_text(t) for t in texts]
     nlp = spacy.load(sp.spacy_model, exclude=["parser", "ner"])
+    sp.setup_nlp(nlp)
+    keep = sp.morph_keep or MORPH_KEEP
     tmp = out.with_suffix(".part")
     n_tok = 0
     with gzip.GzipFile(tmp, "wb", mtime=0) as g:
@@ -79,8 +84,9 @@ def stage_tag(env, corpus):
                 if t.is_space:
                     continue
                 md = t.morph.to_dict()
-                ms = "|".join(f"{k}={md[k]}" for k in MORPH_KEEP if k in md)
-                toks.append([t.text, t.lemma_, t.pos_, ms])
+                ms = "|".join(f"{k}={md[k]}" for k in keep if k in md)
+                toks.append(sp.fix_token([t.text, t.lemma_, t.pos_, ms]))
+            toks = sp.fix_sentence(toks, r, doc)
             n_tok += len(toks)
             g.write((json.dumps([r[0], toks], ensure_ascii=False) + "\n").encode("utf-8"))
     tmp.replace(out)

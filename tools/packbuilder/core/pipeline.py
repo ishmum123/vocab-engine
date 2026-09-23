@@ -11,12 +11,12 @@ from .lexicon import Lexicon, FUNCTION_UPOS
 from .report import write_report
 from .sentences import build_sentences
 from .sources import ensure_downloaded, stage_corpus, audio_recorders
-from .tag import stage_tag, truecase_stats
+from .tag import stage_tag, truecase_stats, iter_tagged
 from .util import STATS, log, stat, dump_json, write_json
 from .words import build_words
 
 STAGES = ["all", "corpus", "tag", "lex", "freq", "words", "sentences", "final"]
-WORD_FIELDS = ("id", "w", "lemma", "pos", "en", "lv", "rank", "alt")
+WORD_FIELDS = ("id", "w", "lemma", "pos", "en", "lv", "rank", "pron", "alt")
 
 
 def build_pack_json(env, words, raw_upos):
@@ -30,7 +30,7 @@ def build_pack_json(env, words, raw_upos):
         c = raw_upos.get(k)
         if k[1] == "VERB" and k[0] not in sp.function_verbs:
             continue       # modal/aux verbs (potere, stare...) are drilled as words
-        if k in sp.fixed_word or (c and c.most_common(1)[0][0] in FUNCTION_UPOS):
+        if k in sp.fixed_word or k[0] in sp.function_lemmas or (c and c.most_common(1)[0][0] in FUNCTION_UPOS):
             fids.append(w["id"])
     return {
         "key": sp.code,
@@ -69,7 +69,7 @@ def prepare(env, ctx):
     corpus = stage_corpus(env)
     ctx["rows_by_sid"] = {r[0]: r for r in corpus["rows"]}
     ctx["en_by_sid"] = {r[0]: r[3] for r in corpus["rows"]}
-    ctx["truecase"] = truecase_stats(corpus["rows"], env.spec.word_re)
+    ctx["truecase"] = truecase_stats(corpus["rows"], env.spec.word_re, env.spec.sentence_openers)
     for r in corpus["rows"]:
         EN_VOCAB.update(EN_WORD_RE.findall(r[3].lower()))
     bg = Counter()
@@ -79,6 +79,8 @@ def prepare(env, ctx):
     stat("corpus", {k: v for k, v in corpus.items() if k != "rows"})
     ctx["tagged"] = stage_tag(env, corpus)
     ctx["lexicon"] = Lexicon(stage_lex(env), env.spec)
+    if env.spec.lemma_tiebreak_corpus:
+        ctx["lexicon"].count_lemma_votes(iter_tagged(ctx["tagged"]))
     # two passes: the first gives each lemma's POS mix, which the copula rule
     # of the second uses ("è ridicolo" = the adjective)
     lx = ctx["lexicon"]
@@ -93,6 +95,7 @@ def prepare(env, ctx):
 
 
 def run(env, stage="all", check_remote=False):
+    sp = env.spec
     t0 = time.time()
     ensure_downloaded(env, check_remote)
     if stage == "corpus":
@@ -121,6 +124,16 @@ def run(env, stage="all", check_remote=False):
     if stage == "words":
         return
     sentences, users, primary = build_sentences(env, ctx, words, top3000)
+    if sp.refill_unexampled:
+        # words no sentence could illustrate give their slot to the next-ranked word (once)
+        used = {wid for s in sentences for wid in s["words"]}
+        drop = sorted(w["_key"] for w in words if w["id"] not in used and not records[w["_key"]]["forced"])
+        if drop:
+            stat("refilled_unexampled", [k[0] for k in drop])
+            sp.drop_keys = {**sp.drop_keys, **{k: None for k in drop}}
+            words, records, top3000 = build_words(env, ctx)
+            sentences, users, primary = build_sentences(env, ctx, words, top3000)
+    sp.finalize_words(env, ctx, words)
     out_words = [{k: w[k] for k in WORD_FIELDS if k in w} for w in words]
     write_json(env.pack / "words.json", out_words)     # -rsi gate may revert entries
     write_json(env.pack / "sentences.json", sentences)

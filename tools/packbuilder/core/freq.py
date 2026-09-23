@@ -50,13 +50,12 @@ def distribute(surface, count, surf, fallback, stats, spec):
     if spec.is_profane(surface):
         stats["profane_skipped"] += 1
         return []
-    av = spec.accent_variants
     dist = surf.get(surface) or surf.get(surface + "'")
-    if not dist and surface[-1:] in av:
-        # subtitle text often drops the final accent (citta, perche, piu):
-        # use the accented form when only that one occurs in the corpus
-        for acc in av[surface[-1]]:
-            d2 = surf.get(surface[:-1] + acc)
+    if not dist:
+        # subtitle text often drops accents (it: citta, perche, piu): use the
+        # accented form when only that one occurs in the corpus
+        for s2 in spec.accent_candidates(surface):
+            d2 = surf.get(s2)
             if d2:
                 dist = d2
                 stats["accent_restored"] += 1
@@ -75,14 +74,13 @@ def accent_split(counts, surf, stats, moved, spec):
     """Unaccented spellings inflated in a frequency list (it: pero for però, da
     for dà): move the share above what the corpus predicts to the accented
     spelling. Expected share of s = corpus(s) / (corpus(s) + corpus(s'))."""
-    av = spec.accent_variants
     out = dict(counts)
     for s_, n in counts.items():
-        if s_[-1:] not in av:
+        acc_forms = spec.accent_candidates(s_)
+        if not acc_forms:
             continue
         cs = sum(surf.get(s_, {}).values())
-        for acc in av[s_[-1]]:
-            s2 = s_[:-1] + acc
+        for s2 in acc_forms:
             ca = sum(surf.get(s2, {}).values())
             if not ca or s2 not in counts:
                 continue
@@ -103,7 +101,7 @@ def stage_freq(env, surf, raw_upos):
     from wordfreq import zipf_frequency, top_n_list
     sp = env.spec
     stats = Counter()
-    sm = lambda w: simplemma.lemmatize(w, lang=sp.simplemma_code)
+    sm = lambda w: sp.fallback_lemma(w, sp.fold(simplemma.lemmatize(w, lang=sp.simplemma_code)))
     moved = []
     raw = {}
     with open(env.cache / sp.subtitles_file, encoding="utf-8") as f:
@@ -111,7 +109,8 @@ def stage_freq(env, surf, raw_upos):
             parts = line.rstrip("\n").split(" ")
             if len(parts) != 2 or not sp.sub_token_re.match(parts[0]):
                 continue
-            raw[parts[0]] = int(parts[1])
+            w = sp.fold(parts[0])         # ru: еще + ещё are one surface
+            raw[w] = raw.get(w, 0) + int(parts[1])
             if len(raw) >= N_SUB_SURFACES:
                 break
     sub = Counter()
@@ -125,7 +124,8 @@ def stage_freq(env, surf, raw_upos):
         if sp.sub_token_re.match(w):
             z = zipf_frequency(w, sp.wordfreq_code)
             if z > 0:
-                raw[w] = 10 ** z
+                raw[sp.fold(w)] = raw.get(sp.fold(w), 0) + 10 ** z
+    sp.extra_wordfreq(raw)      # ru: hyphenated words wordfreq only lists split (кто-то)
     wf = Counter()
     for w, c in accent_split(raw, surf, stats, moved, sp).items():
         for k, cc in distribute(w, c, surf, sm, stats, sp):

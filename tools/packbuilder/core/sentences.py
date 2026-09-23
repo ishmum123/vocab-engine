@@ -25,20 +25,98 @@ def det_gender(toks, i):
     return "m" if "Gender=Masc" in ms else "f" if "Gender=Fem" in ms else None
 
 
+HOMOGRAPH_STOP = {"to", "a", "an", "the", "of", "be", "do", "for", "in", "on", "at", "with", "by", "as", "or",
+                  "and", "it", "one", "not", "so", "up", "out", "off", "get", "make", "have"}
+EN_WORD_RE = re.compile(r"[a-z]+")
+
+
+def phrase_spans(toks, sp, key_to_id):
+    """Token-level phrase matches (spec.phrase_token_spans). Contractions are
+    split first (es: del = de + el). Returns (phrase ids in sentence order,
+    fully consumed token indices, {token index: leftover words} for a
+    contraction only partly inside a phrase)."""
+    seq = []
+    for i, t in enumerate(toks):
+        if t[2] == "PUNCT":
+            seq.append((None, i))
+            continue
+        low = t[0].lower()
+        if low in sp.art_prep:
+            seq += [(sp.art_prep[low], i), (sp.definite_article, i)]
+        else:
+            seq += [(w, i) for w in low.split()]
+    used, found = set(), []
+    for phrase in sorted(sp.multiword, key=lambda p: (-len(p.split()), p)):   # longest first
+        if (phrase, "PHRASE") not in key_to_id:
+            continue
+        pw = phrase.split()
+        for j in range(len(seq) - len(pw) + 1):
+            if all(seq[j + k][0] == pw[k] and j + k not in used for k in range(len(pw))):
+                used.update(range(j, j + len(pw)))
+                found.append((j, key_to_id[(phrase, "PHRASE")]))
+    consumed, partial = set(), {}
+    for i in {seq[j][1] for j in used}:
+        rest = [w for j, (w, ti) in enumerate(seq) if ti == i and j not in used]
+        if rest:
+            partial[i] = rest
+        else:
+            consumed.add(i)
+    ids = []
+    for _, wid in sorted(found):
+        if wid not in ids:
+            ids.append(wid)
+    return ids, consumed, partial
+
+
+def homograph_table(words, sp):
+    """lemma -> [(id, English cue words)] for lemmas with several pack entries
+    (spec.homograph_by_translation: solo adv "only" vs adj "alone")."""
+    by = defaultdict(list)
+    for w in words:
+        if w["pos"] not in ("phrase", "art"):
+            by[w["_key"][0]].append(w)
+    out = {}
+    for lem, ws in by.items():
+        if len(ws) < 2:
+            continue
+        out[lem] = []
+        for w in sorted(ws, key=lambda x: x["id"]):
+            cues = set(EN_WORD_RE.findall(re.sub(r"\(.*?\)", " ", w["en"].lower()))) - HOMOGRAPH_STOP
+            cues |= set(sp.homograph_cues.get((lem, w["pos"]), ()))
+            out[lem].append((w["id"], cues))
+    return out
+
+
 def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_of=None, epos_to_id=None,
-                   lemma_ids=None):
+                   lemma_ids=None, en=None, homs=None, st=None):
     sp = lexicon.spec
     """Word ids linked by (lemma, POS) in context, or None if the sentence
     has a content lemma outside the pack/top-3000."""
     links = []
     initial = True
     resolved = lexicon.resolve_sentence(toks, groups)
+    consumed, partial, phrase_ids = set(), {}, []
+    if sp.phrase_token_spans:
+        phrase_ids, consumed, partial = phrase_spans(toks, sp, key_to_id)
+    en_words = None
+    if homs and en:
+        en_words = set(EN_WORD_RE.findall(en.lower()))
+        # facts -> fact, boxes -> box: cues are base forms
+        en_words |= {w[:-1] for w in en_words if w.endswith("s")} | {w[:-2] for w in en_words if w.endswith("es")}
     for i, (text_t, sl, upos, ms) in enumerate(toks):
         if upos == "PUNCT":
             if text_t in (".", "!", "?", "…"):
                 initial = True
             continue
         was_initial, initial = initial, False
+        if i in consumed:
+            continue            # inside a matched phrase: the phrase is the link
+        if i in partial:
+            for w in partial[i]:                # "a pesar del": the article part of del
+                wid = key_to_id.get((w, "DET"))
+                if wid and wid not in links:
+                    links.append(wid)
+            continue
         r = resolved[i]
         low = text_t.lower()
         if lemma_ids:
@@ -46,7 +124,7 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
             direct = None
             if low in sp.apocope and (was_initial or not text_t[:1].isupper()) and not later[:1].isupper():
                 direct = lemma_ids.get(sp.apocope[low])     # nessun -> nessuno, quel -> quello
-            elif (r is None or key_to_id.get(r) is None) and (
+            elif (r is None or key_to_id.get(r) is None) and sp.surface_link_ok(toks[i]) and (
                     (low, "INTJ") in key_to_id or (was_initial and low in lemma_ids)):
                 # "Grazie per..." read as the noun grazie; a sentence-initial
                 # capitalised pack word the tagger took for a name
@@ -58,7 +136,7 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
         if r is None:
             continue
         lem, g = r
-        if g == "PROPN" or (not was_initial and text_t[:1].isupper()):
+        if g == "PROPN" or (sp.caps_mark_names and not was_initial and text_t[:1].isupper()):
             continue
         if g in CONTENT_GROUPS and lem not in allowed:
             return None
@@ -77,18 +155,49 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
                 # Wiktionary headword (come ADV "Come stai?" -> come "how",
                 # whose gloss comes from the adverb headword)
                 wid = epos_to_id.get((lem, sp.group_kpos[g][0]))
+            if wid and en_words is not None and lem in homs:
+                # several entries for this lemma: the English translation decides
+                # when it names the other entry's sense and not this one's
+                cues = dict(homs[lem])
+                if wid in cues and not cues[wid] & en_words:
+                    hit = [x for x, c in homs[lem] if x != wid and c & en_words]
+                    if len(hit) == 1:
+                        wid = hit[0]
+                        if st is not None:
+                            st["homograph_routed_by_translation"] += 1
+                            st[("routed", lem)] += 1
             if wid and g == "NOUN" and gender_of and gender_of.get(wid) in ("m", "f"):
                 dg = det_gender(toks, i)
+                if dg is None and sp.needs_gender_evidence(lexicon, lem):
+                    # el frente / la frente: no article, so the noun's own
+                    # gender must agree; no evidence means no link
+                    dg = "m" if "Gender=Masc" in ms else "f" if "Gender=Fem" in ms else "?"
                 if dg and dg != gender_of[wid]:
                     wid = None       # la moto is not il moto, il fine is not la fine
         if wid and wid not in links:
             links.append(wid)
+    if sp.phrase_token_spans:
+        for wid in phrase_ids:
+            if wid not in links:
+                links.append(wid)
+        return links
     low = text.lower()
     for phrase in sp.multiword:
         if re.search(r"\b" + re.escape(phrase) + r"\b", low) and (phrase, "PHRASE") in key_to_id:
             wid = key_to_id[(phrase, "PHRASE")]
             if wid not in links:
                 links.append(wid)
+            if sp.phrase_absorbs_parts:
+                # "De hecho": the phrase is the word, not el hecho; a part keeps its
+                # link only when it also occurs outside the phrase
+                n_phrase = len(re.findall(r"\b" + re.escape(phrase) + r"\b", low))
+                for part in sp.multiword[phrase]:
+                    if len(re.findall(r"\b" + re.escape(part) + r"\b", low)) > n_phrase:
+                        continue
+                    for g in CONTENT_GROUPS:
+                        pid = key_to_id.get((part, g))
+                        if pid in links:
+                            links.remove(pid)
     return links
 
 
@@ -114,9 +223,22 @@ def build_sentences(env, ctx, words, top3000):
     key_to_id = {w["_key"]: w["id"] for w in words}
     lv_of = {w["id"]: w["lv"] for w in words}
     allowed = {w["lemma"] for w in words} | top3000
+    homs = homograph_table(words, sp) if sp.homograph_by_translation else None
+    sensitive_sids = set()
+    hw_tier = {}       # (sid, wid) -> 0 headword/alt visible, 1 verb in 3sg present, 2 other
+    if sp.prefer_headword_sentence:
+        forms_of = {}
+        for w in words:
+            fs = {w["w"].lower(), w["_key"][0].lower(), w["lemma"].lower()} | {a.lower() for a in (w.get("alt") or [])}
+            forms_of[w["id"]] = [(f, " " in f) for f in sorted(fs) if f]
+        verb_key = {w["id"]: w["_key"] for w in words if w["_key"][1] == "VERB"}
+    # a word that is itself on the sensitive list (el sexo) may use those sentences
+    sensitive_words = {w["id"] for w in words if sp.sensitive_re is not None and sp.sensitive_re.search(w["lemma"])}
     st = Counter()
     info = {}
+    rank_pen = {}      # (sid, word level) -> spec.sentence_rank penalty
     cands = defaultdict(list)
+    tok_forms = {}     # sid -> folded token surfaces (example_shows_word only)
     for sid, toks in iter_tagged(ctx["tagged"]):
         text = rows[sid][1]
         if not SENT_END_RE.search(text.strip()):
@@ -128,12 +250,15 @@ def build_sentences(env, ctx, words, top3000):
         if EN_REGISTER_RE.search(rows[sid][3]):
             st["non_standard_english_register"] += 1
             continue
+        if sp.translation_mismatch(toks, rows[sid][3]):
+            st["translation_contradicts_sentence"] += 1
+            continue
         n = sum(1 for t in toks if t[2] not in SKIP_UPOS)
         if n < 3 or n > sp.max_len:
             st["length_out_of_range"] += 1
             continue
         links = sentence_links(toks, lexicon, key_to_id, allowed, text, groups, gender_of, epos_to_id,
-                               lemma_ids)
+                               lemma_ids, rows[sid][3], homs, st)
         if links and rsi_ids & set(links):
             refl_by_sid[sid] = {key_to_id.get(r) for j, r in enumerate(lexicon.resolve_sentence(toks, groups))
                                 if r and r[1] == "VERB" and sp.carries_refl_clitic(toks, j)}
@@ -142,12 +267,41 @@ def build_sentences(env, ctx, words, top3000):
             continue
         if not links:
             continue
-        remoto = any(sp.is_marked_past(t[3]) or (r is not None and r[1] == "VERB" and lexicon.historic_past(t[0].lower()))
+        sensitive = sp.sensitive_re is not None and bool(
+            sp.sensitive_re.search(text) or sp.sensitive_re.search(rows[sid][3]))
+        if sensitive:
+            st["sensitive_kept_to_top_level"] += 1
+            sensitive_sids.add(sid)
+        marked = sp.marks_sentence(toks) or any(sp.is_marked_past(t[3]) or (r is not None and r[1] == "VERB" and lexicon.historic_past(t[0].lower()))
                      for t, r in zip(toks, lexicon.resolve_sentence(toks, groups)))
+        if marked:
+            sensitive_sids.discard(sid)    # kept to the top level anyway: no word exemption
+        remoto = sensitive or marked
         maxlv = max((lv_of[w] for w in links), key=lambda l: lv_ord[l])
+        if sensitive and maxlv != sp.level_ids[-1]:
+            st["sensitive_kept_from_lower_levels"] += 1     # would otherwise serve A1/A2 words
         if remoto:
             st["candidates_with_passato_remoto"] += 1
         info[sid] = (n, remoto, rows[sid][4] is not None, maxlv, links)
+        if sp.example_shows_word:
+            tok_forms[sid] = {sp.fold(t[0]) for t in toks}
+        for lvx in sp.level_ids:
+            rank_pen[(sid, lvx)] = sp.sentence_rank(toks, lvx)
+        if sp.prefer_headword_sentence:
+            low_t = text.lower()
+            tokset = {t[0].lower() for t in toks}
+            res = None
+            for w in links:
+                tier = 2
+                if any((re.search(r"(?<!\w)" + re.escape(f) + r"(?!\w)", low_t) if multi else f in tokset)
+                       for f, multi in forms_of[w]):
+                    tier = 0
+                elif w in verb_key:
+                    res = res or lexicon.resolve_sentence(toks, groups)
+                    if any(r == verb_key[w] and "Person=3" in t[3] and "Number=Sing" in t[3] and
+                           "Tense=Pres" in t[3] and "Mood=Ind" in t[3] for t, r in zip(toks, res)):
+                        tier = 1
+                hw_tier[(sid, w)] = tier
         for w in links:
             cands[w].append(sid)
     st["candidates"] = len(info)
@@ -158,20 +312,31 @@ def build_sentences(env, ctx, words, top3000):
     remoto_blocked = Counter()
     first_lv, top_lv = sp.level_ids[0], sp.level_ids[-1]    # marked past tense: top level only
     order = sorted(cands, key=lambda w: (len(cands[w]), w))
+    surface_of = {w["id"]: sp.fold(w["_key"][0]) for w in words} if sp.example_shows_word else {}
     for wid in order:
         lv = lv_of[wid]
         ok = []
         for sid in cands[wid]:
             n, remoto, aud, maxlv, links = info[sid]
-            if remoto and lv != top_lv:
+            if remoto and lv != top_lv and not (sid in sensitive_sids and wid in sensitive_words):
                 remoto_blocked[sid] += 1
                 continue
             ok.append(sid)
         good = [s for s in ok if sp.min_len[lv] <= info[s][0]]
         if lv == first_lv and len(good) < 2:
             good += [s for s in ok if info[s][0] == 3]
-        good.sort(key=lambda s: (lv_ord[info[s][3]] > lv_ord[lv], not info[s][2],
+        good.sort(key=lambda s: (lv_ord[info[s][3]] > lv_ord[lv], rank_pen[(s, lv)], hw_tier.get((s, wid), 0),
+                                 not info[s][2],
                                  abs(info[s][0] - sp.target_len[lv]), use[s] == 0, s))
+        if sp.example_shows_word and good:
+            # one example shows the word itself (Haus, not only Häuser) when any can
+            form = surface_of[wid]
+            bare = [s for s in good if form in tok_forms.get(s, ())]
+            if bare and not any(s in bare for s in good[:2]):
+                good.remove(bare[0])
+                good.insert(0, bare[0])
+            if not bare:
+                st["words_without_bare_form_example"] += 1
         for s in good[:2]:
             chosen[wid].append(s)
             use[s] += 1
@@ -208,12 +373,27 @@ def build_sentences(env, ctx, words, top3000):
             w["lemma"], w["w"] = base, base
             w.pop("alt", None)
             head = lambda x: re.split(r"[,;]", x)[0].strip()
-            w["en"] = f"{head(base_en)}; {rsi}: {head(rsi_en)}" if base_en else w["en"]
+            if sp.revert_dedupe_gloss and base_en and head(base_en) == head(rsi_en):
+                w["en"] = head(base_en)       # enterar / enterarse both "to find out"
+            else:
+                w["en"] = f"{head(base_en)}; {rsi}: {head(rsi_en)}" if base_en else w["en"]
             reverted.append(f"{rsi} ({rs}/{len(linked)})")
+    if sp.strict_pronominal_links:
+        # a verb shown with its reflexive pronoun links only sentences where
+        # the pronoun is there ("Je rappellerai" is not se rappeler)
+        kept = {w["id"] for w in words if w.get("_base") and w["lemma"] != w["_base"][0]}
+        for rec, sid in zip(sentences, sel):
+            drop = [x for x in rec["words"] if x in kept and x not in refl_by_sid.get(sid, ())]
+            if drop and len(drop) < len(rec["words"]):
+                rec["words"] = [x for x in rec["words"] if x not in drop]
+                st["pronominal_links_dropped"] += len(drop)
     st_rev = sorted(reverted)
     cov = Counter(min(len(chosen.get(w["id"], [])), 2) for w in words)
     lens = Counter(info[s][0] for s in sel)
-    st = dict(st)
+    routed = {k[1]: v for k, v in st.items() if isinstance(k, tuple)}
+    st = {k: v for k, v in st.items() if not isinstance(k, tuple)}
+    if routed:
+        st["homograph_routed_by_lemma"] = dict(sorted(routed.items(), key=lambda kv: (-kv[1], kv[0])))
     st.update({
         "final_sentences": len(sentences),
         "with_audio": sum(1 for s in sentences if "audio" in s),

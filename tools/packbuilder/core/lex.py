@@ -59,7 +59,7 @@ def stage_lex(env):
             d = json.loads(line)
             if d.get("lang_code") != sp.kaikki_lang_code:
                 continue
-            word, pos = d.get("word", ""), d.get("pos", "")
+            word, pos = sp.fold(d.get("word", "")), d.get("pos", "")
             if pos == "name" and word[:1].isupper():
                 names.add(word.lower())
             if not sp.lex_word_re.match(word):
@@ -68,18 +68,18 @@ def stage_lex(env):
             senses = []
             for s in d.get("senses", []):
                 gl = s.get("glosses") or []
-                tags = sorted(set(s.get("tags", [])))
+                tags = sorted(set(sp.sense_tags(s.get("tags", []))))
                 tset = set(tags)
                 kind = ""
                 target = None
                 if s.get("form_of") or tset & FORM_TAGS:
                     kind = "form"
-                    target = (s.get("form_of") or [{}])[0].get("word")
+                    target = sp.fold((s.get("form_of") or [{}])[0].get("word") or "") or None
                 elif "misspelling" in tset:
                     kind = "miss"
                 elif s.get("alt_of") or tset & ALT_TAGS:
                     kind = "alt"
-                    target = (s.get("alt_of") or [{}])[0].get("word")
+                    target = sp.fold((s.get("alt_of") or [{}])[0].get("word") or "") or None
                 elif "compound-of" in tset:
                     kind = "comp"
                 elif gl and (NONDEF_RE.match(gl[0]) or NONDEF_RE.match(gl[-1]) or FORM_OF_ANY_RE.match(gl[-1])):
@@ -87,12 +87,23 @@ def stage_lex(env):
                     # ("first-person plural present indicative of potere")
                     kind = "form"
                     m = sp.form_target_re.search(gl[0] + " " + gl[-1])
-                    target = m.group(1) if m else None
-                if kind in ("form", "alt") and target and sp.lex_word_re.match(target):
+                    target = sp.fold(m.group(1)) if m else None
+                derived = sp.derived_form_tags and (
+                    tset & sp.derived_form_tags or
+                    any(re.match(rf"{t} (form )?of\b", gl[-1] if gl else "", re.I) for t in sp.derived_form_tags))
+                if kind in ("form", "alt") and target and sp.lex_word_re.match(target) and not derived:
+                    # (a diminutive is a word of its own, not an inflection:
+                    # es señorita is not a form of señora)
                     formmap[word].add((target, pos, kind))
                 if not gl:
                     continue
                 senses.append([gl[-1].strip(), gl[0].strip() if len(gl) > 1 else "", tags, kind])
+                if kind == "form" and sp.form_colon_translation:
+                    # "female equivalent of tío: aunt; ...": the part after the
+                    # colon (up to ';') is a translation and a sense of its own
+                    m = re.match(r"^[^:;]{3,80}\bof \S+?: ([^;]+)", gl[-1])
+                    if m:
+                        senses.append([m.group(1).strip(), "", sorted(set(t for t in tags if t != "form-of")), ""])
                 if kind == "form" and "; " in gl[-1]:
                     # "comparative degree of molto; more": the part after ';' is a translation
                     senses.append([gl[-1].split("; ")[-1].strip(), "",
@@ -100,7 +111,7 @@ def stage_lex(env):
             if any(s[3] == "comp" for s in senses):
                 for t in d.get("etymology_templates", []):
                     if t.get("name") == "af":
-                        base = str(t.get("args", {}).get("2", "")).split("<")[0]
+                        base = sp.fold(str(t.get("args", {}).get("2", "")).split("<")[0])
                         if sp.lex_word_re.match(base):
                             formmap[word].add((base, pos, "comp"))
                         break

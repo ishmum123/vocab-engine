@@ -46,7 +46,7 @@ def build_words(env, ctx):
     sp = env.spec
     lexicon, raw_upos, morph, blended = ctx["lexicon"], ctx["raw_upos"], ctx["morph"], ctx["blended"]
     low, cap = ctx["truecase"]
-    from wordfreq import top_n_list
+    from wordfreq import top_n_list, zipf_frequency
     en_top = set(top_n_list("en", 2000))
     demote = demote_tags(sp)
 
@@ -77,9 +77,11 @@ def build_words(env, ctx):
     def is_proper(lem):
         lg = lemma_groups.get(lem)
         tot = sum(lg.values()) if lg else 0
+        if sp.propn_lowercase_rescue and low[lem] >= sp.propn_lowercase_rescue:
+            return False        # es: tierra, dios, reino are common nouns too
         if tot and lg["PROPN"] / tot > 0.5:
             return True
-        return cap[lem] >= 3 and cap[lem] > low[lem]
+        return sp.caps_mark_names and sp.caps_proper_pool and cap[lem] >= 3 and cap[lem] > low[lem]
 
     excluded = Counter()
     ex_examples = defaultdict(list)
@@ -88,6 +90,24 @@ def build_words(env, ctx):
         excluded[reason] += 1
         if len(ex_examples[reason]) < 25:
             ex_examples[reason].append(lem)
+
+    # words that occur mostly inside a fixed phrase the pack teaches as a whole
+    # (es: embargo in "sin embargo", través in "a través de")
+    bound = {}
+    if sp.phrase_bound_share:
+        texts = [r[1].lower() for r in ctx["rows_by_sid"].values()]
+        if sp.phrase_token_spans and sp.art_prep:
+            # "a pesar del" counts for "a pesar de"
+            rx_c = re.compile(r"\b(" + "|".join(map(re.escape, sorted(sp.art_prep))) + r")\b")
+            texts = [rx_c.sub(lambda m: f"{sp.art_prep[m.group(1)]} {sp.definite_article}", t) for t in texts]
+        for phrase, parts in sp.multiword.items():
+            rx = re.compile(r"\b" + re.escape(phrase) + r"\b")
+            n = sum(1 for t in texts if rx.search(t))
+            for p in parts:
+                tot = sum(c for gg, c in lemma_groups.get(p, Counter()).items() if gg != "PROPN")
+                if tot and n / tot >= sp.phrase_bound_share:
+                    bound.setdefault(p, phrase)
+        stat("phrase_bound_words", {k: bound[k] for k in sorted(bound)})
 
     # --- candidate pool: one key per lemma (its best-ranked POS), plus articles
     forced_keys = []
@@ -105,7 +125,7 @@ def build_words(env, ctx):
     for i, (k, sc, sr, wr, subc) in enumerate(blended):
         order[k] = i
         lem, g = k
-        if g == "PROPN" or k in sp.drop_keys:
+        if g == "PROPN" or k in sp.drop_keys or (g == "?" and not sp.keep_unseen_keys):
             continue
         is_article = g == "DET" and lem in sp.article_forms
         if lem in forced_lemmas and k not in forced_set and not is_article and \
@@ -150,7 +170,18 @@ def build_words(env, ctx):
                           "en": sp.fixed_gloss[k], "w": lem, "alt": None, "forced": True,
                           "entry_pos": None, "sense_idx": None, "gender": None}
             continue
+        if k in sp.fixed_gloss and not lexicon.usable_entries(lem, sp.group_kpos.get(g)):
+            # closed-class word whose Wiktionary entry is only form-of lines
+            # (es: me "accusative of yo: me"): the fixed gloss is its entry
+            done_lemma.setdefault(lem, []).append(k)
+            records[k] = {"lemma": lem, "group": g, "en": sp.fixed_gloss[k], "forced": forced,
+                          "pos_from_dict": False, "entry_pos": None, "sense_idx": None, "sense_score": 0.0,
+                          "gender": None, "nsent": 0, "rows": [], "display": None, "base_en": None,
+                          "fem_of": [], "fixed": True}
+            continue
         if not forced:
+            if lem in bound:
+                exclude(f"bound in a fixed phrase the pack teaches ({bound[lem]})", lem); continue
             if is_proper(lem):
                 exclude("proper noun (corpus PROPN/capitalised majority)", lem); continue
             if sp.is_profane(lem):
@@ -197,6 +228,16 @@ def build_words(env, ctx):
         if (not forced and ent.get("b") and lem in en_top and
                 sum(raw_upos.get(k, Counter()).values()) < 10):
             exclude(f"English loanword unattested in {sp.name_en} corpus", lem); continue
+        if sp.strict_selection and not forced:
+            if k[1] == "?":
+                exclude("surface unseen in the tagged corpus (POS from dictionary only)", lem); continue
+            if len(lem) < 2:
+                exclude("single letter", lem); continue
+            if lem in en_top and sum(raw_upos.get(k, Counter()).values()) < 10 and \
+                    zipf_frequency(lem, sp.wordfreq_code) < zipf_frequency(lem, "en") - 1.0:
+                exclude("English homograph rare in the tagged corpus (subtitle contamination)", lem); continue
+        if sp.strict_selection and not forced and g == "NOUN" and ent["p"] not in ("noun", "name"):
+            exclude("noun reading glossed only from another POS (not a noun)", lem); continue
         gloss, top = compose_gloss(rows)
         tokens = sum(raw_upos.get(k, Counter()).values())
         if g == "NOUN" and not forced and tokens:
@@ -204,7 +245,7 @@ def build_words(env, ctx):
             # noun "foul/phallus"): the tokens open the sentence with no
             # determiner (measured: fallo 94%, real nouns <=5%), or the noun's
             # only senses are vulgar
-            if lexicon.imperative_clitic(lem):
+            if sp.imperative_homograph(lexicon, lem):
                 noun_tags = [set(sn[2]) for e in lexicon.E.get(lem, []) if e["p"] == "noun"
                              for sn in e["s"] if not sn[3]]
                 vulgar = bool(noun_tags) and all(t & {"vulgar", "offensive"} for t in noun_tags)
@@ -372,7 +413,7 @@ def build_words(env, ctx):
         if g not in CONTENT_GROUPS:
             continue
         mw = main_word(rec["en"])
-        if mw in taken[g] and not rec["fixed"]:
+        if mw in taken[g] and not rec["fixed"] and not sp.shares_gloss(rec["lemma"], taken[g][mw]):
             segs = [x.strip() for x in rec["en"].split(";")]
             parts = [x.strip() for x in segs[0].split(",")]
             top = rec["rows"][0] if rec["rows"] else None

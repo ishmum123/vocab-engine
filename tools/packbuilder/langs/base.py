@@ -13,6 +13,13 @@ from pathlib import Path
 # cache key, so keep them stable).
 TATOEBA_ENG = ("eng_sentences.tsv.bz2", "https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2")
 TATOEBA_LINKS = ("links.tar.bz2", "https://downloads.tatoeba.org/exports/links.tar.bz2")
+# Shared English half of the sensitive-content filter (spec.sensitive_re): the
+# English translation is checked with it, each spec adds its own-language terms.
+# Cross-pack policy: sexual content, and threats/violence, kept out of A1/A2.
+SENSITIVE_EN = (r"sex|sexy|sexual\w*|rape[ds]?|raping|rapist|porn\w*|naked|nude|orgasm|condom|prostitut\w*|"
+                r"suicid\w*|fuck\w*|shit\w*|bitch\w*|asshole\w*|pussy|"
+                r"kill(s|ed|ing|er|ers)?|murder\w*|dead|shoot(s|ing)?|stab(s|bed|bing)?|strangl\w*|"
+                r"want you dead|going to kill")
 TATOEBA_AUDIO = ("audio.tar.bz2", "https://downloads.tatoeba.org/exports/sentences_with_audio.tar.bz2")
 
 # UD (corpus) POS -> Wiktionary POS headers, in preference order. The first is
@@ -188,6 +195,85 @@ class LanguageSpec:
 
     uses_historic_past_forms = False   # also flag Wiktionary "historic past" forms
 
+    sentence_openers = ""       # characters that open a sentence before its first word (es: ¿¡)
+    surface_lemma = {}          # (surface, group) -> lemma or (lemma, group), before the dictionary (es: mis -> mi)
+    form_colon_translation = False   # lex: "X of Y: translation" form-of lines also give a sense
+    strict_selection = False    # drop dictionary-only POS keys, single letters, rare English homographs
+    phrase_bound_share = None   # drop a word when this share of its tokens sits inside a multiword phrase
+    phrase_absorbs_parts = False   # links: a content word inside a matched phrase links only the phrase
+    object_clitics = set()      # PRON surfaces after which a NOUN-tagged token is read as a verb
+    # token-level phrase matching: every token inside a matched phrase links only
+    # the phrase, and art_prep contractions are split first (es: "a pesar del" = a pesar de + el)
+    phrase_token_spans = False
+    prefer_headword_sentence = False   # sentence choice: the headword/alt visible first, then a 3sg present verb
+    fallback_rarity_margin = 0  # >0: keep the tagger lemma over a fallback reading this many zipf rarer
+    derived_form_tags = set()   # lex: form-of senses with these tags are words, not inflections (es: diminutive)
+    initial_noun_verb_homograph = False   # a clause-initial bare noun with a verb reading is the verb (es)
+    function_lemmas = set()     # always function words, whatever the tagger said (es: vosotros tagged NOUN)
+    closed_surfaces = {}        # surface -> (lemma, group) whatever the tag, even PROPN (es: vosotros, conmigo)
+    propn_lowercase_rescue = 0  # >0: a lemma seen lowercase mid-sentence this often is not a proper noun
+    homograph_by_translation = False   # links: pick between a lemma's entries by the English translation
+    homograph_cues = {}         # (lemma, pos) -> extra English cue words for homograph_by_translation
+    sensitive_re = None         # sentences matching (text or English) are kept to the top level
+
+    strict_pronominal_links = False  # a verb shown with its reflexive pronoun links only sentences that have it
+    revert_dedupe_gloss = False     # a reverted -rsi/-se verb with the same head gloss shows it once
+    lemma_tiebreak_corpus = False   # tie-break lemmas by their use in the tagged corpus, not wordfreq
+
+    def copula_inflected(self, surface, adj):
+        """After a copula, the surface is an inflected adjective form (it: fiera)."""
+        return adj != surface
+
+    def numeral_may_be_verb(self, lexicon, surface):
+        """A NUM-tagged token may be re-read as a verb (it: "sei" = you are)."""
+        return True
+
+    def after_article_is_noun(self, toks, i):
+        """An ADV/VERB-tagged token right after an article is a noun (it: l'ancora)."""
+        return True
+
+    def imperative_homograph(self, lexicon, lemma):
+        """The noun lemma is really an imperative (it: fallo = fa' + lo)."""
+        return lexicon.imperative_clitic(lemma)
+
+    def bind_lexicon(self, lexicon):
+        """Called once the Wiktionary lexicon is loaded, for rules that need it."""
+
+    def numeral_group(self, lexicon, surface, lemma):
+        """Group for a NUM-tagged token (es: ambos, medio are not cardinals)."""
+        return "NUM"
+
+    def sense_tags(self, tags):
+        """Normalise a kaikki sense's tags at lex time (es: widespread regional tags dropped)."""
+        return tags
+
+    def needs_gender_evidence(self, lexicon, lemma):
+        """A noun whose two genders are different words (es: el frente / la frente):
+        link it only with gender evidence in the sentence."""
+        return False
+
+    def translation_mismatch(self, toks, en):
+        """The English translation contradicts the sentence (es: lo vs "her")."""
+        return False
+
+    def marks_sentence(self, toks):
+        """Whole-sentence marker with the same effect as a marked past: the
+        sentence is kept from lower-level words and levelled at the top level
+        (es: voseo, regional slang)."""
+        return False
+
+    def accent_candidates(self, s):
+        """Accented spellings a frequency-list surface may stand for. Default:
+        the final letter from accent_variants (it: citta -> città)."""
+        av = self.accent_variants
+        if s[-1:] not in av:
+            return []
+        return [s[:-1] + acc for acc in av[s[-1]]]
+
+    def clitic_stem_tries(self, stem):
+        """Verb spellings to look up for a stem left after stripping enclitics."""
+        return [stem]
+
     def gender_from_entry(self, d):
         """Gender spec string from a kaikki entry's head templates."""
         g = None
@@ -216,6 +302,82 @@ class LanguageSpec:
 
     def check_word(self, w):
         """Language-specific pack assertion on one word; error string or None."""
+        return None
+
+    # ---- normalisation / finishing hooks (defaults are no-ops) ---------------
+    morph_keep = None            # UD features kept in the tagged corpus; None = core.tag.MORPH_KEEP
+    rare_zipf = None             # rare-reading override threshold; None = core.lexicon.RARE_ZIPF
+    finite_verb_lemma = False     # a finite verb token keeps the tagger lemma over a same-spelling infinitive (ru: есть)
+    caps_proper_pool = True       # pool: a lemma capitalised mid-sentence more often than not is a name (ru: off)
+    refill_unexampled = False     # a non-forced word with no example sentence is replaced by the next-ranked word
+    example_shows_word = False    # sentences: one of a word's examples contains its bare lemma surface when any candidate does
+    numeral_verb_rule = True     # a NUM token with no noun after it may be a verb form (it: "sei"); ru: off ("три" = тереть)
+
+    def fold(self, s):
+        """Spelling folded on every matching side: kaikki headwords and form
+        targets, frequency-list surfaces (summed), wordfreq surfaces. The tagger
+        side is folded by tag_text/fix_token. ru: ё -> е."""
+        return s
+
+    def fallback_lemma(self, surface, lemma):
+        """simplemma's lemma for a frequency-list surface the corpus never
+        shows; a spec may reject it (ru: abbreviation expansions мм -> миллиметр)."""
+        return lemma
+
+    def extra_wordfreq(self, raw):
+        """Add written-frequency surfaces wordfreq's top list lacks, in place
+        ({folded surface: 10**zipf}). ru: hyphenated words (кто-то), which
+        wordfreq only lists split."""
+
+    def tag_text(self, text):
+        """Sentence text as fed to the tagger (after truecasing)."""
+        return text
+
+    def setup_nlp(self, nlp):
+        """Adjust the loaded spaCy pipeline before tagging, in place (fr:
+        tokenizer rules for hyphenated clitics). Anything set here must be
+        picklable (spacy_n_process > 1). Bump versions["tag"] when it changes."""
+
+    def fix_token(self, tok):
+        """[text, lemma, upos, morph] of one tagged token -> the stored one."""
+        return tok
+
+    caps_mark_names = True       # a capitalised non-initial token is a name (links, pool); de: off (nouns are capitalised)
+    keep_unseen_keys = True      # pool keeps frequency-list lemmas never seen in the tagged corpus (POS from the dictionary); de: off
+
+    def fix_sentence(self, toks, row, doc):
+        """Tag time, whole sentence: the stored tokens (after fix_token) ->
+        final stored tokens. row is the corpus row [sid, text, user, english,
+        audio_id, licence]; doc the spaCy Doc (its non-space tokens align with
+        toks). de: fine-tag marks (separable particles), formal Sie."""
+        return toks
+
+    def surface_link_ok(self, tok):
+        """May an unresolved token fall back to linking by its surface (a
+        sentence-initial pack word, an interjection)? ru: not an interjection
+        homograph of a preposition/conjunction ("О нет!" is not о "about")."""
+        return True
+
+    def post_resolve(self, toks, out):
+        """Resolve time, whole sentence: [(lemma, group) | None] per token,
+        after the core context rules -> the final list (same length).
+        de: rejoin separable verbs, formal Sie."""
+        return out
+
+    def sentence_rank(self, toks, lv):
+        """Sort penalty for an example sentence of a word at level lv (lower is
+        preferred), applied after the "no higher-level words" key. ru: A1
+        prefers sentences whose nouns are Nom/Acc only."""
+        return 0
+
+    def shares_gloss(self, lemma, other):
+        """Two lemmas may lead with the same English word (the gloss-collision
+        rule leaves them alone). ru: aspect partners (читать / прочитать)."""
+        return False
+
+    def finalize_words(self, env, ctx, words):
+        """Last pass over the built word list (after sentences), in place: display
+        spelling, pron, gloss suffixes. May set word["pron"]."""
         return None
 
     # ---- QA scan config ---------------------------------------------------
