@@ -28,6 +28,7 @@ packs/zh/                 Mandarin HSK 1–4 pack, ported from ../hsk (1193 word
 tools/jsonify_pack.py     packs/X/*.json -> *.js consts
 tools/validate_pack.py    schema and referential-integrity check
 tools/pack_from_hsk.py    reproducible hsk -> packs/zh converter
+tools/packbuilder/        shared corpus-based pack builder for language repos (it; see its README)
 tests/engine_checks.js    Node checks, no dependencies
 dist/zh.html              built zh trainer (committed; the tests fail if it is stale)
 docs/PACK_SCHEMA.md       pack format (authoritative)
@@ -42,6 +43,7 @@ python3 tools/validate_pack.py packs/zh
 ./build.sh packs/zh dist/zh.html
 /opt/homebrew/bin/node tests/engine_checks.js  # includes the stale-build guard for dist/zh.html
 python3 tools/pack_from_hsk.py [../hsk]        # regenerate packs/zh from hsk (idempotent)
+python3 -m unittest discover -s tools/packbuilder/tests -t tools   # packbuilder smoke tests
 ```
 
 For dev mode, open `engine/app.html?pack=zh` from `file://`. It loads `../packs/zh/*.js` directly, so you don't need a rebuild while you edit the engine. Use `?packdir=<relative path>` to load a pack that lives elsewhere.

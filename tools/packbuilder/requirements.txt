@@ -1,0 +1,6 @@
+# Build-time dependencies of packbuilder (python3 -m packbuilder ...).
+# The spaCy model for each language is installed separately; see README.md
+# ("spaCy models and licences") for the model and its licence.
+spacy==3.8.16
+wordfreq==3.1.1
+simplemma==2.0.0
