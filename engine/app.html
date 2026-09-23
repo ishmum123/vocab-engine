@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vocab trainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EEF0ED;--ink:#1B2321;--mute:#5C6B67;--line:#D6DAD7;--card:#FFFFFF;
+    --ok:#2F7A5B;--ok-bg:#E4F1EB;--bad:#B4483F;--bad-bg:#FBEAE8;
+    --font: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+    /* Target-language text: the UI font first, then system fonts that cover non-Latin
+       scripts (IBM Plex lacks many glyphs; missing ones fall through to system fonts). */
+    --wfont: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, "PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
+      --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
+    --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--font)}
+  body{padding-bottom:calc(64px + var(--safe-b))}
+  .wrap{max-width:480px;margin:0 auto;padding:16px 16px 24px;min-height:calc(100dvh - 64px - var(--safe-b));display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex:0 0 auto}
+  h1{font-size:18px;font-weight:600;margin:0}
+  .score{color:var(--mute);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .hdrbar{height:3px;border-radius:2px;background:transparent;margin-bottom:12px;flex:0 0 auto;overflow:hidden}
+  .hdrbar i{display:block;height:100%;width:0;background:var(--ink);transition:width 0.2s ease}
+  @media (prefers-reduced-motion: reduce){ .hdrbar i{transition:none} }
+  .themebtn{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:16px;color:var(--ink);flex:0 0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 16px;flex:1 1 auto;display:flex;flex-direction:column}
+  #panel > .done{display:flex;flex-direction:column;flex:1 1 auto}
+  .next:last-child, .primary:last-child, .done .next{margin-top:auto}
+  .actions{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+  .drill-body{flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;min-height:0}
+  .q{color:var(--mute);font-size:15px;margin:0 0 10px}
+  .big{font-size:52px;line-height:1.3;text-align:center;margin:6px 0 16px;font-weight:500;overflow-wrap:anywhere}
+  .med{font-size:22px;line-height:1.5;margin:2px 0 14px}
+  .wd{font-family:var(--wfont)}
+  .pron{color:var(--mute);font-size:18px;text-align:center;margin:-10px 0 14px}
+  .en{color:var(--mute);font-size:15px;text-align:center;margin-top:-8px;margin-bottom:14px}
+  .blank{color:var(--mute);letter-spacing:1px}
+  .opts{display:grid;gap:8px}
+  .opts button{width:100%;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
+  .opts button b.num{color:var(--mute);font-weight:500;margin-right:8px;font-size:14px}
+  .opts button .op{color:var(--mute);font-size:14px;font-weight:400;margin-left:8px}
+  .opts button.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
+  .opts button.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+  .opts-hero button{font-size:18px;padding:18px 18px;min-height:58px;font-weight:500}
+  .opts-w button{font-family:var(--wfont)}
+  .opts-w button b.num{font-family:var(--font)}
+  .hear-stage{display:flex;justify-content:center;margin:14px 0 22px}
+  .speaker{width:92px;height:92px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:36px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  @keyframes speakerPulse{0%{transform:scale(1)}50%{transform:scale(1.12)}100%{transform:scale(1)}}
+  .speaker.speaking{animation:speakerPulse 0.9s ease-in-out infinite}
+  @media (prefers-reduced-motion: reduce){ .speaker.speaking{animation:none} }
+  .reveal{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:none;font-size:15px}
+  .reveal .rw{font-size:22px;margin-bottom:2px;font-family:var(--wfont)}
+  .reveal .rp{color:var(--mute);margin-bottom:2px}
+  .next,.primary{margin-top:14px;width:100%;padding:14px;border:none;border-radius:12px;background:var(--ink);color:var(--bg);font-size:16px;min-height:48px;font-family:var(--font)}
+  .ghost{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--ink);font-size:15px;min-height:44px;font-family:var(--font)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .row button, .chip{padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:14px;color:var(--ink);min-height:44px;font-family:var(--font)}
+  .row button.on, .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .replay{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:17px;color:var(--ink);flex:0 0 auto}
+  .listen-stage{display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0}
+  input[type=text]{width:100%;padding:14px 14px;border:1px solid var(--line);border-radius:12px;font-size:19px;background:var(--card);color:var(--ink);font-family:var(--wfont)}
+  input[type=text]:focus{outline:3px solid #7AA7D9;outline-offset:1px}
+  .diff{font-size:15px;margin-top:6px}
+  .wl{border-bottom:1px solid var(--line);padding:12px 0;display:flex;align-items:flex-start;gap:12px}
+  .wl .wd{font-size:22px;flex:0 1 auto;min-width:64px;max-width:48%;overflow-wrap:anywhere}
+  .wl .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .wl .pr{font-size:15px;display:block}
+  .wl .en{color:var(--mute);font-size:14px;text-align:left;display:block;margin:0}
+  table.stats{width:100%;border-collapse:collapse;font-size:15px}
+  table.stats td{padding:8px 0;border-bottom:1px solid var(--line)}
+  table.stats td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:1}
+  .bar i{display:block;height:100%;background:var(--ink)}
+  .path{display:flex;gap:6px;align-items:center;margin-bottom:14px}
+  .path .seg{flex:1;text-align:center;font-size:11px;color:var(--mute)}
+  .stmt{font-size:15px;line-height:1.5;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:14px}
+  .warn{background:var(--bad-bg);border:1px solid var(--bad);color:var(--bad);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:14px}
+  .done h2{font-size:22px;margin:0 0 10px;font-weight:600}
+  .done ul{padding-left:20px;font-size:15px;margin:8px 0}
+  .card-teach{margin-bottom:14px}
+  .card-teach h3{font-size:17px;margin:0 0 8px;font-weight:600}
+  .card-teach p{font-size:15px;color:var(--mute);margin:0 0 10px}
+  .rowset{display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);gap:10px}
+  .rowset .wd{font-size:18px;flex:0 1 auto;min-width:52px;max-width:45%;overflow-wrap:anywhere}
+  .rowset .pr{flex:1;min-width:0;color:var(--mute);font-size:15px}
+  .rowset .en{color:var(--mute);font-size:14px;text-align:right;flex:0 1 auto;min-width:0;margin:0}
+  .sent{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
+  .sent .st{font-family:var(--wfont);font-size:17px}
+  .sent .sp{color:var(--mute);font-size:14px}
+  .sent .se{color:var(--mute);font-size:14px}
+  .taplist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
+  .taplist button{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font-size:15px;min-height:48px;font-family:var(--wfont)}
+  .plist button{display:flex;justify-content:space-between;width:100%;text-align:left;padding:13px 4px;border:none;border-bottom:1px solid var(--line);background:transparent;font-size:16px;color:var(--ink);min-height:48px;align-items:center}
+  .plist .tick{color:var(--ok);font-size:14px}
+  textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:var(--card);color:var(--ink);font-family:var(--font)}
+  .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--safe-b);z-index:5}
+  .tabs button{flex:1;background:transparent;border:none;padding:10px 4px 8px;font-size:12px;color:var(--mute);min-height:56px;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--font)}
+  .tabs button .ic{font-size:20px;line-height:1}
+  .tabs button.on{color:var(--ink);font-weight:600}
+  .tabs button[hidden]{display:none}
+  button{cursor:pointer}
+  button:focus-visible, .opts button:focus-visible, [tabindex]:focus-visible{outline:3px solid #7AA7D9;outline-offset:2px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .reveal{transition:opacity 0.15s ease}
+  @media (prefers-reduced-motion: reduce){ .reveal{transition:none} }
+  @media (min-width: 900px){
+    .wrap{max-width:640px;min-height:0}
+    body{padding-bottom:24px}
+    .tabs{position:static;left:auto;right:auto;bottom:auto;transform:none;width:640px;max-width:100vw;margin:12px auto 0;padding-bottom:0;border:1px solid var(--line);border-radius:16px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="htitle">Today</h1>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="score" id="score"></span>
+      <button class="themebtn" id="themebtn" aria-label="Toggle theme">◐</button>
+    </div>
+  </header>
+  <div class="hdrbar" id="hdrbar"><i id="hdrbarfill"></i></div>
+  <div id="storeWarn" class="warn" hidden></div>
+  <div id="panel" class="card"></div>
+  <div id="live" aria-live="polite" class="sr-only"></div>
+</div>
+<nav class="tabs" id="tabs">
+  <button data-t="today" class="on"><span class="ic">◷</span>Today</button>
+  <button data-t="words"><span class="ic">Aa</span>Words</button>
+  <button data-t="sounds"><span class="ic">〜</span>Sounds</button>
+  <button data-t="test"><span class="ic">✓</span>Test</button>
+  <button data-t="progress"><span class="ic">◔</span>Progress</button>
+</nav>
+
+<!-- PACK-BEGIN: dev-mode pack loader. build.sh replaces everything up to PACK-END with
+     the pack's inlined pack.js/words.js/sentences.js/lessons.js. Dev usage from file://:
+     engine/app.html?pack=zh  (loads ../packs/zh/)  or  ?packdir=../../pack -->
+<script>
+(function(){
+  var q = location.search;
+  var dm = /[?&]packdir=([A-Za-z0-9_.\/-]+)/.exec(q), pm = /[?&]pack=([A-Za-z0-9_-]+)/.exec(q);
+  var dir = dm ? dm[1] : "../packs/" + (pm ? pm[1] : "zh");
+  ["pack","words","sentences","lessons"].forEach(function(f){ document.write('<script src="' + dir + '/' + f + '.js"><\/script>'); });
+})();
+</script>
+<!-- PACK-END -->
+<script src="core.js"></script>
+<script>
+"use strict";
+const VC = window.VocabCore;
+const $ = id => document.getElementById(id);
+const shuffle = a => VC.shuffle(a);
+const pick = (a,n) => shuffle(a.slice()).slice(0,n);
+const escapeHtml = VC.escapeHtml;
+// LESSONS is optional: a pack without lessons.js leaves it undeclared in dev mode.
+const LESSON_LIST = (typeof LESSONS !== "undefined" && Array.isArray(LESSONS)) ? LESSONS : [];
+const HAS_LESSONS = !!PACK.hasLessons && LESSON_LIST.length > 0;
+const LEVELS = VC.levelIds(PACK);
+const SIZE = VC.setSizeOf(PACK);
+const BY_LV = VC.wordsByLevel(WORDS, PACK);
+const WORDS_BY_ID = {}; WORDS.forEach(w=>{ WORDS_BY_ID[w.id] = w; });
+const SENT_INDEX = new Map(SENTENCES.map((s,i)=>[s, i]));
+const TYPING = VC.typingEnabled(PACK);
+const levelLabel = lv => VC.levelLabel(PACK, lv);
+document.title = PACK.name;
+
+// ===================== progress =====================
+const STORE_KEY = VC.storageKey(PACK);
+let prog = VC.defaultProg(PACK);
+// One backend for everything: window.storage (host-provided) when present, else
+// localStorage. Backups go through the same backend as the progress they protect.
+// A read error is not "nothing stored": boot goes read-only (no saves) so real
+// progress that merely failed to load is never overwritten. A write error never
+// falls through to the other backend (that would split progress across two stores);
+// it is surfaced instead.
+let storeReadOnly = false;
+function storageWarn(msg){ const el = $("storeWarn"); if(!el) return; el.textContent = msg; el.hidden = false; }
+const store = {
+  async getRaw(key){
+    try{
+      if(window.storage){ const r = await window.storage.get(key); return { ok:true, value: r ? r.value : null }; }
+      return { ok:true, value: localStorage.getItem(key) };
+    }catch(e){ return { ok:false, value:null }; }
+  },
+  async setRaw(key, value){
+    if(storeReadOnly) return false;
+    try{
+      if(window.storage) await window.storage.set(key, value);
+      else localStorage.setItem(key, value);
+      return true;
+    }catch(e){
+      storageWarn("Progress could not be saved in this browser (storage error). Export your progress from the Progress tab to keep it.");
+      return false;
+    }
+  },
+  load(){ return this.getRaw(STORE_KEY); },
+  save(){ return this.setRaw(STORE_KEY, JSON.stringify(prog)); },
+  backup(suffix, raw){ return this.setRaw(`${STORE_KEY}_${suffix}`, raw); }
+};
+function markWord(id, ok){ VC.markRec(prog.w, id, ok, true); store.save(); }
+function markSentence(id, ok){ VC.markRec(prog.s, id, ok, false); store.save(); }
+const mastered = id => ((prog.w[id]||{}).s||0) >= VC.WORD_MASTERED;
+const sentenceMastered = id => ((prog.s[id]||{}).s||0) >= VC.SENTENCE_MASTERED;
+const weakFirst = (list, n) => VC.weakFirst(list, n, prog.w);
+const weakFirstSentences = (list, n) => VC.weakFirst(list, n, prog.s);
+const levelList = lv => BY_LV[lv] || [];
+const nSets = lv => VC.nSets(levelList(lv), SIZE);
+const learnedWords = () => VC.learnedWords(WORDS, PACK, prog);
+const nextNewSet = () => VC.nextNewSet(WORDS, PACK, prog);
+const availableSentences = () => VC.availableSentences(SENTENCES, WORDS, PACK, prog);
+function wordExampleSentences(id, n){ return SENTENCES.filter(s => (s.words||[]).indexOf(id) >= 0).slice(0, n); }
+
+// ===================== speech =====================
+const SS = window.speechSynthesis || null;
+const speechAPI = !!(SS && window.SpeechSynthesisUtterance);
+const TTS_LANG = String(PACK.tts || "en-US");
+const TTS_RATE = PACK.ttsRate || 0.9;
+let ttsVoice = null, noticeShown = false;
+// hasSpeech is re-derived when the voice list arrives: no voice for the pack's
+// language (once the list is known) means listening items fall back to reading.
+let hasSpeech = VC.speechUsable(speechAPI, [], TTS_LANG);
+if(speechAPI){
+  const pv = () => { const v = SS.getVoices(); ttsVoice = VC.pickVoice(v, TTS_LANG); hasSpeech = VC.speechUsable(speechAPI, v, TTS_LANG); };
+  pv(); SS.onvoiceschanged = pv;
+}
+let currentAudio = null;
+// Speaks text via TTS, or plays audioUrl if given (sentence.audio). btn, if given,
+// gets a "speaking" class for the duration so the big speaker glyph can pulse.
+function speak(text, btn, audioUrl){
+  if(currentAudio){ try{ currentAudio.pause(); }catch(e){} currentAudio = null; }
+  if(audioUrl){
+    try{
+      const a = new Audio(audioUrl); currentAudio = a;
+      if(btn){ btn.classList.add("speaking"); a.onended = a.onerror = () => btn.classList.remove("speaking"); }
+      a.play().catch(()=>{ if(btn) btn.classList.remove("speaking"); });
+      return;
+    }catch(e){}
+  }
+  if(!hasSpeech) return;
+  try{
+    SS.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; if(ttsVoice) u.voice = ttsVoice; u.rate = TTS_RATE;
+    if(btn){
+      u.onstart = () => btn.classList.add("speaking");
+      u.onend = u.onerror = () => btn.classList.remove("speaking");
+    }
+    SS.speak(u);
+  }catch(e){}
+}
+const say = t => speak(t);
+const saySentence = (s, btn) => speak(s.t, btn, s.audio);
+const canHearSentence = s => hasSpeech || !!s.audio;
+function speechNotice(){
+  if(hasSpeech || noticeShown) return "";
+  noticeShown = true;
+  return `<div class="warn">This browser has no text-to-speech voice for this language, so listening items show the word instead of playing audio.</div>`;
+}
+
+// ===================== speaker icon =====================
+function speakerSVG(size){
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M4 9v6h3.5l4.9 4V5l-4.9 4H4z" fill="currentColor"/>
+    <path d="M16.2 8.8a5 5 0 0 1 0 6.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+    <path d="M18.6 6.3a8.5 8.5 0 0 1 0 11.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+  </svg>`;
+}
+const SPEAKER_SVG = speakerSVG(38);
+const REPLAY_SVG = speakerSVG(18);
+const TEACH_PLAY_SVG = speakerSVG(14);
+
+// ===================== display helpers =====================
+// pron is display-only: shown beside a word/sentence when the learner has it on.
+const showPron = () => PACK.showPron !== false && prog.showPron !== false;
+const pronOf = x => (showPron() && x && x.pron) ? x.pron : "";
+function bigWordHTML(entry){
+  const p = pronOf(entry);
+  return `<div class="big wd">${escapeHtml(entry.w)}</div>${p ? `<div class="pron">${escapeHtml(p)}</div>` : ""}`;
+}
+// Option label for word-choice items (recall/gap): the word, plus its pron when shown.
+function wordOptHtml(byW){
+  return o => { const e = byW[o]; const p = e ? pronOf(e) : ""; return `${escapeHtml(o)}${p ? `<span class="op">${escapeHtml(p)}</span>` : ""}`; };
+}
+
+// ===================== generic drill runner =====================
+// item: {kind:'mc'|'type', label, html, opts?, a?, optHtml?, reveal, onAnswer?, mount?, check?, onReveal?}
+let D = null;
+function drill(items, onDone, summary){ D = { q: shuffle(items.slice()), right:0, seen:0, miss:[], onDone, summary }; dnext(); }
+function setScore(answered, total){
+  const left = total ? Math.max(0, total - answered) : 0;
+  $("score").textContent = (total && left > 0) ? `${left} left` : "";
+  const fill = $("hdrbarfill");
+  if(!fill) return;
+  if(!total){ fill.style.display = "none"; fill.style.width = "0%"; return; }
+  fill.style.display = "block";
+  fill.style.width = `${Math.min(100, Math.max(0, Math.round((answered/total)*100)))}%`;
+}
+function announce(html){
+  const el = $("live"); if(!el) return;
+  const tmp = document.createElement("div"); tmp.innerHTML = html || "";
+  el.textContent = tmp.textContent || "";
+}
+function showReveal(html){
+  const rv = $("rv"); if(!rv) return;
+  rv.innerHTML = html;
+  rv.style.display = html ? "block" : "none";
+  if(html){ rv.style.opacity = "0"; requestAnimationFrame(()=>{ rv.style.opacity = "1"; }); }
+  announce(html);
+}
+function dnext(){
+  if(!D) return;
+  const P = $("panel");
+  if(!D.q.length){
+    const { right, seen, miss, onDone, summary } = D;
+    setScore(0, 0);
+    P.innerHTML = `<div class="done"><h2>${right} / ${seen}</h2>${summary ? summary(miss) : ""}<button class="next" id="ok">Continue</button></div>`;
+    wireSayTaps(P);
+    D = null; drillKeyHandler = null;
+    $("ok").onclick = onDone;
+    return;
+  }
+  setScore(D.seen, D.seen + D.q.length);
+  const it = D.q.shift();
+  if(it.kind === "type") renderTypeItem(it); else renderMcItem(it);
+}
+function renderMcItem(it){
+  const P = $("panel");
+  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  if(it.mount) it.mount();
+  const opts = shuffle(it.opts.slice());
+  const container = $("o");
+  let answered = false;
+  opts.forEach((o,i)=>{
+    const b = document.createElement("button");
+    b.innerHTML = `<b class="num">${i+1}</b>${it.optHtml ? it.optHtml(o) : escapeHtml(o)}`;
+    b.onclick = () => {
+      if(answered) return; answered = true;
+      [...container.children].forEach(x=>{ x.disabled = true; if(x.dataset.v === it.a) x.classList.add("ok"); });
+      const ok = o === it.a;
+      if(!ok) b.classList.add("bad");
+      D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
+      if(it.onAnswer) it.onAnswer(ok);
+      showReveal(it.reveal || "");
+      if(it.onReveal) it.onReveal();
+      $("nx").style.display = "block"; setScore(D.seen, D.seen + D.q.length);
+    };
+    b.dataset.v = o;
+    container.appendChild(b);
+  });
+  $("nx").onclick = dnext;
+  drillKeyHandler = e => {
+    if(!D) return;
+    const nx = $("nx");
+    if(e.key >= "1" && e.key <= String(opts.length) && !answered){ container.children[+e.key-1].click(); }
+    else if(e.key === "Enter" && nx && nx.style.display !== "none"){ dnext(); }
+    else if(e.key === "Escape"){ quitDrill(); }
+  };
+}
+function renderTypeItem(it){
+  const P = $("panel");
+  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${it.html||""}
+    <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" lang="${escapeHtml(TTS_LANG)}" placeholder="type the word…">
+    <div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="submit">Check</button><button class="next" id="nx" style="display:none">Next</button></div>`;
+  if(it.mount) it.mount();
+  const input = $("tin"); input.focus();
+  let answered = false;
+  function submit(){
+    if(answered) return; if(!input.value.trim()) return;
+    answered = true; input.disabled = true; $("submit").style.display = "none";
+    const ok = it.check(input.value);
+    D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
+    if(it.onAnswer) it.onAnswer(ok);
+    showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.reveal||""));
+    if(it.onReveal) it.onReveal();
+    $("nx").style.display = "block"; setScore(D.seen, D.seen + D.q.length);
+  }
+  $("submit").onclick = submit;
+  $("nx").onclick = dnext;
+  drillKeyHandler = e => {
+    if(!D) return;
+    if(e.key === "Enter"){ answered ? dnext() : submit(); }
+    else if(e.key === "Escape"){
+      if(document.activeElement === input){ input.blur(); return; }
+      quitDrill();
+    }
+  };
+}
+let drillKeyHandler = null;
+document.addEventListener("keydown", e => { if(drillKeyHandler) drillKeyHandler(e); });
+function quitDrill(){ D = null; drillKeyHandler = null; render(); }
+
+// Delegated tap-to-hear on `root` (default #rv): data-sent (a SENTENCES index) speaks
+// that sentence, data-wid (a word id) speaks that word.
+function wireSayTaps(root){
+  const el = (root && root.nodeType) ? root : $("rv"); if(!el) return;
+  el.addEventListener("click", e => {
+    const t = e.target.closest("[data-sent],[data-wid]");
+    if(!t || !el.contains(t)) return;
+    if(t.dataset.wid !== undefined){ const w = WORDS_BY_ID[t.dataset.wid]; if(w) say(w.w); return; }
+    const s = SENTENCES[+t.dataset.sent]; if(s) saySentence(s);
+  });
+}
+
+// ===================== word drill items =====================
+function sentenceRowHTML(s){
+  const p = pronOf(s);
+  return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st">${escapeHtml(s.t)}</div>${p ? `<div class="sp">${escapeHtml(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
+}
+function exampleSentencesHTML(entry){
+  const ex = wordExampleSentences(entry.id, 2);
+  if(!ex.length) return "";
+  return `<p class="q" style="margin-top:12px">Example${ex.length>1?"s":""}:</p>${ex.map(sentenceRowHTML).join("")}`;
+}
+function revealBlock(entry){
+  const p = pronOf(entry);
+  return `<div data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"><div class="rw">${escapeHtml(entry.w)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
+}
+const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
+// hear — TTS plays the word; pick the meaning. Without speech it degrades to read.
+function hearItem(entry){
+  if(!hasSpeech) return Object.assign(readItem(entry), { html: speechNotice() + bigWordHTML(entry) });
+  return { kind:"mc", key:"w:"+entry.id, label:"What does it mean?", optsClass:"opts-hero",
+    html: `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`,
+    opts: meaningChoices(entry), a: VC.gloss(entry), reveal: `<div class="q">You heard:</div>${revealBlock(entry)}`,
+    onAnswer: ok=>markWord(entry.id, ok),
+    mount: () => { const btn = $("sp"); speak(entry.w, btn); btn.onclick = ()=>speak(entry.w, btn); },
+    onReveal: wireSayTaps };
+}
+// read — word shown; pick the meaning. Audio auto-plays.
+function readItem(entry){
+  return { kind:"mc", key:"w:"+entry.id, label:"What does it mean?", optsClass:"opts-hero",
+    html: bigWordHTML(entry), opts: meaningChoices(entry), a: VC.gloss(entry), reveal: revealBlock(entry),
+    onAnswer: ok=>markWord(entry.id, ok), mount: () => say(entry.w), onReveal: wireSayTaps };
+}
+// recall — meaning shown; pick the word (wordOpts: same pos/level first, never a
+// distractor that would also be a right answer).
+function recallItem(entry){
+  const ds = VC.wordOpts(entry, WORDS);
+  const byW = {}; [entry, ...ds].forEach(e=>{ byW[e.w] = e; });
+  return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
+    html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
+    opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w, optHtml: wordOptHtml(byW), reveal: revealBlock(entry),
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => { say(entry.w); wireSayTaps(); } };
+}
+// type — meaning shown; type the word (normalised per pack.typing, alt forms accepted).
+function typeItem(entry){
+  return { kind:"type", key:"w:"+entry.id, label:"Type the word",
+    html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
+    check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => { say(entry.w); wireSayTaps(); } };
+}
+const WORD_ITEM = { hear: hearItem, read: readItem, recall: recallItem, type: e => TYPING ? typeItem(e) : recallItem(e) };
+const itemFromPlan = p => WORD_ITEM[p.kind](p.word);
+// One card per missed word/sentence (items carry `key`), however many question types
+// it was missed as; the most-missed first, with a count when missed more than once.
+function missSummary(miss){
+  const u = VC.dedupeMisses(miss);
+  return u.length ? `<p class="q">Missed:</p>${u.map(({item, count})=>`<div class="stmt">${count > 1 ? `<div class="q" style="margin:0 0 4px">missed ${count}×</div>` : ""}${item.reveal}</div>`).join("")}` : "<p class='q'>Clean.</p>";
+}
+
+// ===================== sentence drill items =====================
+function sentenceRevealBlock(s){
+  const p = pronOf(s);
+  return `<div data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"><div class="rw">${escapeHtml(s.t)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+}
+const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
+function readSentence(s){
+  const p = pronOf(s);
+  return { kind:"mc", key:"s:"+s.id, label:"What does it mean?", optsClass:"opts-hero",
+    html: `<div class="med wd">${escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
+    opts: sentenceChoices(s), a: s.en, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
+    mount: () => saySentence(s), onReveal: wireSayTaps };
+}
+function hearSentence(s){
+  if(!canHearSentence(s)) return Object.assign(readSentence(s), { html: speechNotice() + readSentence(s).html });
+  return { kind:"mc", key:"s:"+s.id, label:"What did they say?", optsClass:"opts-hero",
+    html: `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`,
+    opts: sentenceChoices(s), a: s.en, reveal: `<div class="q">You heard:</div>${sentenceRevealBlock(s)}`,
+    onAnswer: ok=>markSentence(s.id, ok),
+    mount: () => { const btn = $("sp"); saySentence(s, btn); btn.onclick = ()=>saySentence(s, btn); },
+    onReveal: wireSayTaps };
+}
+// gap — sentence with one content word blanked; pick it from 4, or type it. Returns
+// null when the sentence has no legal blank (callers fall back to readSentence). No
+// audio before answering: hearing the sentence would give the blank away.
+function gapSentence(s, typed){
+  const idxs = VC.gapCandidateIndices(s, WORDS_BY_ID, PACK);
+  if(!idxs.length) return null;
+  const entry = WORDS_BY_ID[s.words[idxs[Math.floor(Math.random()*idxs.length)]]];
+  const match = VC.gapMatch(s, entry, WORDS_BY_ID, PACK);
+  const b = VC.blankSentence(s, match);
+  const html = `<div class="med wd">${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${escapeHtml(s.en)}</div>`;
+  const base = { key:"s:"+s.id, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
+    onReveal: () => { saySentence(s); wireSayTaps(); } };
+  if(typed && TYPING){
+    return Object.assign(base, { kind:"type", label:"Type the missing word", html,
+      check: val => VC.acceptTyped(val, entry, PACK, [match.text]) });
+  }
+  const ds = VC.gapOpts(entry, WORDS);
+  const byW = {}; [entry, ...ds].forEach(e=>{ byW[e.w] = e; });
+  return Object.assign(base, { kind:"mc", label:"What's the missing word?", optsClass:"opts-hero opts-w", html,
+    opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w, optHtml: wordOptHtml(byW) });
+}
+function sentenceItemFor(s){
+  const k = VC.sentenceKind(PACK);
+  if(k === "hear") return hearSentence(s);
+  if(k === "read") return readSentence(s);
+  return gapSentence(s, k === "gapType") || readSentence(s);
+}
+
+// ===================== lesson item wrapper =====================
+// mode from VC.lessonSayMode: "audio" plays `say`; "inq" runs without audio (the
+// question already shows it); "text" shows the say text instead of audio.
+// ("skip" items never reach here — lessonTeach filters them out.)
+function lessonItem(it, key, mode){
+  const html = mode === "audio"
+    ? (it.say ? `<div class="listen-stage"><button class="replay" id="rpl" aria-label="Replay">${REPLAY_SVG}</button></div>` : "")
+    : (mode === "text" ? `<div class="big wd">${escapeHtml(it.say)}</div>` : "");
+  return { kind:"mc", key, label: it.q, html,
+    mount: () => { if(mode === "audio" && it.say){ say(it.say); $("rpl").onclick = ()=>say(it.say); } },
+    opts: it.opts, a: it.a, reveal: `<div>${escapeHtml(it.rv||"")}</div>` };
+}
+
+// ===================== tabs =====================
+let tab = "today";
+if(!HAS_LESSONS) document.querySelector('#tabs button[data-t="sounds"]').hidden = true;
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); tab = b.dataset.t; D = null; drillKeyHandler = null;
+  todayStepState = null; soundsSel = null; wordsSet = null; testSel = null;
+  render();
+});
+function render(){
+  D = null; drillKeyHandler = null;
+  $("htitle").textContent = { today:"Today", sounds:"Sounds", words:"Words", test:"Test", progress:"Progress" }[tab];
+  setScore(0,0);
+  ({ today: todayRender, sounds: soundsRender, words: wordsRender, test: testRender, progress: progressRender })[tab]();
+}
+function switchToTab(t, title){
+  tab = t;
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on", x.dataset.t===t));
+  $("htitle").textContent = title;
+}
+
+// ===================== Today =====================
+function pathStrip(){
+  const stages = LEVELS.map(lv=>({ label: levelLabel(lv), frac: nSets(lv) ? (prog.sets[lv]||0)/nSets(lv) : 1 }));
+  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${escapeHtml(s.label)}</div>`).join("")}</div>`;
+}
+let todayStepState = null;
+function todayRender(){
+  setScore(0,0);
+  const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
+  const n = (prog.sessions||0) + 1;
+  const availSent = availableSentences();
+  const g = VC.todayGates(lw.length, !!nn, availSent.length);
+  const steps = [
+    ["Review", g.review ? `${VC.REVIEW_SIZE} items, weakest first` : "skipped until 5+ words are learned"],
+    ["Learn", nn ? `${levelLabel(nn.lv)}, set ${nn.set+1}` : "everything covered"],
+    ["Listen", g.listen ? "12 items" : "skipped until something is learned"],
+    ["Recall", g.recall ? "8 items" : "skipped until something is learned"],
+    ["Sentences", g.sentences ? "8 items, weakest first" : "skipped until 8+ sentences are available"]
+  ];
+  const showPlaceHint = !prog.placedOnce;
+  const showSoundsHint = HAS_LESSONS && !prog.soundsOpened;
+  P.innerHTML = `<div class="drill-body">${pathStrip()}
+    ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
+    ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
+    <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
+    <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
+    </div><div class="actions"><button class="next" id="go">Start today</button></div>`;
+  if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
+  if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
+  $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
+}
+function enterPlacementFromToday(){ switchToTab("test", "Test"); testSel = "placement"; startPlacement(); }
+function enterFirstSoundsLessonFromToday(){
+  switchToTab("sounds", "Sounds");
+  soundsSel = 0;
+  const backToToday = () => { switchToTab("today", "Today"); soundsSel = null; todayRender(); };
+  lessonTeach(LESSON_LIST[0], () => { prog.lessons[LESSON_LIST[0].id] = 1; store.save(); backToToday(); }, backToToday);
+}
+// review(15, >=40% production) -> learn(next set) -> listen(12 hear) -> recall(8
+// recall/type) -> sentences(8) -> finish. Each step skips itself when its pool is too small.
+function todayStep(){
+  const lw = learnedWords(); const nn = nextNewSet();
+  const avail = availableSentences();
+  const g = VC.todayGates(lw.length, !!nn, avail.length);
+  const s = todayStepState.step++;
+  if(s === 0){
+    if(g.review){ drill(VC.buildReviewPlan(lw, prog, PACK).map(itemFromPlan), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 1){
+    if(g.learn){
+      const list = levelList(nn.lv).slice(nn.set*SIZE, nn.set*SIZE+SIZE);
+      vocabTeach(list, nn.lv, () => {
+        const items = [];
+        list.forEach(w => items.push(hearItem(w), readItem(w)));
+        drill(items, () => { prog.sets[nn.lv] = nn.set+1; store.save(); todayStep(); }, missSummary);
+      });
+      return;
+    }
+    return todayStep();
+  }
+  if(s === 2){
+    if(g.listen){ drill(weakFirst(lw,12).map(hearItem), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 3){
+    if(g.recall){ drill(VC.buildRecallPlan(lw, prog, PACK, 8).map(itemFromPlan), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 4){
+    if(g.sentences){ drill(weakFirstSentences(avail,8).map(sentenceItemFor), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  todayFinish();
+}
+function todayFinish(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  prog.sessions = (prog.sessions||0) + 1; store.save();
+  const P = $("panel");
+  P.innerHTML = `<div class="done"><h2>Session done</h2><p class="q">${learnedWords().length} words learned so far.</p><button class="next" id="again">Back to Today</button></div>`;
+  $("again").onclick = todayRender;
+}
+function wordRowHTML(w, cls){
+  const p = pronOf(w);
+  return cls === "wl"
+    ? `<span class="wd">${escapeHtml(w.w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`
+    : `<span class="wd">${escapeHtml(w.w)}</span><span class="pr">${escapeHtml(p)}</span><span class="en">${escapeHtml(VC.gloss(w))}</span>`;
+}
+function vocabTeach(list, lv, onDrill){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `<p class="q">${escapeHtml(levelLabel(lv))}, new set. Tap a word to hear it.</p>
+    <div id="tl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
+  const tl = $("tl");
+  list.forEach(w => {
+    const row = document.createElement("div"); row.className = "rowset";
+    row.innerHTML = `${wordRowHTML(w, "rowset")}<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>`;
+    row.onclick = () => say(w.w);
+    row.style.cursor = "pointer";
+    tl.appendChild(row);
+    const exHtml = exampleSentencesHTML(w);
+    if(exHtml){
+      const exWrap = document.createElement("div");
+      exWrap.style.cssText = "margin:-4px 0 10px;padding-left:2px;font-size:14px";
+      exWrap.innerHTML = exHtml;
+      wireSayTaps(exWrap);
+      tl.appendChild(exWrap);
+    }
+  });
+  $("dr").onclick = onDrill;
+}
+// Lesson card `body` is trusted pack HTML (pack authors write it); everything else is escaped.
+function lessonTeach(lesson, onDone, onBack){
+  setScore(0,0);
+  if(!prog.soundsOpened){ prog.soundsOpened = true; store.save(); }
+  const P = $("panel");
+  P.innerHTML = `${onBack ? '<div class="row"><button id="back">‹ lessons</button></div>' : ""}<p class="q">${escapeHtml(lesson.blurb)}</p>
+    <div id="cards"></div><div class="actions"><button class="next" id="dr">Drill</button></div>`;
+  if(onBack) $("back").onclick = onBack;
+  const cw = $("cards");
+  (lesson.cards||[]).forEach(c => {
+    const el = document.createElement("div"); el.className = "card-teach";
+    el.innerHTML = `<h3>${escapeHtml(c.h)}</h3><p>${c.body}</p>
+      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset">${r.map((cell,i)=>`<span class="${["pr","wd","en"][i]||"en"}">${escapeHtml(cell)}</span>`).join("")}</div>`).join("")}</div>` : ""}
+      ${c.say ? `<div class="taplist">${c.say.map((s,i)=>`<button data-s="${i}">▶ ${escapeHtml(s)}</button>`).join("")}</div>` : ""}`;
+    if(c.say) el.querySelectorAll("[data-s]").forEach((b,i)=>b.onclick=()=>say(c.say[i]));
+    cw.appendChild(el);
+  });
+  // Only t:"mc" lesson items exist today; anything else is skipped, not mis-rendered.
+  const planned = lesson.items.map((it, i) => ({ it, i, mode: VC.lessonSayMode(it, hasSpeech) }))
+    .filter(x => x.it.t === "mc" && x.mode !== "skip");
+  const skipped = lesson.items.filter(it => it.t === "mc" && VC.lessonSayMode(it, hasSpeech) === "skip").length;
+  // One notice on the lesson screen (not per item: the drill shuffles, so a one-shot
+  // per-item notice could land anywhere in the queue).
+  const hasSay = lesson.items.some(it => it.say);
+  if(!hasSpeech && hasSay){
+    $("cards").insertAdjacentHTML("beforebegin", `<div class="warn">This browser has no voice for this language, so listening items show the text instead of playing audio.${skipped ? ` ${skipped} item${skipped>1?"s were":" was"} skipped because the text would give the answer away.` : ""}</div>`);
+  }
+  $("dr").onclick = () => drill(planned.map(x => lessonItem(x.it, VC.lessonItemKey(lesson.id, x.i), x.mode)), onDone, missSummary);
+}
+
+// ===================== Sounds (pack lessons) =====================
+let soundsSel = null;
+function soundsRender(){
+  setScore(0,0);
+  const P = $("panel");
+  if(soundsSel != null){
+    const lesson = LESSON_LIST[soundsSel];
+    lessonTeach(lesson,
+      () => { prog.lessons[lesson.id] = 1; store.save(); soundsSel = null; soundsRender(); },
+      () => { soundsSel = null; soundsRender(); });
+    return;
+  }
+  const done = LESSON_LIST.filter(l=>prog.lessons[l.id]).length;
+  P.innerHTML = `<p class="q">Optional: how ${escapeHtml(PACK.name)} sounds and is written. ${LESSON_LIST.length} lessons, ${done} done.</p>
+    <div class="plist">${LESSON_LIST.map((l,i)=>`<button data-i="${i}"><span>${escapeHtml(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>`;
+  P.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ soundsSel = +b.dataset.i; soundsRender(); });
+}
+
+// ===================== Words =====================
+let wordsLv = LEVELS[0], wordsSet = null, wordsQuery = "";
+function wordsRender(){
+  setScore(0,0);
+  const P = $("panel");
+  const pronChip = PACK.showPron !== false ? `<button class="chip ${showPron()?'on':''}" id="wPron" aria-label="Show pronunciation" aria-pressed="${showPron()}">Pron</button>` : "";
+  P.innerHTML = `<div class="row">
+      <input type="text" id="wsearch" autocomplete="off" placeholder="Search word or meaning…" style="flex:1;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:15px" value="${escapeHtml(wordsQuery)}">
+      ${pronChip}
+    </div>
+    <div id="wbody"></div>`;
+  if(pronChip) $("wPron").onclick = () => { prog.showPron = !showPron(); store.save(); $("wPron").classList.toggle("on", showPron()); $("wPron").setAttribute("aria-pressed", String(showPron())); renderWordBody(); };
+  const search = $("wsearch");
+  search.oninput = () => { wordsQuery = search.value; renderWordBody(); };
+  renderWordBody();
+}
+function wordListInto(wl, list){
+  list.forEach(w => {
+    const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
+    row.innerHTML = wordRowHTML(w, "wl");
+    row.onclick = () => say(w.w);
+    wl.appendChild(row);
+  });
+}
+function renderWordBody(){
+  const body = $("wbody");
+  const q = wordsQuery.trim();
+  if(q){
+    const fq = VC.normalizeTyped(q, {foldAccents:true});
+    const hit = s => !!s && VC.normalizeTyped(s, {foldAccents:true}).includes(fq);
+    const matches = WORDS.filter(v => hit(VC.gloss(v)) || hit(v.w) || hit(v.pron) || (v.alt||[]).some(hit));
+    if(!matches.length){ body.innerHTML = `<p class="q">No matches.</p>`; return; }
+    body.innerHTML = `<div id="wl"></div>`;
+    wordListInto($("wl"), matches.slice(0,150));
+    return;
+  }
+  const list = levelList(wordsLv); const total = nSets(wordsLv); const done = prog.sets[wordsLv]||0;
+  if(wordsSet == null) wordsSet = Math.max(0, Math.min(done, total-1));
+  const set = list.slice(wordsSet*SIZE, wordsSet*SIZE+SIZE);
+  const canReview = learnedWords().length >= 5;
+  body.innerHTML = `<div class="row">${LEVELS.map(lv=>`<button data-l="${escapeHtml(lv)}" class="${lv===wordsLv?'on':''}">${escapeHtml(levelLabel(lv))}</button>`).join("")}</div>
+    <div class="row"><button id="pv">‹</button><button class="on">Set ${wordsSet+1} / ${total}${wordsSet<done?' ✓':''}</button><button id="nx">›</button><button id="jump">next new</button>${canReview ? `<button id="rev">review</button>` : ""}</div>
+    <div id="wl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
+  body.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ wordsLv = b.dataset.l; wordsSet = null; renderWordBody(); });
+  $("pv").onclick = () => { wordsSet = Math.max(0, wordsSet-1); renderWordBody(); };
+  $("nx").onclick = () => { wordsSet = Math.min(total-1, wordsSet+1); renderWordBody(); };
+  $("jump").onclick = () => { wordsSet = Math.max(0, Math.min(done, total-1)); renderWordBody(); };
+  wordListInto($("wl"), set);
+  $("dr").onclick = () => {
+    const items = []; set.forEach(w => items.push(hearItem(w), readItem(w)));
+    // Only advance the level's set pointer when this was exactly the next unlearned
+    // set; drilling further ahead flags just these words `d` (drilled ahead).
+    drill(items, () => {
+      if(wordsSet === (prog.sets[wordsLv]||0)){ prog.sets[wordsLv] = wordsSet+1; }
+      else { set.forEach(w => { if(!prog.w[w.id]) prog.w[w.id] = {r:0,w:0,s:0}; prog.w[w.id].d = 1; }); }
+      store.save(); wordsRender();
+    }, missSummary);
+  };
+  if(canReview) $("rev").onclick = () => drill(VC.buildReviewPlan(learnedWords(), prog, PACK).map(itemFromPlan), wordsRender, missSummary);
+}
+
+// ===================== Test (placement + free tests) =====================
+let testSel = null, PL = null;
+function testRender(){
+  setScore(0,0);
+  const P = $("panel");
+  if(testSel === "placement"){ placeRender(); return; }
+  const lw = learnedWords(); const availSent = availableSentences();
+  const tg = VC.testGates(lw.length, availSent.length, SENTENCES.length);
+  const needMore = tg.needPlacement;
+  const n20 = Math.min(20, lw.length), sentN = Math.min(20, availSent.length);
+  P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
+    <div class="actions">
+      ${needMore ? `<div class="stmt">Learn a few words first — placement finds where to start.<button class="next" id="needPlace" style="margin-top:8px">Take the placement test</button></div>` : `<button class="next" id="pl">Take Placement</button>`}
+      ${tg.words ? `<div class="row" style="margin-top:8px;margin-bottom:0">
+        <button class="ghost" id="tListen" style="flex:1">Listen ${n20}</button>
+        <button class="ghost" id="tRecall" style="flex:1">Recall ${n20}</button>
+      </div>` : ""}
+      ${tg.sentences ? `<button class="ghost" id="tSentences">Sentences ${sentN}</button>` : ""}
+    </div>`;
+  if(needMore) $("needPlace").onclick = enterPlacementFromToday;
+  else $("pl").onclick = () => { testSel = "placement"; testRender(); };
+  if(tg.words){
+    $("tListen").onclick = () => drill(weakFirst(lw,20).map(hearItem), testRender, missSummary);
+    $("tRecall").onclick = () => drill(VC.buildRecallPlan(lw, prog, PACK, 20).map(itemFromPlan), testRender, missSummary);
+  }
+  if(tg.sentences){
+    $("tSentences").onclick = () => drill(weakFirstSentences(availSent,20).map(hearSentence), testRender, missSummary);
+  }
+}
+function placementItemTotal(){ return VC.strata(WORDS, PACK.placement, SIZE).reduce((n,_,i)=>n+VC.placementItemCount(i), 0); }
+function placeRender(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  const P = $("panel"); const lw = learnedWords();
+  const first = levelLabel(PACK.placement[0][0]), last = levelLabel(PACK.placement[PACK.placement.length-1][0]);
+  P.innerHTML = `<div class="row"><button id="back">‹ test</button></div>
+    <p class="q">${placementItemTotal()} words across ${escapeHtml(first)}–${escapeHtml(last)}: hear or read the word, pick the meaning. No feedback until the end. Places you inside a level; skipped words stay in review as provisional.</p>
+    ${lw.length ? `<p class="q">Current: ${lw.length} words learned. Retaking can only move you forward: nothing already learned is lost.</p>` : ""}
+    <div class="actions"><button class="next" id="go">Start placement</button></div>`;
+  $("back").onclick = () => { testSel = null; testRender(); };
+  $("go").onclick = startPlacement;
+}
+function startPlacement(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  const st = VC.strata(WORDS, PACK.placement, SIZE);
+  const bucketItems = [];
+  st.forEach((b,bi) => { pick(b.words, VC.placementItemCount(bi)).forEach(w=>bucketItems.push({b:bi, w})); });
+  PL = { vocab:{items:shuffle(bucketItems), i:0}, st, res: st.map(()=>({r:0,n:0})) };
+  placeVocabNext();
+}
+function placeVocabNext(){
+  const P = $("panel"); const V = PL.vocab;
+  if(V.i >= V.items.length){ placeResult(); return; }
+  const it = V.items[V.i++]; const w = it.w; setScore(V.i - 1, V.items.length);
+  const opts = shuffle(meaningChoices(w));
+  const asHear = hasSpeech && Math.random() < 0.5;
+  P.innerHTML = `<p class="q">Words ${V.i} / ${V.items.length}</p>
+    ${asHear ? `<div class="hear-stage"><button class="speaker" id="rp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : bigWordHTML(w)}
+    <div class="opts" id="o"></div>`;
+  if(asHear){ const btn = $("rp"); speak(w.w, btn); btn.onclick = ()=>speak(w.w, btn); }
+  opts.forEach(o => {
+    const b = document.createElement("button"); b.textContent = o;
+    b.onclick = () => { PL.res[it.b].n++; if(o===VC.gloss(w)) PL.res[it.b].r++; placeVocabNext(); };
+    $("o").appendChild(b);
+  });
+}
+function placeResult(){
+  setScore(0,0);
+  const st = PL.st;
+  const stop = VC.placementStopIndex(PL.res);
+  const passed = stop==null ? st.length : stop;
+  prog = VC.applyPlacement(prog, st, passed, WORDS, PACK);
+  store.save();
+  // Position shown is where the learner actually is now (a poor retake never moves
+  // them back), not merely where this attempt stopped.
+  const nn = nextNewSet();
+  const pos = nn ? `${levelLabel(nn.lv)}, set ${nn.set+1}` : "everything covered";
+  const P = $("panel");
+  P.innerHTML = `<div class="done"><h2>Start at ${escapeHtml(pos)}</h2>
+    <table class="stats">${st.map((b,i)=>{ const r = PL.res[i]; return `<tr><td>${escapeHtml(levelLabel(b.lv))} sets ${b.s0+1}–${b.s1}</td><td style="color:${i<passed?'var(--ok)':'var(--bad)'}">${r.r}/${r.n}</td></tr>`; }).join("")}</table>
+    <p class="q">${learnedWords().length} words learned; newly placed ones are provisional and kept in review.</p>
+    <button class="next" id="ok">Go to Today</button></div>`;
+  $("ok").onclick = () => { switchToTab("today", "Today"); testSel = null; render(); };
+}
+
+// ===================== Progress =====================
+function progressRender(){
+  setScore(0,0);
+  const P = $("panel");
+  const lwAll = learnedWords();
+  const availSent = availableSentences();
+  const rows = LEVELS.map(lv => {
+    const list = levelList(lv); const learnedList = lwAll.filter(w=>w.lv===lv);
+    const masteredN = learnedList.filter(w=>mastered(w.id)).length;
+    const sentLv = SENTENCES.filter(s=>s.lv===lv); const sentAvailLv = availSent.filter(s=>s.lv===lv);
+    const sentMasteredN = sentAvailLv.filter(s=>sentenceMastered(s.id)).length;
+    const L = escapeHtml(levelLabel(lv));
+    return `<tr><td>${L}</td><td>${learnedList.length} / ${list.length} learned · ${masteredN} mastered</td></tr>
+      ${sentLv.length ? `<tr><td>${L} sentences</td><td>${sentAvailLv.length} / ${sentLv.length} available · ${sentMasteredN} mastered</td></tr>` : ""}`;
+  }).join("");
+  const weak = weakFirst(lwAll.filter(w=>VC.weakScore(prog.w[w.id])>0), 10);
+  P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
+    <table class="stats">${rows}
+      ${HAS_LESSONS ? `<tr><td>Sounds</td><td>${LESSON_LIST.filter(l=>prog.lessons[l.id]).length} / ${LESSON_LIST.length} lessons done</td></tr>` : ""}
+      <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
+    ${PACK.showPron !== false ? `<div class="row" style="margin-top:14px"><button class="chip ${showPron()?'on':''}" id="togglePron" aria-pressed="${showPron()}">Show pronunciation</button></div>` : ""}
+    <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
+    ${weak.map(w=>`<div class="rowset">${wordRowHTML(w, "rowset")}</div>`).join("")}
+    <div class="row" style="margin-top:16px">
+      <button class="ghost" id="exp" style="flex:1">Export progress</button>
+      <button class="ghost" id="imp" style="flex:1">Import progress</button>
+    </div>
+    <div id="impbox" style="display:none;margin-top:10px">
+      <textarea id="imptxt" placeholder="Paste exported JSON here"></textarea>
+      <input type="file" id="impfile" accept="application/json" style="margin-top:8px">
+      <button class="next" id="doimport">Load</button>
+      <div id="impErr" class="warn" style="display:none;margin-top:8px"></div>
+    </div>
+    <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
+  if(PACK.showPron !== false) $("togglePron").onclick = () => { prog.showPron = !showPron(); store.save(); progressRender(); };
+  $("exp").onclick = () => {
+    const blob = new Blob([JSON.stringify(prog, null, 1)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `${STORE_KEY}_progress.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+  $("imp").onclick = () => { $("impbox").style.display = $("impbox").style.display==="none" ? "block" : "none"; };
+  $("impfile").onchange = e => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { $("imptxt").value = r.result; }; r.readAsText(f); };
+  const showImportError = msg => { const el = $("impErr"); el.textContent = msg; el.style.display = "block"; };
+  $("doimport").onclick = async () => {
+    try{
+      const r = VC.applyImport(prog, $("imptxt").value, PACK);
+      if(!r.ok){ showImportError("That doesn't look like valid exported progress for this pack: " + r.reason); return; }
+      // Backup first; if it can't be written (read-only session, storage error) the
+      // import is not applied, so the current progress is never lost unbacked.
+      if(!(await store.backup("pre_import_backup", JSON.stringify(prog)))){ showImportError("Import not applied: the current progress couldn't be backed up first (storage unavailable)."); return; }
+      prog = r.prog;
+      store.save(); applyTheme(); progressRender();
+    }catch(e){
+      showImportError("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
+    }
+  };
+  $("reset").onclick = async () => {
+    if(!confirm(`Reset all progress? A copy is kept under ${STORE_KEY}_reset_backup until the next reset.`)) return;
+    if(!(await store.backup("reset_backup", JSON.stringify(prog)))){ alert("Reset cancelled: the current progress couldn't be backed up first (storage unavailable)."); return; }
+    prog = Object.assign(VC.defaultProg(PACK), { theme: prog.theme, showPron: prog.showPron });
+    store.save(); progressRender();
+  };
+}
+
+// ===================== theme =====================
+function applyTheme(){ document.documentElement.setAttribute("data-theme", prog.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")); }
+$("themebtn").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  prog.theme = cur === "dark" ? "light" : "dark";
+  applyTheme(); store.save();
+};
+
+// ===================== boot =====================
+(async function(){
+  // VC.bootProg: unparseable / invalid stored progress is preserved under
+  // <key>_invalid_backup before defaults take over; sets for levels the pack no
+  // longer has are dropped (warned), everything else kept.
+  const got = await store.load();
+  const b = VC.bootProg(got.value, PACK, !got.ok);
+  if(b.readOnly){
+    storeReadOnly = true;
+    storageWarn("Saved progress could not be read (storage error), so this session is read-only: nothing you do now will be saved, and your stored progress is left untouched. Reload to try again.");
+  }
+  if(b.backupRaw !== null){ console.warn(`${STORE_KEY}: stored progress unusable (${b.reason}); kept as ${STORE_KEY}_invalid_backup`); await store.backup("invalid_backup", b.backupRaw); }
+  if(b.dropped.length) console.warn(`${STORE_KEY}: dropped progress for unknown levels: ${b.dropped.join(", ")}`);
+  prog = b.prog;
+  applyTheme();
+  render();
+})();
+</script>
+</body>
+</html>

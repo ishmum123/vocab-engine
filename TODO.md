@@ -1,0 +1,24 @@
+# TODO / known gaps
+
+## Verification
+- Browser verification of dist/zh.html is still pending. Check the Today flow, hear items with a real TTS voice, the typed-input flow, dark mode, and the phone and desktop layouts. So far the build has only had a Node syntax check and a jsdom click-through, which found no runtime errors.
+
+## Behaviour differences vs hsk (intentional, from the extraction)
+- **zh UX is now word-first.** hsk was pinyin-first and hid characters by default. The engine shows `w` (the characters), with `pron` (pinyin) beside it when "Show pronunciation" is on. The per-syllable tone colouring and the showChars, mixChars, and Characters subsystems are gone.
+- **zh has no typed production** (`typing: null`). Typing hanzi needs an IME, and pinyin is display-only by rule. zh production is recall only. Revisit this if pinyin typing should come back: it could be done with an `alt`-style "typeable" field, but that would break the "pron never drilled" rule.
+- **No per-word tap-to-hear inside sentences.** hsk rendered per-token pinyin spans. Sentences are now tapped as a whole.
+- **Cloze (gap) items no longer auto-play the sentence** before answering, because hearing it gave the blank away. Audio plays on reveal.
+- **The pinyin reference chart and the Test "Extras"** (tone pattern and typed pinyin drills) were dropped. A pack-supplied reference chart could replace the chart.
+- **Two function words resolve to their base word.** hsk's function-word list included the compounds 你们 and 他们, which now resolve to their base words 你 and 他. As a result, 你 and 他 are never blanked, including inside 你们 and 他们.
+- **`SENTENCE_EXTRA` compounds resolve to their base word's id.** For example, 这个 resolves to 这, which covers 140 of 5040 tokens. They are also listed in `pack.compounds`, so a cloze never blanks 这 inside 这个. `pack_from_hsk.py` also merges adjacent hsk tokens into one longer vocab word, longest match first (8 merges, such as 为+什么 into 为什么).
+- **No migration from hsk's `hsk_pinyin` localStorage progress.** It was out of scope, and the ids differ: hsk keyed progress by the hanzi, the engine keys it by word id. A one-off importer could map w→id.
+
+## Engine follow-ups
+- **Voice detection:** when the browser never reports a voice list, the engine optimistically assumes speech works. On browsers that report the list late, the first hear item may be spoken by a default voice.
+- A missed **type** item is requeued until the learner types it correctly, as in hsk. Consider turning it into a recall item on the second miss.
+- `rank` is validated but unused. Sets follow file order. Consider sorting by `rank` within each level at pack-build time.
+- `pos` is used only by `wordOpts`. `meaningOpts` could also prefer the same pos.
+- Cloze needs the word's surface form in `t`, found via `w` or one of `alt`. For heavily inflected languages, consider an optional per-sentence `forms` array aligned with `words`.
+- Placement has a fixed 2/3 alternating item count per bucket. Consider making it pack-configurable.
+- The Sounds hint text on Today is generic. Consider an optional pack field for it.
+- There is no service worker or offline manifest, as in hsk.
