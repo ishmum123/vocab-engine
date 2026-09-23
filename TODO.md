@@ -48,3 +48,7 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 - Inference: word-based only, no grammar inference (no grammar tagging exists). Signals → existing weakScore/misses: tapped word for gloss while reading (strong), wrong answer (medium, charged to the question's `words`), reopened passage during questions (weak).
 - UI: "Read" tab, unlocked per level at ~70% of level learned; Today suggests 1 passage. Reading screen with tap-to-gloss (logged), optional TTS, "Done reading" → questions one at a time (MCQ/true-false), passage hidden with recorded "Show passage" → results: score, source sentence per question, "Weak words from this passage" auto-queued into next Today review (untickable). Progress: passages per level, reading speed.
 - Effort: engine 1–2 days Opus worker + review, once. Data ~half day per language after pipeline exists; more for ur/fa/ar/hi.
+
+## Minor (from live Italian regression check, 2026-09-24)
+- Gap article agreement: after "un ____" feminine l'-nouns (l'informazione) can appear as distractors because the table maps un→l' and packs carry no gender field. Fix: builders emit a `g` (m/f) field on nouns and the engine prefers same-gender distractors when present.
+- favicon 404 on every load on GitHub Pages; add an inline data-URI `<link rel="icon">` in app.html.
