@@ -84,7 +84,9 @@ function meaningOpts(entry, pool){
 // answer never gets a pack.functionWords distractor (a learner rules those out on sight,
 // and in a cloze one may even fit the blank); a function-word answer prefers other
 // function words, then falls back to content words.
-function wordOpts(entry, pool, showOf, pack){
+// prefer (optional predicate): matching candidates come first, ahead of the tiers above
+// (used by gapChoices for article agreement); the rest follow when fewer than 3 match.
+function wordOpts(entry, pool, showOf, pack, prefer){
   const show = showOf || (e => e.w);
   const ansGloss = normKey(entry.en), ansF2 = firstTwoWords(entry.en);
   const hasPos = !!entry.pos;
@@ -99,7 +101,8 @@ function wordOpts(entry, pool, showOf, pack){
   const t3 = cands.filter(v=>v.lv!==entry.lv && samePos(v));
   const t4 = cands.filter(v=>v.lv!==entry.lv && !samePos(v));
   const tiered = [...shuffle(t1), ...shuffle(t2), ...shuffle(t3), ...shuffle(t4)];
-  const ordered = ansFw ? [...tiered.filter(v=>fw.has(v.id)), ...tiered.filter(v=>!fw.has(v.id))] : tiered;
+  const byClass = ansFw ? [...tiered.filter(v=>fw.has(v.id)), ...tiered.filter(v=>!fw.has(v.id))] : tiered;
+  const ordered = prefer ? [...byClass.filter(v => prefer(v)), ...byClass.filter(v => !prefer(v))] : byClass;
   function pass(strict){
     // Every answer surface is already excluded from `cands`; among distractors only
     // the displayed `w` must differ (their alts are never shown, so sharing one is fine).
@@ -143,19 +146,36 @@ function sentenceOpts(sentence, pool){
 }
 
 // ------------------------------------------------------------------ typing
-// Accent folding (lenient typing, Words search): drop optional marks that learners
-// routinely omit. Latin combining accents (é -> e, ñ -> n, ü -> u, Russian stress
-// о́ -> о), Arabic-script harakat and tatweel, Hebrew points, the Devanagari nukta, and
-// ZWNJ/ZWJ (Persian می‌روم = میروم). Letters whose mark makes them a different letter
-// are kept (Cyrillic й, ї). Marks that are part of the letter in other scripts
-// (Devanagari vowel signs, kana voicing marks) are outside these ranges and never folded.
-const FOLD_MARKS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06dc\u06df-\u06e4\u06e7\u06e8\u06ea-\u06ed\u0640\u093c\u200c\u200d]/g;
-const FOLD_KEEP = new Set(["\u0439","\u0419","\u0457","\u0407"]); // й Й ї Ї
+// Accent folding (lenient typing, Words search). Rule: drop only marks that are optional
+// accents, stress or vowel pointing for their script. A mark that makes a different
+// letter is never dropped. Each precomposed code point is decomposed (NFD), its
+// foldable marks removed, then recomposed (NFC), so a kept mark re-forms its letter.
+// Per script (FOLD_SCRIPTS):
+//  - Latin/Greek/Cyrillic combining diacritics: folded (é -> e, ñ -> n, stress о́ -> о,
+//    ё -> е). Kept as letters: Cyrillic й, ї, ў (FOLD_KEEP).
+//  - Arabic script: harakat, Quranic marks, superscript alef and tatweel folded. The
+//    hamza marks U+0653-0655 are kept, so أ إ آ ؤ ئ ۀ never collapse to their base.
+//  - Hebrew: niqqud and cantillation folded.
+//  - Devanagari/Bengali etc.: nothing folded. Nukta (ज़ vs ज), virama and vowel signs
+//    make distinct letters or syllables.
+//  - Kana voicing marks (が vs か, ぱ vs は): never folded.
+//  - ZWNJ/ZWJ: dropped (Persian می‌روم = میروم).
+const FOLD_SCRIPTS = {
+  latinGreekCyrillic: "\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f",
+  hebrew: "\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7",
+  arabic: "\u0610-\u061a\u064b-\u0652\u0656-\u065f\u0670\u06d6-\u06dc\u06df-\u06e4\u06e7\u06e8\u06ea-\u06ed\u0640",
+  joiners: "\u200c\u200d",
+};
+const FOLD_MARKS = new RegExp("[" + Object.values(FOLD_SCRIPTS).join("") + "]", "g");
+const FOLD_KEEP = new Set(["\u0439","\u0419","\u0457","\u0407","\u045e","\u040e"]); // й Й ї Ї ў Ў
 function foldAccents(s){
   return String(s).normalize("NFC").replace(/[^\u0000-\u007f]/gu, c => FOLD_KEEP.has(c) ? c : c.normalize("NFD").replace(FOLD_MARKS, "").normalize("NFC"));
 }
 // Arabic-script keyboard variants that look alike and are typed interchangeably:
 // Arabic kaf/yeh vs their Persian/Urdu forms. Always unified (both sides), like apostrophes.
+// Deliberately NOT unified or folded: ة (teh marbuta) vs ه, and ى (alef maksura) vs ي/ی.
+// These are distinct letters in Arabic spelling (على "on" vs علي "Ali"), not keyboard
+// variants, so ي maps to Persian ی but ى stays its own letter.
 const ARABIC_VARIANTS = { "\u0643":"\u06a9", "\u064a":"\u06cc" };
 // opts: {caseSensitive, foldAccents}. Trims, collapses inner whitespace, unifies
 // typographic apostrophes, casefolds unless caseSensitive, accent-folds if asked.
@@ -270,10 +290,33 @@ function spannedByLonger(sentence, match, wordsById, pack){
 // The blankable match for `entry` in `sentence`, or null (see locateWord and
 // spannedByLonger). The one place both gap-candidate selection and the app's gap
 // item use, so they can never disagree.
+// Design rule: the blank never includes an article. When the located form carries one
+// ("l'église", "la iglesia", "Il conto", an alt like "l'acqua"), the article stays
+// visible before the blank ("allons à l'____", "vamos a la ____") and the blank covers
+// the bare rest (articleCut). Uniqueness and spannedByLonger are judged on the full hit.
+// The bare form is searched too, so a "le/la médecin" with no alt is still found.
+// Only pack articles are ever cut. A span that still starts with something its option
+// label drops (a reflexive clitic: "se lever" labelled "lever"; an elided article the pack
+// does not list) is not a legal blank: null. Returns {start, end, text, article}, where
+// article is the pack article visible right before the blank ("la", "l'", "den"), or "".
 function gapMatch(sentence, entry, wordsById, pack){
-  const m = locateWord(sentence, entry, pack);
+  const arts = packArticles(wordsById), bare = bareForm(entry, arts);
+  const forms = [entry.w, ...(entry.alt||[])];
+  const m = locateWord(sentence, forms.includes(bare) ? entry : Object.assign({}, entry, { alt: [...forms.slice(1), bare] }), pack);
   if(!m || spannedByLonger(sentence, m, wordsById, pack)) return null;
-  return m;
+  const cut = articleCut(m.text, arts, entry), text = m.text.slice(cut);
+  if(trailingCut(text, bare)) return null;
+  const start = m.start + cut;
+  return { start, end: m.end, text, article: visibleArticle(String(sentence.t).slice(0, start), arts, pack) };
+}
+// The article token ending `before` (the sentence text before a blank): an elided one
+// ("l'", "dell'") or a word followed by whitespace, surf-keyed; "" unless it is a pack
+// article or a key of the pack's article-agreement table (contractions: du, al, dem).
+function visibleArticle(before, arts, pack){
+  const m = before.match(/(\p{L}+['\u2019\u02bc])$/u) || before.match(/(\p{L}+)\s+$/u);
+  if(!m) return "";
+  const k = surfKey(m[1]);
+  return (arts.has(k) || Object.prototype.hasOwnProperty.call(articleAgreement(pack), k)) ? k : "";
 }
 // Indices into sentence.words that are legal cloze blanks: a known word at the
 // sentence's own level, not a pack function word, not repeated in the sentence (by id),
@@ -298,28 +341,121 @@ function blankSentence(sentence, match){
 }
 // Surface key that also folds apostrophe variants (l’anno = l'anno).
 const surfKey = s => normKey(s).replace(/[\u2019\u02bc]/g, "'");
-// A word's bare form. Pack convention: when `w` carries an article or clitic
-// ("il gioco", "l'anno"), alt[0] is the bare lemma ("gioco", "anno"). alt[0] counts as
-// the bare form only when it is a whole trailing token of `w` (after a space or an
-// apostrophe), so alts that are other forms (il -> lo, bello -> bella) or longer
-// elided forms (acqua -> l'acqua) never replace `w`.
-function bareForm(e){
-  const w = String((e && e.w) || ""), a0 = e && e.alt && e.alt[0];
-  if(!a0 || a0.length >= w.length) return w;
-  const cut = w.length - a0.length, sep = w[cut - 1] || "";
-  return (surfKey(w.slice(cut)) === surfKey(a0) && (/\s/.test(sep) || isApos(sep))) ? String(a0) : w;
+// The pack's articles: w and every alt of each pos "art" word (le/la/l'/les, el/la/los,
+// il/lo/l'/gli, un/une...), surf-keyed. Built from the word list (array or id map) and
+// cached per list object. Empty for packs without articles (zh), which disables every
+// article rule below.
+const ART_CACHE = new WeakMap();
+function packArticles(words){
+  if(!words || typeof words !== "object") return new Set();
+  let set = ART_CACHE.get(words);
+  if(!set){
+    set = new Set();
+    (Array.isArray(words) ? words : Object.values(words)).forEach(v => {
+      if(v && v.pos === "art") [v.w, ...(v.alt||[])].forEach(a => { if(a) set.add(surfKey(a)); });
+    });
+    ART_CACHE.set(words, set);
+  }
+  return set;
 }
-// MC options for a gap item. When the blank covers `w` itself, every option shows its
-// `w`. When the sentence used another form (an alt: bare or inflected, e.g. "gioco" for
-// "il gioco"), every option shows its bareForm instead, so article-carrying options never
-// sit inside the sentence's own article context ("È un ____" offering "il padre").
+// Length of a leading article in `text`: a pack article (or an a/b pair of them, as in
+// "le/la médecin") followed by whitespace, or an elided article ending in an apostrophe
+// ("l'église", "un'amica"). 0 when there is none, when the rest is itself an article
+// ("l'un"), or, given `entry`, unless the word is a noun or its alt[0] is the rest: fixed
+// expressions that start with an article-like word ("un peu", "les uns les autres",
+// "tout le monde") are never cut.
+const NOUN_POS = /^(noun|n|propn)$/i;
+function articleCut(text, arts, entry){
+  if(!arts || !arts.size) return 0;
+  const t = String(text);
+  const m = t.match(/^(\S+?)(\s+|(?<=['\u2019\u02bc]))(?=\S)/u);
+  if(!m || !m[1].split("/").every(a => a && arts.has(surfKey(a)))) return 0;
+  const rest = t.slice(m[0].length);
+  if(arts.has(surfKey(rest))) return 0;
+  if(entry){
+    const a0 = entry.alt && entry.alt[0];
+    if(!NOUN_POS.test(entry.pos || "") && !(a0 && surfKey(a0) === surfKey(rest))) return 0;
+  }
+  return m[0].length;
+}
+// Length of the prefix of `text` that leaves exactly `tail` as a whole trailing token
+// (after a space or an apostrophe); 0 when `tail` is not such a token of `text`.
+function trailingCut(text, tail){
+  const t = String(text), b = String(tail || "");
+  if(!b || b.length >= t.length) return 0;
+  const cut = t.length - b.length, sep = t[cut - 1] || "";
+  return (surfKey(t.slice(cut)) === surfKey(b) && (/\s/.test(sep) || isApos(sep))) ? cut : 0;
+}
+// A word's bare form (what gap options show). Pack convention: when `w` carries an
+// article or clitic ("il gioco", "l'anno", "le/la médecin", "se lever"), alt[0] is the
+// bare lemma. alt[0] counts as the bare form only when it is a whole trailing token of
+// `w` (trailingCut), so alts that are other forms (il -> lo, bello -> bella) or longer
+// elided forms (acqua -> l'acqua) never replace `w`. Otherwise, given the pack's
+// articles (packArticles), a leading article is stripped from `w` (articleCut); else `w`.
+function bareForm(e, arts){
+  const w = String((e && e.w) || ""), a0 = e && e.alt && e.alt[0];
+  if(a0 && trailingCut(w, a0)) return String(a0);
+  const k = articleCut(w, arts, e);
+  return k ? w.slice(k) : w;
+}
+// The articles a word is cited with: the parts of its leading article ("le/la médecin"
+// -> ["le","la"]), surf-keyed; [] for a word without one.
+// Cached per word object and article set.
+const CIT_CACHE = new WeakMap();
+function citationArticles(v, arts){
+  if(!v || typeof v !== "object") return [];
+  const hit = CIT_CACHE.get(v);
+  if(hit && hit.arts === arts) return hit.list;
+  const w = String(v.w || ""), k = articleCut(w, arts, v);
+  const list = k ? w.slice(0, k).trim().split("/").map(surfKey) : [];
+  CIT_CACHE.set(v, { arts, list });
+  return list;
+}
+// Which citation articles each visible article agrees with, by language (targetLang).
+// A visible article before a blank tells gender (la, die), elision (l') or case form
+// (den, dem); distractors cited with an agreeing article are preferred so the article
+// never gives the answer away. l' agrees with l' (either gender); plural and indefinite
+// forms agree with every citation article they can stand for; German case forms map to
+// their gender(s). pack.articleAgreement ({visible: [citation...]}) replaces the default;
+// an article missing from the table agrees only with itself.
+const ARTICLE_AGREEMENT = {
+  fr: { le:["le"], la:["la"], "l'":["l'"], les:["le","la","l'"], un:["le","l'"], une:["la","l'"], du:["le"], au:["le"],
+        des:["le","la","l'"], aux:["le","la","l'"] },
+  es: { el:["el"], la:["la"], los:["el"], las:["la"], un:["el"], una:["la"], del:["el"], al:["el"] },
+  it: { il:["il"], lo:["lo"], la:["la"], "l'":["l'"], i:["il"], gli:["lo","l'"], le:["la","l'"], un:["il","lo","l'"], uno:["lo"],
+        una:["la"], "un'":["l'"],
+        del:["il"], al:["il"], dal:["il"], nel:["il"], sul:["il"], dello:["lo"], allo:["lo"], dallo:["lo"], nello:["lo"], sullo:["lo"],
+        della:["la"], alla:["la"], dalla:["la"], nella:["la"], sulla:["la"], "dell'":["l'"], "all'":["l'"], "dall'":["l'"], "nell'":["l'"], "sull'":["l'"],
+        dei:["il"], ai:["il"], dai:["il"], nei:["il"], sui:["il"], degli:["lo","l'"], agli:["lo","l'"], dagli:["lo","l'"], negli:["lo","l'"], sugli:["lo","l'"],
+        delle:["la","l'"], alle:["la","l'"], dalle:["la","l'"], nelle:["la","l'"], sulle:["la","l'"] },
+  de: { der:["der","die"], die:["die"], das:["das"], den:["der"], dem:["der","das"], des:["der","das"], ein:["der","das"], eine:["die"],
+        einen:["der"], einem:["der","das"], einer:["die"], eines:["der","das"], im:["der","das"], am:["der","das"], zum:["der","das"],
+        zur:["die"], vom:["der","das"], beim:["der","das"], ins:["das"] },
+};
+function articleAgreement(pack){
+  const own = pack && pack.articleAgreement;
+  return (own && typeof own === "object") ? own : (ARTICLE_AGREEMENT[targetLang(pack)] || {});
+}
+// MC options for a gap item. Every option (answer and distractors) is shown by its
+// bareForm, never with an article: the blank never includes the article (gapMatch), so
+// an articled option would clash with the sentence ("le ____" offering "la loi") and a
+// mix of bare and articled options would give the answer away. When an article is
+// visible before the blank (match.article), distractors cited with an agreeing article
+// come first (articleAgreement), so "la ____" offers other la-nouns; wordOpts falls back
+// to the rest when fewer than 3 agree.
 // Returns { opts, a, byLabel } with byLabel mapping each label to its word.
 function gapChoices(entry, match, pool, pack){
-  const useBare = !!match && surfKey(match.text) !== surfKey(entry.w);
-  const show = useBare ? bareForm : (e => e.w);
-  const ds = wordOpts(entry, pool, show, pack);
+  const arts = packArticles(pool);
+  const show = e => bareForm(e, arts);
+  const vis = match && match.article;
+  let prefer = null;
+  if(vis){
+    const ok = new Set(articleAgreement(pack)[vis] || [vis]);
+    prefer = v => citationArticles(v, arts).some(a => ok.has(a));
+  }
+  const ds = wordOpts(entry, pool, show, pack, prefer);
   const byLabel = {}; [entry, ...ds].forEach(e => { byLabel[show(e)] = e; });
-  return { opts: [show(entry), ...ds.map(show)], a: show(entry), byLabel, bare: useBare };
+  return { opts: [show(entry), ...ds.map(show)], a: show(entry), byLabel };
 }
 // Up to n example sentences for `entry` (sentences whose `words` list its id), in pack
 // order within tiers: sentences where `w` is visible as a whole token first, then ones
@@ -358,17 +494,53 @@ function highlightParts(sentence, entry, wordsById, pack){
   return out;
 }
 
+// ------------------------------------------------------------------ pron display
+// The pron worth showing next to x (a word or sentence): x.pron, or "" when it repeats
+// the text itself (Russian "в" / "в"). Compared NFC, case-folded and trimmed. A pron that
+// differs only by stress marks (де́лать for делать) is kept: the stress is the point.
+function pronShown(x){
+  const p = x && x.pron; if(!p) return "";
+  const k = s => String(s == null ? "" : s).normalize("NFC").trim().toLowerCase();
+  return k(p) === k(x.w != null ? x.w : x.t) ? "" : String(p);
+}
+
 // ------------------------------------------------------------------ Words search
 // Words-tab search: a word matches when the query occurs in its w, any alt, its pron or
 // its gloss, compared case-folded and accent-folded (foldAccents: Latin accents, stress
 // marks, harakat, ZWNJ) on both sides. Whitespace is also ignored as a second chance, so
-// "nihao" finds "nǐ hǎo" and "ni hao" finds "nihao". Returns matches in pack order.
+// "nihao" finds "nǐ hǎo" and "ni hao" finds "nihao". Ranking (stable, pack order within
+// a tier): 0 = the query is the word itself (w, an alt or pron, whole), 1 = it is one
+// whole gloss sense ("book" in "book, volume"), 2 = w/alt/pron starts with it, 3 = the
+// rest. So "делать" lists делать before сделать.
+// Folded search fields are computed once per word (SEARCH_CACHE, rebuilt if the word's
+// text changes), so a keystroke only compares strings.
+const SEARCH_CACHE = new WeakMap();
+function searchFields(v){
+  const src = [v.w, v.pron, v.en, ...(v.alt||[])].join("\u0001");
+  let r = SEARCH_CACHE.get(v);
+  if(r && r.src === src) return r;
+  const norm = x => x ? normalizeTyped(x, { foldAccents: true }) : "";
+  const pack = x => { const f = norm(x); return { f, ns: f.replace(/\s/g, "") }; };
+  const target = [v.w, v.pron, ...(v.alt||[])].filter(Boolean).map(pack);
+  const g = gloss(v);
+  const senses = g.split(/[,;]/).flatMap(x => [x, x.replace(/^\s*to\s+/i, "")]).map(pack);
+  r = { src, target, gloss: pack(g), senses };
+  SEARCH_CACHE.set(v, r);
+  return r;
+}
 function searchWords(words, query, limit){
-  const norm = x => normalizeTyped(x, { foldAccents: true });
-  const q = norm(query), qs = q.replace(/\s/g, "");
+  const q = normalizeTyped(query, { foldAccents: true }), qs = q.replace(/\s/g, "");
   if(!q) return [];
-  const hit = x => { if(!x) return false; const v = norm(x); return v.includes(q) || (!!qs && v.replace(/\s/g, "").includes(qs)); };
-  const out = (words||[]).filter(v => hit(v.w) || hit(v.pron) || hit(gloss(v)) || (v.alt||[]).some(hit));
+  const hit = x => x.f.includes(q) || (!!qs && x.ns.includes(qs));
+  const same = x => x.f === q || (!!qs && x.ns === qs);
+  const tiers = [[], [], [], []];
+  (words||[]).forEach(v => {
+    const r = searchFields(v);
+    if(!(r.target.some(hit) || hit(r.gloss))) return;
+    const t = r.target.some(same) ? 0 : r.senses.some(same) ? 1 : r.target.some(x => x.f.startsWith(q)) ? 2 : 3;
+    tiers[t].push(v);
+  });
+  const out = [...tiers[0], ...tiers[1], ...tiers[2], ...tiers[3]];
   return limit ? out.slice(0, limit) : out;
 }
 
@@ -741,7 +913,7 @@ function audioSlot(make){
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
-  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, gapChoices, exampleSentences, highlightParts, searchWords, audioSlot, TEST_MIN_WORDS,
+  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
   targetLang, fontFamilyOf, lineHeightOf, fontsHref, scriptDisplay,
   foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,

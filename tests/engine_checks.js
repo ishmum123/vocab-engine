@@ -550,11 +550,12 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const s1b = { id:"s1b", t:"Due giocos qui.", en:"x", lv:"A1", words:["n0"] };
   const gcb = VC.gapChoices(nouns[0], VC.gapMatch(s1b, nouns[0], BY, I), W, I);
   check("gapChoices: inflected alt blank -> bare labels too", gcb.a === "gioco" && gcb.opts.every(o => !/^(il|la) /.test(o)));
-  // Blank = w: all options keep w.
+  // Blank found via w ("Il gioco"): the article stays visible, blank + options are bare
+  // (rule changed in [19]; before, options showed w here).
   const s2 = { id:"s2", t:"Il gioco è bello.", en:"x", lv:"A1", words:["n0"] };
   const m2 = VC.gapMatch(s2, nouns[0], BY, I);
   const gc2 = VC.gapChoices(nouns[0], m2, W, I);
-  check("gapChoices: blank matched w -> every option shows its w", !!m2 && gc2.a === "il gioco" && gc2.opts.every(o => W.some(v => v.w === o)));
+  check("gapChoices: blank found via w -> article outside blank, every option bare", !!m2 && m2.text === "gioco" && gc2.a === "gioco" && gc2.opts.every(o => !/^(il|la) /.test(o)));
   // Elided alt (acqua -> blank l'acqua): answer stays bare w, distractors bare.
   const s3 = { id:"s3", t:"Bevo l'acqua.", en:"x", lv:"A1", words:["acqua"] };
   const gc3 = VC.gapChoices(acqua, VC.gapMatch(s3, acqua, BY, I), W, I);
@@ -709,9 +710,9 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   check("search limit caps results", VC.searchWords(WORDS, "a", 5).length === 5);
 
   // --- folding keeps letters that marks distinguish
-  check("foldAccents: stress/ё folded; й, Devanagari vowel signs and kana voicing kept; nukta folded",
+  check("foldAccents: stress/ё folded; й, Devanagari vowel signs, nukta and kana voicing kept (nukta rule changed in [20])",
     VC.foldAccents("молоко́") === "молоко" && VC.foldAccents("ёж") === "еж" && VC.foldAccents("мой") === "мой" &&
-    VC.foldAccents("कि") === "कि" && VC.foldAccents("ज़रा") === "जरा" && VC.foldAccents("が") === "が" && VC.foldAccents("perché") === "perche");
+    VC.foldAccents("कि") === "कि" && VC.foldAccents("ज़रा") === "ज़रा" && VC.foldAccents("が") === "が" && VC.foldAccents("perché") === "perche");
 
   // --- showPron default comes from the pack
   check("showPron default comes from pack.showPron", VC.defaultProg({levels:[], showPron:false}).showPron === false && VC.defaultProg({levels:[], showPron:true}).showPron === true);
@@ -771,6 +772,185 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     if(Object.values(gc.byLabel).some(v => v.id !== e.id && zfw.has(v.id))) zhFw++;
   }));
   check("zh gap sweep (300 sentences): no function-word distractor in any cloze", zhFw === 0);
+})();
+
+// ------------------------------------------------------------ [19] gap articles: blank never includes the article, options always bare
+(function(){
+  console.log("\n[19] gap article rule (fr/es browser-verify)");
+  const F = { levels:[{id:"A1",label:"A1"}], functionWords:["le","un"], spaced:true, typing:{ enabled:true, accents:"lenient" } };
+  const W = [
+    { id:"le", w:"le", en:"the", lv:"A1", pos:"art", alt:["la","l'","les"] },
+    { id:"un", w:"un", en:"a", lv:"A1", pos:"art", alt:["une"] },
+    { id:"eg", w:"l'église", en:"church", lv:"A1", pos:"noun", alt:["église","églises"] },
+    { id:"fr", w:"le fruit", en:"fruit", lv:"A1", pos:"noun", alt:["fruit","fruits"] },
+    { id:"lo", w:"la loi", en:"law", lv:"A1", pos:"noun", alt:["loi","lois"] },
+    { id:"oe", w:"l'œuf", en:"egg", lv:"A1", pos:"noun", alt:["œuf","œufs"] },
+    { id:"se", w:"le/la secrétaire", en:"secretary", lv:"A1", pos:"noun", alt:["secrétaire","secrétaires"] },
+    { id:"me", w:"le/la médecin", en:"doctor", lv:"A1", pos:"noun" },                 // no alt: article list strips it
+    { id:"di", w:"dimanche", en:"Sunday", lv:"A1", pos:"noun" },
+    { id:"ga", w:"la gare", en:"station", lv:"A1", pos:"noun" },                        // no alt
+  ];
+  const BY = {}; W.forEach(w => { BY[w.id] = w; });
+  const ARTED = /^(le|la|les|l'|l’|un|une)(\/(le|la))?( |(?<='))/i;
+  const sweep = (entry, sent, n) => { const out = []; for(let i=0;i<(n||60);i++) out.push(VC.gapChoices(entry, VC.gapMatch(sent, entry, BY, F), W, F)); return out; };
+  // Class 1: sentence form carries the article -> article stays visible, blank bare.
+  const s1 = { id:"s1", t:"Ce soir nous allons à l'église.", en:"x", lv:"A1", words:["le","eg"] };
+  const m1 = VC.gapMatch(s1, BY.eg, BY, F), b1 = VC.blankSentence(s1, m1);
+  check("articled blank (l'église): elided article stays before the blank, blank = église", !!m1 && m1.text === "église" && b1.before === "Ce soir nous allons à l'");
+  const s1b = { id:"s1b", t:"La gare est loin.", en:"x", lv:"A1", words:["le","ga"] };
+  const m1b = VC.gapMatch(s1b, BY.ga, BY, F), b1b = VC.blankSentence(s1b, m1b);
+  check("articled blank, word without alt (La gare): 'La ' visible, blank = gare", !!m1b && m1b.text === "gare" && b1b.before === "La ");
+  check("articled blank: still a gap candidate (article outside blank does not count as a longer surface)", VC.gapCandidateIndices(s1, BY, F).length === 1);
+  check("articled blank: every option bare, answer église",
+    sweep(BY.eg, s1).every(gc => gc.a === "église" && gc.opts.length === 4 && gc.opts.every(o => !ARTED.test(o)) && gc.byLabel["église"] === BY.eg));
+  // Class 2: bare blank ("le ____" for dimanche) never mixes in articled distractors.
+  const s2 = { id:"s2", t:"Je travaille même le dimanche.", en:"x", lv:"A1", words:["le","di"] };
+  const m2 = VC.gapMatch(s2, BY.di, BY, F);
+  check("mixed options: bare blank -> no articled distractor (le fruit / la loi / l'œuf shown bare)",
+    !!m2 && m2.text === "dimanche" && sweep(BY.di, s2, 100).every(gc => gc.opts.length === 4 && gc.opts.every(o => !ARTED.test(o))));
+  // Class 3: double-article words are shown bare, with or without alt[0].
+  check("double article: bareForm(le/la secrétaire) = secrétaire; without alt, le/la médecin -> médecin via pack articles",
+    VC.bareForm(BY.se) === "secrétaire" && VC.bareForm(BY.me, VC.packArticles(W)) === "médecin" && VC.bareForm(BY.me) === "le/la médecin");
+  let dbl = true; for(let i=0;i<100;i++){ const gc = VC.gapChoices(BY.di, m2, W, F); if(gc.opts.some(o => o.includes("/"))) dbl = false; }
+  check("double article: never shown verbatim as a gap option", dbl);
+  const s3 = { id:"s3", t:"Le médecin arrive.", en:"x", lv:"A1", words:["le","me"] };
+  const m3 = VC.gapMatch(s3, BY.me, BY, F);
+  check("double-article word blanked in a sentence: 'Le ' visible, blank médecin, answer médecin",
+    !!m3 && m3.text === "médecin" && VC.gapChoices(BY.me, m3, W, F).a === "médecin");
+  // articleCut only strips pack articles, never an ordinary apostrophe word.
+  const A = VC.packArticles(W);
+  check("articleCut: le/l'/les/le-la strip; aujourd'hui, 'lecture', bare 'le' untouched",
+    VC.articleCut("le fruit", A) === 3 && VC.articleCut("l’œuf", A) === 2 && VC.articleCut("le/la secrétaire", A) === 6 &&
+    VC.articleCut("aujourd'hui", A) === 0 && VC.articleCut("lecture", A) === 0 && VC.articleCut("le", A) === 0 && VC.articleCut("le fruit", new Set()) === 0);
+  // Typed gap: the bare blank, alt forms and w are all accepted.
+  const extra = [m1.text];
+  check("gap-type: accepts bare blank, alt forms, w; rejects a distractor",
+    VC.acceptTyped("église", BY.eg, F, extra) && VC.acceptTyped("eglise", BY.eg, F, extra) && VC.acceptTyped("églises", BY.eg, F, extra) &&
+    VC.acceptTyped("l'église", BY.eg, F, extra) && !VC.acceptTyped("gare", BY.eg, F, extra));
+  // zh (no articles): gap matches unchanged.
+  let zhSame = true;
+  SENTENCES.slice(0, 200).forEach(zs => VC.gapCandidateIndices(zs, BY_ID, PACK).forEach(ix => {
+    const e = BY_ID[zs.words[ix]], m = VC.gapMatch(zs, e, BY_ID, PACK), l = VC.locateWord(zs, e, PACK);
+    if(!l || m.start !== l.start || m.end !== l.end || VC.gapChoices(e, m, WORDS, PACK).a !== e.w) zhSame = false;
+  }));
+  check("zh (no articles): gap span = located span, answer label = w", zhSame);
+})();
+
+// ------------------------------------------------------------ [20] Russian browser-verify round
+(function(){
+  console.log("\n[20] script-aware fold, pron display, search ranking");
+  const F = VC.foldAccents, same = (a, b) => F(a) === F(b);
+  // A. Marks that make a distinct letter never fold, in any script; accents/stress/pointing do.
+  check("fold keeps distinct letters: й≠и, ї≠і, ў≠у (also after NFD input, re-composed)",
+    !same("й","и") && !same("ї","і") && !same("ў","у") && !same("Й","И") && F("мои\u0306") === "мой");
+  check("lenient typing: твои/мои rejected for твой/мой; stress-less делать and е-for-ё accepted", (() => {
+    const P = { typing:{ accents:"lenient" } };
+    return !VC.acceptTyped("твои", { w:"твой" }, P) && !VC.acceptTyped("мои", { w:"мой" }, P) &&
+      VC.acceptTyped("делать", { w:"де́лать" }, P) && VC.acceptTyped("еж", { w:"ёж" }, P) && VC.acceptTyped("твой", { w:"твой" }, P);
+  })());
+  check("fold: Arabic hamza letters stay distinct (أ إ آ ؤ ئ ۀ vs base); harakat and tatweel fold",
+    !same("أ","ا") && !same("إ","ا") && !same("آ","ا") && !same("ؤ","و") && !same("ئ","ي") && !same("ۀ","ه") &&
+    F("كَتَبَ") === "كتب" && F("كـتاب") === "كتاب" && F("سؤال") === "سؤال");
+  check("fold: Devanagari nukta/virama and kana (han)dakuten stay distinct",
+    !same("ज़","ज") && !same("ड़","ड") && !same("क्","क") && !same("が","か") && !same("ぱ","は") && !same("ば","は"));
+  check("fold: Latin accents, Cyrillic stress/ё, Hebrew niqqud, ZWNJ still fold",
+    F("perché") === "perche" && F("ñ") === "n" && F("моло́ко") === "молоко" && F("ё") === "е" && F("שָׁלוֹם") === "שלום" && F("می\u200cروم") === "میروم");
+  check("lenient typing: ещё/еще both ways; fully vocalised Arabic = unvocalised; か rejected for が; ا rejected for أ", (() => {
+    const P = { typing:{ accents:"lenient" } };
+    return VC.acceptTyped("еще", { w:"ещё" }, P) && VC.acceptTyped("ещё", { w:"еще" }, P) &&
+      VC.acceptTyped("مدرسة", { w:"مَدْرَسَةٌ" }, P) && VC.acceptTyped("مَدْرَسَةٌ", { w:"مدرسة" }, P) &&
+      !VC.acceptTyped("か", { w:"が" }, P) && !VC.acceptTyped("امس", { w:"أمس" }, P) && VC.acceptTyped("أَمْس", { w:"أمس" }, P);
+  })());
+  // C. pron hidden when it only repeats the text.
+  check("pronShown: hidden when pron = w (в/в, case/NFC-insensitive) or = sentence text; stress-marked pron kept",
+    VC.pronShown({ w:"в", pron:"в" }) === "" && VC.pronShown({ w:"Я", pron:"я" }) === "" && VC.pronShown({ t:"да", pron:"да" }) === "" &&
+    VC.pronShown({ w:"делать", pron:"де́лать" }) === "де́лать" && VC.pronShown({ w:"你好", pron:"nǐ hǎo" }) === "nǐ hǎo" && VC.pronShown({ w:"x" }) === "");
+  // D. exact match ranks first, then whole gloss sense, then prefix, then the rest (pack order within tiers).
+  const SW = [
+    { id:"sd", w:"сделать", pron:"сде́лать", en:"to do (pf.)" },
+    { id:"pd", w:"переделать", en:"to redo" },
+    { id:"dl", w:"делать", pron:"де́лать", en:"to do (impf.)" },
+    { id:"dv", w:"дело", en:"matter, deal" },
+    { id:"bk", w:"книжка", en:"booklet" },
+    { id:"bo", w:"книга", en:"book, volume" },
+  ];
+  const ids = q => VC.searchWords(SW, q).map(v => v.id).join(",");
+  check("search ranking: exact lemma first (делать before сделать), stress-folded pron counts as exact",
+    ids("делать") === "dl,sd,pd" && ids("де́лать") === "dl,sd,pd" && ids("book") === "bo,bk" && ids("дел") === "dl,dv,sd,pd");
+  // Pack-sized synthetic fixture (not the live ../russian pack): exact lemma beats the
+  // many words that contain it, whatever their pack order.
+  const RW = [...Array.from({ length: 300 }, (_, i) => ({ id:"f"+i, w:"пере"+"делать".slice(0, 1 + i % 6)+i, en:"filler "+i })),
+    { id:"sd2", w:"сделать", pron:"сде́лать", en:"to do (pf.)" }, { id:"dl2", w:"делать", pron:"де́лать", en:"to do (impf.)" }];
+  check("search ranking on a 302-word fixture: exact делать first although last in pack order; сделать still listed", (() => { const r = VC.searchWords(RW, "делать"); return r[0].id === "dl2" && r.some(v => v.id === "sd2"); })());
+  // Folded fields are cached per word but refreshed when the word's text changes.
+  const mut = [{ id:"m", w:"кот", en:"cat" }];
+  const firstHit = VC.searchWords(mut, "кот").length; mut[0].w = "пёс";
+  check("search cache: a changed word is re-folded (old text no longer matches, new does)", firstHit === 1 && VC.searchWords(mut, "кот").length === 0 && VC.searchWords(mut, "пес").length === 1);
+})();
+
+// ------------------------------------------------------------ [21] review round: article agreement, fixed expressions, clitics
+(function(){
+  console.log("\n[21] gap article agreement, articleCut on fixed expressions, reflexive clitics");
+  const mk = (id, w, en, pos, alt) => ({ id, w, en, lv:"A1", pos: pos || "noun", alt: alt || [String(w).replace(/^(il\/la|il|lo|la|l') ?/, "")] });
+  const IT = { tts:"it-IT", levels:[{id:"A1",label:"A1"}], functionWords:["il","un"], spaced:true };
+  const W = [
+    { id:"il", w:"il", en:"the", lv:"A1", pos:"art", alt:["lo","la","l'","i","gli","le"] },
+    { id:"un", w:"un", en:"a", lv:"A1", pos:"art", alt:["uno","una","un'"] },
+    mk("mela","la mela","apple"), mk("casa","la casa","house"), mk("sedia","la sedia","chair"), mk("porta","la porta","door"), mk("strada","la strada","road"),
+    mk("conto","il conto","bill"), mk("gior","il giornale","newspaper"), mk("libro","il libro","book"), mk("treno","il treno","train"), mk("cane","il cane","dog"),
+    mk("amico","l'amico","friend"), mk("acqua","l'acqua","water"), mk("isola","l'isola","island"), mk("uovo","l'uovo","egg"),
+    mk("zaino","lo zaino","backpack"), mk("coll","il/la collega","colleague"),
+    mk("peu","un po'","a bit","adv", []), mk("luno","l'uno","the one","pron", []),
+    { id:"alz", w:"alzarsi", en:"to get up", lv:"A1", pos:"verb" },
+  ];
+  const BY = {}; W.forEach(w => { BY[w.id] = w; });
+  const A = VC.packArticles(W);
+  const run = (entry, t, n) => { const s = { id:"x", t, en:"x", lv:"A1", words:[entry.id] }; const m = VC.gapMatch(s, entry, BY, IT);
+    const out = []; for(let i=0;i<(n||80);i++){ const gc = VC.gapChoices(entry, m, W, IT); out.push(gc.opts.slice(1).map(o => gc.byLabel[o])); } return { m, out }; };
+  const agrees = (ds, ok) => ds.every(v => VC.citationArticles(v, A).some(a => ok.includes(a)));
+  const la = run(BY.mela, "Mangio la mela.");
+  check("agreement: 'la ____' -> every distractor a la-noun (or le/la), over 80 draws", la.m && la.m.article === "la" && la.out.every(ds => ds.length === 3 && agrees(ds, ["la"])));
+  const el = run(BY.amico, "Vedo l'amico.");
+  check("agreement: elided 'l'____' -> every distractor an l'-noun (either gender)", el.m && el.m.article === "l'" && el.out.every(ds => ds.length === 3 && agrees(ds, ["l'"])));
+  const il = run(BY.conto, "Pago il conto.");
+  check("agreement: 'il ____' -> il-nouns (il/la collega counts)", il.out.every(ds => agrees(ds, ["il"])));
+  const lo = run(BY.zaino, "Porto lo zaino.");
+  check("agreement fallback: 'lo ____' with no other lo-noun still gets 3 distractors", lo.m.article === "lo" && lo.out.every(ds => ds.length === 3));
+  const none = run(BY.mela, "Mela!");
+  check("no visible article -> article '' and 3 distractors", none.m && none.m.article === "" && none.out.every(ds => ds.length === 3));
+  // German case forms via the default table (de): den -> masculine citation (der).
+  const DE = { tts:"de-DE", levels:[{id:"A1",label:"A1"}], functionWords:["der"], spaced:true };
+  const G = [{ id:"der", w:"der", en:"the", lv:"A1", pos:"art", alt:["die","das","den","dem","des"] },
+    ...[["hund","der Hund"],["tisch","der Tisch"],["baum","der Baum"],["stuhl","der Stuhl"],["katze","die Katze"],["tür","die Tür"],["haus","das Haus"],["buch","das Buch"]]
+      .map(([id,w]) => ({ id, w, en:id, lv:"A1", pos:"noun", alt:[w.split(" ")[1]] }))];
+  const GB = {}; G.forEach(w => { GB[w.id] = w; }); const GA = VC.packArticles(G);
+  const gm = VC.gapMatch({ id:"g", t:"Ich sehe den Hund.", en:"x", lv:"A1", words:["hund"] }, GB.hund, GB, DE);
+  let deOk = gm && gm.article === "den" && gm.text === "Hund";
+  for(let i=0;i<60 && deOk;i++){ const gc = VC.gapChoices(GB.hund, gm, G, DE); deOk = gc.opts.slice(1).every(o => VC.citationArticles(gc.byLabel[o], GA).includes("der")); }
+  check("agreement (de): 'den ____' -> der-nouns only (Tisch, Baum, Stuhl)", deOk);
+  check("pack.articleAgreement overrides the default table", (() => { const P2 = Object.assign({}, IT, { articleAgreement:{ la:["il"] } });
+    const m = VC.gapMatch({ id:"y", t:"Mangio la mela.", en:"x", lv:"A1", words:["mela"] }, BY.mela, BY, P2);
+    const gc = VC.gapChoices(BY.mela, m, W, P2); return gc.opts.slice(1).every(o => VC.citationArticles(gc.byLabel[o], A).includes("il")); })());
+  // Fixed expressions: never cut.
+  const FA = new Set(["le","la","l'","les","un","une"]);
+  check("articleCut: 'un peu', 'l'un', 'les uns les autres', 'tout le monde' unchanged for their entries",
+    VC.articleCut("un peu", FA, { w:"un peu", pos:"adv" }) === 0 && VC.articleCut("l'un", FA) === 0 && VC.articleCut("l'un", FA, { w:"l'un", pos:"pron" }) === 0 &&
+    VC.articleCut("les uns les autres", FA, { w:"les uns les autres", pos:"pron" }) === 0 && VC.articleCut("tout le monde", FA) === 0 &&
+    VC.bareForm({ w:"un peu", pos:"adv" }, FA) === "un peu" && VC.bareForm({ w:"les uns les autres", pos:"pron" }, FA) === "les uns les autres" &&
+    VC.articleCut("le fruit", FA, { w:"le fruit", pos:"noun" }) === 3 && VC.articleCut("la plupart", FA, { w:"la plupart", pos:"adv", alt:["plupart"] }) === 3);
+  check("gap: 'un po'' (adv) is blanked whole, never 'un ____'", (() => { const m = VC.gapMatch({ id:"p", t:"Aspetta un po'.", en:"x", lv:"A1", words:["peu"] }, BY.peu, BY, IT); return !!m && m.text === "un po'"; })());
+  // Reflexive clitics are never cut: a span that keeps a clitic its label would drop is no blank.
+  const F = { tts:"fr-FR", levels:[{id:"A1",label:"A1"}], functionWords:["le"], spaced:true };
+  const FW = [{ id:"le", w:"le", en:"the", lv:"A1", pos:"art", alt:["la","l'","les"] },
+    { id:"lev", w:"se lever", en:"to get up", lv:"A1", pos:"verb", alt:["lever","lève"] },
+    { id:"ass", w:"s'asseoir", en:"to sit down", lv:"A1", pos:"verb", alt:["asseoir"] }, mk("gare","la gare","station")];
+  const FB = {}; FW.forEach(w => { FB[w.id] = w; });
+  check("clitic: 'se lever' / 's'asseoir' found verbatim -> no blank (never 'se ____' or 's'____')",
+    VC.gapMatch({ id:"c1", t:"Il faut se lever tôt.", en:"x", lv:"A1", words:["lev"] }, FB.lev, FB, F) === null &&
+    VC.gapMatch({ id:"c2", t:"Tu vas s'asseoir ici.", en:"x", lv:"A1", words:["ass"] }, FB.ass, FB, F) === null);
+  check("clitic: bare form in the sentence is still a blank ('Je me lève' -> blank lève, label lever)", (() => {
+    const m = VC.gapMatch({ id:"c3", t:"Je me lève tôt.", en:"x", lv:"A1", words:["lev"] }, FB.lev, FB, F);
+    return !!m && m.text === "lève" && m.article === "" && VC.gapChoices(FB.lev, m, FW, F).a === "lever"; })());
 })();
 
 console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);

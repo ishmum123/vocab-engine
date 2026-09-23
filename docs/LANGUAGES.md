@@ -23,6 +23,16 @@ Scout findings per language: sources, licences, counts, and pipeline gotchas. It
 - TORFL lexical minimum: no open copy
 - Gotchas: aspect pairs → separate entries (делать / сделать), cross-link via alt? no — separate; -ся verbs separate lemmas; A1 sentences prefer Nom/Acc (use Case= morph), defer other cases to A2/B1; typing lenient ё/е and no stress; no articles; TTS ru-RU; STT ru-RU
 
+# German (de / Tatoeba deu) — verified 2026-09-23
+- hermitdave de_full.txt 1,157,685 rows, 100% lowercased → noun capitalisation lost; recover case from kaikki headword, disambiguate homographs (essen/Essen) by kaikki POS
+- wordfreq de large (633,824)
+- kaikki German jsonl.gz 96.7MB; gender (der/die/das) + plural from head_templates/forms — field names unverified, sample ~5 entries (gehen, Tisch, anfangen) before locking
+- Tatoeba deu_sentences_detailed 781,130; deu-eng_links 584,787 (direct file)
+- Audio: 86,209 clips; permissive only 2,881 (CC BY 4.0 2,423; CC BY-SA 434; CC0 24). Top permissive: Igider, MisterTrouser, fjay69, Auride, Meksems
+- Tagger: spaCy de_core_news_sm 3.8.0 MIT (TIGER corpus commercial-licensed to Explosion, WikiNER CC BY 4.0; model weights redistributable)
+- Graded lists: Goethe Wortlisten copyrighted (don't ship); Kelly has no German; GitHub CEFR lists are Goethe transcriptions / unlicensed → sanity-only at best
+- Gotchas: separable verbs (anfangen → fängt … an; spaCy dep svp) → rejoin prefix+verb for lemma, sentence-linking must catch split occurrences; compounds kept as single lemmas above freq threshold, never decomposed; strong-verb lemmatiser quality unverified → sample check; modals drilled as content words; formal Sie vs sie case-sensitive matching (freq list lowercased); Präteritum of sein/haben/modals A1, other Präteritum B1; typing lenient ae/oe/ue/ss at A1/A2; TTS de-DE / STT de-DE untested
+
 # Persian (fa / Tatoeba pes) — verified 2026-09-23
 - hermitdave fa_full.txt: 445,744 lines, CC-BY-SA 4.0
 - wordfreq: only small_fa exists (no large_fa) → thinner written frequency

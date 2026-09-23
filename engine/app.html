@@ -58,10 +58,13 @@
      elements then align to their start side. English glosses never carry it. */
   [data-tl]{font-family:var(--wfont)}
   :root[data-tlh] [data-tl]{line-height:var(--tlh)}
-  .opts{display:grid;gap:8px}
-  .opts button{width:100%;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
+  /* minmax(0,1fr): the track never grows past the card for a long unbreakable word. */
+  .opts{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+  .opts button{width:100%;min-width:0;overflow-wrap:anywhere;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
   .opts button b.num{color:var(--mute);font-weight:500;margin-inline-end:8px;font-size:14px}
-  .opts button .op{color:var(--mute);font-size:14px;font-weight:400;margin-inline-start:8px}
+  /* inline-block: the pron stays beside a short word and drops whole onto its own line
+     under a long one (профессиональный + its pron at 360px) instead of overflowing. */
+  .opts button .op{display:inline-block;max-width:100%;color:var(--mute);font-size:14px;font-weight:400;margin-inline-start:8px}
   .opts button[dir=rtl]{text-align:right}
   .opts button.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
   .opts button.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
@@ -320,7 +323,7 @@ const TEACH_PLAY_SVG = speakerSVG(14);
 // ===================== display helpers =====================
 // pron is display-only: shown beside a word/sentence when the learner has it on.
 const showPron = () => PACK.showPron !== false && prog.showPron !== false;
-const pronOf = x => (showPron() && x && x.pron) ? x.pron : "";
+const pronOf = x => showPron() ? VC.pronShown(x) : ""; // "" when pron just repeats the text
 function bigWordHTML(entry){
   const p = pronOf(entry);
   return `<div class="big wd"${TA}>${escapeHtml(entry.w)}</div>${p ? `<div class="pron">${escapeHtml(p)}</div>` : ""}`;
@@ -766,7 +769,9 @@ function wordsRender(){
     <div id="wbody"></div>`;
   if(pronChip) $("wPron").onclick = () => { prog.showPron = !showPron(); store.save(); $("wPron").classList.toggle("on", showPron()); $("wPron").setAttribute("aria-pressed", String(showPron())); renderWordBody(); };
   const search = $("wsearch");
-  search.oninput = () => { wordsQuery = search.value; renderWordBody(); };
+  // Debounced: re-render once typing pauses (~120ms), not on every keystroke.
+  let searchTimer = null;
+  search.oninput = () => { wordsQuery = search.value; clearTimeout(searchTimer); searchTimer = setTimeout(renderWordBody, 120); };
   renderWordBody();
 }
 function wordListInto(wl, list){
