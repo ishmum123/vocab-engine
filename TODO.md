@@ -52,3 +52,7 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 ## Minor (from live Italian regression check, 2026-09-24)
 - Gap article agreement: after "un ____" feminine l'-nouns (l'informazione) can appear as distractors because the table maps un→l' and packs carry no gender field. Fix: builders emit a `g` (m/f) field on nouns and the engine prefers same-gender distractors when present.
 - favicon 404 on every load on GitHub Pages; add an inline data-URI `<link rel="icon">` in app.html.
+
+## Cross-pack policy follow-ups (2026-09-24)
+- Gloss-level sensitive scan (vulgar/sexual/slur regex over glosses, A1/A2 must be clean) was introduced after German and Italian shipped. Re-run it on **german** and **italian** (rebuild with the flag on, republish) once the shared rule lands in packbuilder core.
+- Sentence filter scope (A1/A2): sexual content + threats/violence. Italian shipped before this rule; rebuild + republish Italian with `sensitive` enabled.
