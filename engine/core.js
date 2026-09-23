@@ -80,18 +80,26 @@ function meaningOpts(entry, pool){
 // first two words distinct from each other, relaxed only for tiny pools.
 // showOf (optional, default e => e.w): the label each option is displayed by. Distractor
 // labels are kept distinct from each other and from every answer surface under it.
-function wordOpts(entry, pool, showOf){
+// pack (optional): word class. Distractors come from the answer's class: a content-word
+// answer never gets a pack.functionWords distractor (a learner rules those out on sight,
+// and in a cloze one may even fit the blank); a function-word answer prefers other
+// function words, then falls back to content words.
+function wordOpts(entry, pool, showOf, pack){
   const show = showOf || (e => e.w);
   const ansGloss = normKey(entry.en), ansF2 = firstTwoWords(entry.en);
   const hasPos = !!entry.pos;
+  const fw = new Set((pack && pack.functionWords) || []);
+  const ansFw = fw.has(entry.id);
   const cands = (pool||[]).filter(v =>
-    v.id!==entry.id && !sharesSurface(v, entry) && normKey(v.en)!==ansGloss && !(ansF2 && firstTwoWords(v.en)===ansF2));
+    v.id!==entry.id && !sharesSurface(v, entry) && normKey(v.en)!==ansGloss && !(ansF2 && firstTwoWords(v.en)===ansF2) &&
+    (ansFw || !fw.has(v.id)));
   const samePos = v => hasPos && v.pos===entry.pos;
   const t1 = cands.filter(v=>v.lv===entry.lv && samePos(v));
   const t2 = cands.filter(v=>v.lv===entry.lv && !samePos(v));
   const t3 = cands.filter(v=>v.lv!==entry.lv && samePos(v));
   const t4 = cands.filter(v=>v.lv!==entry.lv && !samePos(v));
-  const ordered = [...shuffle(t1), ...shuffle(t2), ...shuffle(t3), ...shuffle(t4)];
+  const tiered = [...shuffle(t1), ...shuffle(t2), ...shuffle(t3), ...shuffle(t4)];
+  const ordered = ansFw ? [...tiered.filter(v=>fw.has(v.id)), ...tiered.filter(v=>!fw.has(v.id))] : tiered;
   function pass(strict){
     // Every answer surface is already excluded from `cands`; among distractors only
     // the displayed `w` must differ (their alts are never shown, so sharing one is fine).
@@ -135,13 +143,25 @@ function sentenceOpts(sentence, pool){
 }
 
 // ------------------------------------------------------------------ typing
-// Accent folding: NFD-decompose and drop combining marks (é -> e, ñ -> n, ü -> u).
-function foldAccents(s){ return String(s).normalize("NFD").replace(/[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]/g, "").normalize("NFC"); }
+// Accent folding (lenient typing, Words search): drop optional marks that learners
+// routinely omit. Latin combining accents (é -> e, ñ -> n, ü -> u, Russian stress
+// о́ -> о), Arabic-script harakat and tatweel, Hebrew points, the Devanagari nukta, and
+// ZWNJ/ZWJ (Persian می‌روم = میروم). Letters whose mark makes them a different letter
+// are kept (Cyrillic й, ї). Marks that are part of the letter in other scripts
+// (Devanagari vowel signs, kana voicing marks) are outside these ranges and never folded.
+const FOLD_MARKS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06dc\u06df-\u06e4\u06e7\u06e8\u06ea-\u06ed\u0640\u093c\u200c\u200d]/g;
+const FOLD_KEEP = new Set(["\u0439","\u0419","\u0457","\u0407"]); // й Й ї Ї
+function foldAccents(s){
+  return String(s).normalize("NFC").replace(/[^\u0000-\u007f]/gu, c => FOLD_KEEP.has(c) ? c : c.normalize("NFD").replace(FOLD_MARKS, "").normalize("NFC"));
+}
+// Arabic-script keyboard variants that look alike and are typed interchangeably:
+// Arabic kaf/yeh vs their Persian/Urdu forms. Always unified (both sides), like apostrophes.
+const ARABIC_VARIANTS = { "\u0643":"\u06a9", "\u064a":"\u06cc" };
 // opts: {caseSensitive, foldAccents}. Trims, collapses inner whitespace, unifies
 // typographic apostrophes, casefolds unless caseSensitive, accent-folds if asked.
 function normalizeTyped(s, opts){
   const o = opts || {};
-  let out = String(s == null ? "" : s).normalize("NFC").replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/\s+/g, " ").trim();
+  let out = String(s == null ? "" : s).normalize("NFC").replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/[\u0643\u064a]/g, c => ARABIC_VARIANTS[c]).replace(/\s+/g, " ").trim();
   if(!o.caseSensitive) out = out.toLowerCase();
   if(o.foldAccents) out = foldAccents(out);
   return out;
@@ -180,7 +200,8 @@ const isApos = c => APOS.indexOf(c) >= 0;
 // case-insensitive, apostrophe-variant-insensitive matches; a letter/mark/digit on
 // either side disqualifies, except that an apostrophe-final surface ("l'") may run
 // straight into the next word and an apostrophe-initial one may follow a letter.
-// spaced=false (scripts written without spaces, e.g. Chinese): plain substring.
+// ZWNJ/ZWJ count as word-internal (Persian می‌روم is one word), so "می" never matches
+// inside it. spaced=false (scripts written without spaces, e.g. Chinese): plain substring.
 function findSurface(text, surface, spaced){
   const out = []; const t = String(text), s = String(surface||"");
   if(!s) return out;
@@ -191,8 +212,8 @@ function findSurface(text, surface, spaced){
   }
   const cps = [...s];
   const body = cps.map(c => isApos(c) ? `[${APOS}]` : escapeRe(c)).join("");
-  const lb = isApos(cps[0]) ? "" : "(?<![\\p{L}\\p{M}\\p{N}])";
-  const la = isApos(cps[cps.length-1]) ? "" : "(?![\\p{L}\\p{M}\\p{N}])";
+  const lb = isApos(cps[0]) ? "" : "(?<![\\p{L}\\p{M}\\p{N}\\u200c\\u200d])";
+  const la = isApos(cps[cps.length-1]) ? "" : "(?![\\p{L}\\p{M}\\p{N}\\u200c\\u200d])";
   const re = new RegExp(lb + body + la, "giu");
   let m; while((m = re.exec(t))){ out.push({ start:m.index, end:m.index+m[0].length, text:m[0] }); }
   return out;
@@ -296,7 +317,7 @@ function bareForm(e){
 function gapChoices(entry, match, pool, pack){
   const useBare = !!match && surfKey(match.text) !== surfKey(entry.w);
   const show = useBare ? bareForm : (e => e.w);
-  const ds = wordOpts(entry, pool, show);
+  const ds = wordOpts(entry, pool, show, pack);
   const byLabel = {}; [entry, ...ds].forEach(e => { byLabel[show(e)] = e; });
   return { opts: [show(entry), ...ds.map(show)], a: show(entry), byLabel, bare: useBare };
 }
@@ -310,6 +331,82 @@ function exampleSentences(entry, sentences, pack, n){
   const tiers = [[], [], []];
   (sentences||[]).forEach(s => { if((s.words||[]).indexOf(entry.id) >= 0) tiers[seen(s)].push(s); });
   return [...tiers[0], ...tiers[1], ...tiers[2]].slice(0, n);
+}
+// Example-sentence highlighting: splits sentence text into [{text, hit}] segments where
+// hit marks each place the taught word is visible. Every form (w and each alt) is
+// searched as findSurface does for the pack; overlapping hits merge into one (the
+// widest, e.g. "l'acqua" over "acqua"); a hit inside a longer pack word or compound
+// (本 inside 日本, 为 inside 为什么) is dropped, as for cloze. Not visible anywhere:
+// one segment, no hit. Joining every segment's text always gives back sentence.t.
+function highlightParts(sentence, entry, wordsById, pack){
+  const t = String((sentence && sentence.t) || "");
+  const spaced = !pack || pack.spaced !== false;
+  const forms = [...new Set([entry && entry.w, ...((entry && entry.alt) || [])].filter(Boolean))];
+  const hits = [];
+  forms.forEach(f => findSurface(t, f, spaced).forEach(m => hits.push(m)));
+  hits.sort((a,b)=>a.start-b.start || b.end-a.end);
+  const clusters = [];
+  for(const h of hits){
+    const c = clusters[clusters.length-1];
+    if(c && h.start < c.end){ c.end = Math.max(c.end, h.end); if(h.end-h.start > c.best.end-c.best.start) c.best = h; }
+    else clusters.push({ end: h.end, best: h });
+  }
+  const keep = clusters.map(c=>c.best).filter(m => !spannedByLonger({ t }, m, wordsById || {}, pack));
+  const out = []; let at = 0;
+  keep.forEach(m => { if(m.start > at) out.push({ text: t.slice(at, m.start), hit: false }); out.push({ text: t.slice(m.start, m.end), hit: true }); at = m.end; });
+  if(at < t.length || !out.length) out.push({ text: t.slice(at), hit: false });
+  return out;
+}
+
+// ------------------------------------------------------------------ Words search
+// Words-tab search: a word matches when the query occurs in its w, any alt, its pron or
+// its gloss, compared case-folded and accent-folded (foldAccents: Latin accents, stress
+// marks, harakat, ZWNJ) on both sides. Whitespace is also ignored as a second chance, so
+// "nihao" finds "nǐ hǎo" and "ni hao" finds "nihao". Returns matches in pack order.
+function searchWords(words, query, limit){
+  const norm = x => normalizeTyped(x, { foldAccents: true });
+  const q = norm(query), qs = q.replace(/\s/g, "");
+  if(!q) return [];
+  const hit = x => { if(!x) return false; const v = norm(x); return v.includes(q) || (!!qs && v.replace(/\s/g, "").includes(qs)); };
+  const out = (words||[]).filter(v => hit(v.w) || hit(v.pron) || hit(gloss(v)) || (v.alt||[]).some(hit));
+  return limit ? out.slice(0, limit) : out;
+}
+
+// ------------------------------------------------------------------ script display
+// How target-language text is marked up (docs/PACK_SCHEMA.md "Script display").
+// lang: pack.langTag, else the language part of pack.tts ("fa-IR" -> "fa").
+function targetLang(pack){
+  const tag = pack && typeof pack.langTag === "string" && /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/.test(pack.langTag) ? pack.langTag : "";
+  return tag || (String((pack && pack.tts) || "").split(/[-_]/)[0].toLowerCase() || "und");
+}
+// pack.fontFamily is a CSS font-family list ('"Noto Nastaliq Urdu", serif'). Anything
+// that could leave the declaration (; { } < > \ or a url()) is refused: null.
+function fontFamilyOf(pack){
+  const f = pack && typeof pack.fontFamily === "string" ? pack.fontFamily.trim() : "";
+  if(!f || /[;{}<>\\]|url\s*\(|\/\*/i.test(f)) return null;
+  return f;
+}
+// pack.lineHeight: unitless number 1..4, else null (the stylesheet's own line-heights).
+function lineHeightOf(pack){
+  const n = pack && pack.lineHeight;
+  return (typeof n === "number" && isFinite(n) && n >= 1 && n <= 4) ? n : null;
+}
+// Google Fonts is the only external resource a page may load. pack.fonts lists family
+// names, optionally with a css2 axis spec ("Noto Naskh Arabic:wght@400;700"). Returns
+// {href, rejected}: href is a fonts.googleapis.com css2 URL (null when nothing valid),
+// rejected lists entries that failed the name/axis pattern and were left out.
+const FONT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ]{0,60}(:[a-z,]+@[0-9.,;]+)?$/;
+function fontsHref(pack){
+  const list = (pack && Array.isArray(pack.fonts)) ? pack.fonts : [];
+  const ok = [], rejected = [];
+  list.forEach(f => { (typeof f === "string" && FONT_NAME_RE.test(f.trim()) ? ok : rejected).push(f); });
+  if(!ok.length) return { href: null, rejected };
+  const fam = ok.map(f => "family=" + f.trim().replace(/ +/g, "+")).join("&");
+  return { href: `https://fonts.googleapis.com/css2?${fam}&display=swap`, rejected };
+}
+// Everything the UI needs to mark target-language text: {lang, rtl, fontFamily, lineHeight}.
+function scriptDisplay(pack){
+  return { lang: targetLang(pack), rtl: !!(pack && pack.rtl === true), fontFamily: fontFamilyOf(pack), lineHeight: lineHeightOf(pack) };
 }
 
 // ------------------------------------------------------------------ placement
@@ -644,7 +741,8 @@ function audioSlot(make){
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
-  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, gapChoices, exampleSentences, audioSlot, TEST_MIN_WORDS,
+  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, gapChoices, exampleSentences, highlightParts, searchWords, audioSlot, TEST_MIN_WORDS,
+  targetLang, fontFamilyOf, lineHeightOf, fontsHref, scriptDisplay,
   foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,

@@ -32,3 +32,9 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 - Items: meaning → say the word; sentence cloze → say the missing word. Pass = normalised transcript (or any `maxAlternatives`) contains the target / an `alt`. No pronunciation score (recognisers auto-correct near-misses; a % would be fake precision).
 - Never blocks: on no result / error fall back to `type`. Excluded from placement.
 - Chrome 139+ has on-device mode (`processLocally`); default is server-based and needs network.
+
+## Script support (added 2026-09-23)
+- **Browser verification pending** for `rtl`, `fontFamily`, `fonts` and `lineHeight`: check Nastaliq line height, RTL option buttons, the cloze blank position in RTL, and the typed input on a phone. So far only Node tests and a jsdom DOM probe of a synthetic Persian-like build have been run.
+- validate_pack.py checks the script fields (`rtl`, `langTag`, `fontFamily`, `fonts`, `lineHeight`) with the same patterns as core.js, and warns when `rtl` is set without a font.
+- Word-option distractors (recall and cloze) keep the answer's word class: a content-word answer never gets a `functionWords` distractor (fixed 2026-09-23).
+- There is no per-word reading (furigana) alignment. A Japanese pack gives `sentence.pron` as one kana line, shown under the sentence.

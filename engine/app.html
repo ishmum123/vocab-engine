@@ -14,7 +14,9 @@
     --font: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
     /* Target-language text: the UI font first, then system fonts that cover non-Latin
        scripts (IBM Plex lacks many glyphs; missing ones fall through to system fonts). */
-    --wfont: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, "PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+    --wbase: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, "PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+    /* pack.fontFamily, when set, is prepended at boot: --wfont = <pack font>, var(--wbase). */
+    --wfont: var(--wbase);
     --safe-b: env(safe-area-inset-bottom, 0px);
   }
   @media (prefers-color-scheme: dark){
@@ -51,11 +53,16 @@
   .wd{font-family:var(--wfont)}
   .pron{color:var(--mute);font-size:18px;text-align:center;margin:-10px 0 14px}
   .en{color:var(--mute);font-size:15px;text-align:center;margin-top:-8px;margin-bottom:14px}
-  .blank{color:var(--mute);letter-spacing:1px}
+  .blank{color:var(--mute);letter-spacing:1px;unicode-bidi:isolate}
+  /* Target-language text carries data-tl + lang (+ dir="rtl" for pack.rtl); block
+     elements then align to their start side. English glosses never carry it. */
+  [data-tl]{font-family:var(--wfont)}
+  :root[data-tlh] [data-tl]{line-height:var(--tlh)}
   .opts{display:grid;gap:8px}
   .opts button{width:100%;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
-  .opts button b.num{color:var(--mute);font-weight:500;margin-right:8px;font-size:14px}
-  .opts button .op{color:var(--mute);font-size:14px;font-weight:400;margin-left:8px}
+  .opts button b.num{color:var(--mute);font-weight:500;margin-inline-end:8px;font-size:14px}
+  .opts button .op{color:var(--mute);font-size:14px;font-weight:400;margin-inline-start:8px}
+  .opts button[dir=rtl]{text-align:right}
   .opts button.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
   .opts button.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
   .opts-hero button{font-size:18px;padding:18px 18px;min-height:58px;font-weight:500}
@@ -87,6 +94,8 @@
   table.stats{width:100%;border-collapse:collapse;font-size:15px}
   table.stats td{padding:8px 0;border-bottom:1px solid var(--line)}
   table.stats td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  /* Today step names never wrap ("5. Sentences" at 390px); the description column wraps. */
+  table.steps td:first-child{white-space:nowrap;padding-right:12px;vertical-align:top}
   .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:1}
   .bar i{display:block;height:100%;background:var(--ink)}
   .path{display:flex;gap:6px;align-items:center;margin-bottom:14px}
@@ -181,6 +190,22 @@ const SENT_INDEX = new Map(SENTENCES.map((s,i)=>[s, i]));
 const TYPING = VC.typingEnabled(PACK);
 const levelLabel = lv => VC.levelLabel(PACK, lv);
 document.title = PACK.name;
+// Target-language markup (pack.rtl / langTag / fontFamily / fonts / lineHeight). TA goes on
+// every element holding target text; tw() wraps inline target text in an isolating <bdi>
+// so it never reorders the English/number text around it.
+const SCRIPT = VC.scriptDisplay(PACK);
+const TA = ` data-tl lang="${escapeHtml(SCRIPT.lang)}"${SCRIPT.rtl ? ' dir="rtl"' : ""}`;
+const tw = s => `<bdi${TA}>${escapeHtml(s)}</bdi>`;
+(function(){
+  const r = document.documentElement;
+  if(SCRIPT.fontFamily) r.style.setProperty("--wfont", `${SCRIPT.fontFamily}, var(--wbase)`);
+  if(SCRIPT.lineHeight){ r.style.setProperty("--tlh", String(SCRIPT.lineHeight)); r.setAttribute("data-tlh", ""); }
+  // Google Fonts is the only external resource allowed; VC.fontsHref only ever builds a
+  // fonts.googleapis.com URL from validated family names.
+  const fh = VC.fontsHref(PACK);
+  if(fh.rejected.length) console.warn("pack.fonts entries ignored (not a Google Fonts family name):", fh.rejected);
+  if(fh.href){ const l = document.createElement("link"); l.rel = "stylesheet"; l.href = fh.href; document.head.appendChild(l); }
+})();
 
 // ===================== progress =====================
 const STORE_KEY = VC.storageKey(PACK);
@@ -298,11 +323,11 @@ const showPron = () => PACK.showPron !== false && prog.showPron !== false;
 const pronOf = x => (showPron() && x && x.pron) ? x.pron : "";
 function bigWordHTML(entry){
   const p = pronOf(entry);
-  return `<div class="big wd">${escapeHtml(entry.w)}</div>${p ? `<div class="pron">${escapeHtml(p)}</div>` : ""}`;
+  return `<div class="big wd"${TA}>${escapeHtml(entry.w)}</div>${p ? `<div class="pron">${escapeHtml(p)}</div>` : ""}`;
 }
 // Option label for word-choice items (recall/gap): the word, plus its pron when shown.
 function wordOptHtml(byW){
-  return o => { const e = byW[o]; const p = e ? pronOf(e) : ""; return `${escapeHtml(o)}${p ? `<span class="op">${escapeHtml(p)}</span>` : ""}`; };
+  return o => { const e = byW[o]; const p = e ? pronOf(e) : ""; return `${tw(o)}${p ? `<span class="op"><bdi>${escapeHtml(p)}</bdi></span>` : ""}`; };
 }
 
 // ===================== generic drill runner =====================
@@ -355,6 +380,7 @@ function renderMcItem(it){
   opts.forEach((o,i)=>{
     const b = document.createElement("button");
     b.innerHTML = `<b class="num">${i+1}</b>${it.optHtml ? it.optHtml(o) : escapeHtml(o)}`;
+    if(it.optsT && SCRIPT.rtl) b.dir = "rtl"; // options are target-language words
     b.onclick = () => {
       if(answered) return; answered = true;
       [...container.children].forEach(x=>{ x.disabled = true; if(x.dataset.v === it.a) x.classList.add("ok"); });
@@ -381,7 +407,7 @@ function renderMcItem(it){
 function renderTypeItem(it){
   const P = $("panel");
   P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${it.html||""}
-    <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" lang="${escapeHtml(TTS_LANG)}" placeholder="type the word…">
+    <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"${TA} placeholder="${SCRIPT.rtl ? "type the word" : "type the word…"}">
     <div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="submit">Check</button><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
   const input = $("tin"); input.focus();
@@ -425,18 +451,23 @@ $("panel").addEventListener("click", e => {
 });
 
 // ===================== word drill items =====================
-function sentenceRowHTML(s){
+// Sentence text with the taught word bolded where it is visible (VC.highlightParts).
+function highlightHTML(s, entry){
+  return VC.highlightParts(s, entry, WORDS_BY_ID, PACK).map(x => x.hit ? `<b>${escapeHtml(x.text)}</b>` : escapeHtml(x.text)).join("");
+}
+// entry (optional): the taught word, highlighted in the sentence.
+function sentenceRowHTML(s, entry){
   const p = pronOf(s);
-  return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st">${escapeHtml(s.t)}</div>${p ? `<div class="sp">${escapeHtml(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
+  return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st"${TA}>${entry ? highlightHTML(s, entry) : escapeHtml(s.t)}</div>${p ? `<div class="sp">${escapeHtml(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
 }
 function exampleSentencesHTML(entry){
   const ex = wordExampleSentences(entry, 2);
   if(!ex.length) return "";
-  return `<p class="q" style="margin-top:12px">Example${ex.length>1?"s":""}:</p>${ex.map(sentenceRowHTML).join("")}`;
+  return `<p class="q" style="margin-top:12px">Example${ex.length>1?"s":""}:</p>${ex.map(s => sentenceRowHTML(s, entry)).join("")}`;
 }
 function revealBlock(entry){
   const p = pronOf(entry);
-  return `<div data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"><div class="rw">${escapeHtml(entry.w)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
+  return `<div data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"><div class="rw"${TA}>${escapeHtml(entry.w)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
 }
 const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
 // hear — TTS plays the word; pick the meaning. Without speech it degrades to read.
@@ -458,11 +489,11 @@ function readItem(entry){
 // recall — meaning shown; pick the word (wordOpts: same pos/level first, never a
 // distractor that would also be a right answer).
 function recallItem(entry){
-  const ds = VC.wordOpts(entry, WORDS);
+  const ds = VC.wordOpts(entry, WORDS, null, PACK); // same word class as the answer
   const byW = {}; [entry, ...ds].forEach(e=>{ byW[e.w] = e; });
   return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
-    opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w, optHtml: wordOptHtml(byW), reveal: revealBlock(entry),
+    opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w, optHtml: wordOptHtml(byW), optsT: true, reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
 }
 // type — meaning shown; type the word (normalised per pack.typing, alt forms accepted).
@@ -484,13 +515,13 @@ function missSummary(miss){
 // ===================== sentence drill items =====================
 function sentenceRevealBlock(s){
   const p = pronOf(s);
-  return `<div data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"><div class="rw">${escapeHtml(s.t)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  return `<div data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"><div class="rw"${TA}>${escapeHtml(s.t)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
 }
 const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
 function readSentence(s){
   const p = pronOf(s);
   return { kind:"mc", key:"s:"+s.id, label:"What does it mean?", optsClass:"opts-hero",
-    html: `<div class="med wd">${escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
+    html: `<div class="med wd"${TA}>${escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
     opts: sentenceChoices(s), a: s.en, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
     mount: () => saySentence(s), };
 }
@@ -512,7 +543,7 @@ function gapSentence(s, typed){
   const entry = WORDS_BY_ID[s.words[idxs[Math.floor(Math.random()*idxs.length)]]];
   const match = VC.gapMatch(s, entry, WORDS_BY_ID, PACK);
   const b = VC.blankSentence(s, match);
-  const html = `<div class="med wd">${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${escapeHtml(s.en)}</div>`;
+  const html = `<div class="med wd"${TA}>${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${escapeHtml(s.en)}</div>`;
   const base = { key:"s:"+s.id, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
     onReveal: () => saySentence(s) };
   if(typed && TYPING){
@@ -521,7 +552,7 @@ function gapSentence(s, typed){
   }
   const gc = VC.gapChoices(entry, match, WORDS, PACK);
   return Object.assign(base, { kind:"mc", label:"What's the missing word?", optsClass:"opts-hero opts-w", html,
-    opts: gc.opts, a: gc.a, optHtml: wordOptHtml(gc.byLabel) });
+    opts: gc.opts, a: gc.a, optHtml: wordOptHtml(gc.byLabel), optsT: true });
 }
 function sentenceItemFor(s){
   const k = VC.sentenceKind(PACK);
@@ -537,7 +568,7 @@ function sentenceItemFor(s){
 function lessonItem(it, key, mode){
   const html = mode === "audio"
     ? (it.say ? `<div class="listen-stage"><button class="replay" id="rpl" aria-label="Replay">${REPLAY_SVG}</button></div>` : "")
-    : (mode === "text" ? `<div class="big wd">${escapeHtml(it.say)}</div>` : "");
+    : (mode === "text" ? `<div class="big wd"${TA}>${escapeHtml(it.say)}</div>` : "");
   return { kind:"mc", key, label: it.q, html,
     mount: () => { if(mode === "audio" && it.say){ say(it.say); $("rpl").onclick = ()=>say(it.say); } },
     opts: it.opts, a: it.a, reveal: `<div>${escapeHtml(it.rv||"")}</div>` };
@@ -589,7 +620,7 @@ function todayRender(){
     ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
-    <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
+    <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
     </div><div class="actions"><button class="next" id="go">Start today</button></div>`;
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
@@ -649,8 +680,8 @@ function todayFinish(){
 function wordRowHTML(w, cls){
   const p = pronOf(w);
   return cls === "wl"
-    ? `<span class="wd">${escapeHtml(w.w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`
-    : `<span class="wd">${escapeHtml(w.w)}</span><span class="pr">${escapeHtml(p)}</span><span class="en">${escapeHtml(VC.gloss(w))}</span>`;
+    ? `<span class="wd"${TA}>${escapeHtml(w.w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`
+    : `<span class="wd"${TA}>${escapeHtml(w.w)}</span><span class="pr">${escapeHtml(p)}</span><span class="en">${escapeHtml(VC.gloss(w))}</span>`;
 }
 function vocabTeach(list, lv, onDrill){
   setScore(0,0);
@@ -686,8 +717,8 @@ function lessonTeach(lesson, onDone, onBack){
   (lesson.cards||[]).forEach(c => {
     const el = document.createElement("div"); el.className = "card-teach";
     el.innerHTML = `<h3>${escapeHtml(c.h)}</h3><p>${c.body}</p>
-      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset">${r.map((cell,i)=>`<span class="${["pr","wd","en"][i]||"en"}">${escapeHtml(cell)}</span>`).join("")}</div>`).join("")}</div>` : ""}
-      ${c.say ? `<div class="taplist">${c.say.map((s,i)=>`<button data-s="${i}">▶ ${escapeHtml(s)}</button>`).join("")}</div>` : ""}`;
+      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset">${r.map((cell,i)=>`<span class="${["pr","wd","en"][i]||"en"}"${i===1 ? TA : ""}>${escapeHtml(cell)}</span>`).join("")}</div>`).join("")}</div>` : ""}
+      ${c.say ? `<div class="taplist">${c.say.map((s,i)=>`<button data-s="${i}">▶ ${tw(s)}</button>`).join("")}</div>` : ""}`;
     if(c.say) el.querySelectorAll("[data-s]").forEach((b,i)=>b.onclick=()=>say(c.say[i]));
     cw.appendChild(el);
   });
@@ -729,7 +760,7 @@ function wordsRender(){
   const P = $("panel");
   const pronChip = PACK.showPron !== false ? `<button class="chip ${showPron()?'on':''}" id="wPron" aria-label="Show pronunciation" aria-pressed="${showPron()}">Pron</button>` : "";
   P.innerHTML = `<div class="row">
-      <input type="text" id="wsearch" autocomplete="off" placeholder="Search word or meaning…" style="flex:1;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:15px" value="${escapeHtml(wordsQuery)}">
+      <input type="text" id="wsearch" autocomplete="off" dir="auto" placeholder="Search word or meaning…" style="flex:1;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:15px" value="${escapeHtml(wordsQuery)}">
       ${pronChip}
     </div>
     <div id="wbody"></div>`;
@@ -750,9 +781,7 @@ function renderWordBody(){
   const body = $("wbody");
   const q = wordsQuery.trim();
   if(q){
-    const fq = VC.normalizeTyped(q, {foldAccents:true});
-    const hit = s => !!s && VC.normalizeTyped(s, {foldAccents:true}).includes(fq);
-    const matches = WORDS.filter(v => hit(VC.gloss(v)) || hit(v.w) || hit(v.pron) || (v.alt||[]).some(hit));
+    const matches = VC.searchWords(WORDS, q); // w, alt, pron, gloss; case/accent-folded
     if(!matches.length){ body.innerHTML = `<p class="q">No matches.</p>`; return; }
     body.innerHTML = `<div id="wl"></div>`;
     wordListInto($("wl"), matches.slice(0,150));

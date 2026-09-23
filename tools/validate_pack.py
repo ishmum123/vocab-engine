@@ -117,7 +117,43 @@ def check_pack(pack, rep):
         rep.err("pack.spaced must be a boolean")
     if "compounds" in pack and not (isinstance(pack["compounds"], list) and all(is_str(c) for c in pack["compounds"])):
         rep.err("pack.compounds must be a list of non-empty strings")
+    check_script_display(pack, rep)
     return idset
+
+
+# Script-display fields (docs/PACK_SCHEMA.md "Script display"). Patterns mirror
+# engine/core.js targetLang / fontFamilyOf / FONT_NAME_RE / lineHeightOf, which ignore
+# invalid values at runtime; here they are errors so a pack author sees them.
+LANG_TAG_RE = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
+FONT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ]{0,60}(:[a-z,]+@[0-9.,;]+)?$")
+UNSAFE_FONT_FAMILY_RE = re.compile(r"[;{}<>\\]|url\s*\(|/\*", re.I)
+
+
+def check_script_display(pack, rep):
+    if "rtl" in pack and not is_bool(pack["rtl"]):
+        rep.err("pack.rtl must be a boolean")
+    if "langTag" in pack and not (isinstance(pack["langTag"], str) and LANG_TAG_RE.match(pack["langTag"])):
+        rep.err(f"pack.langTag must be a BCP-47 tag like \"fa\" or \"ur-Arab\", got {pack['langTag']!r}")
+    if "fontFamily" in pack:
+        ff = pack["fontFamily"]
+        if not is_str(ff):
+            rep.err("pack.fontFamily must be a non-empty string")
+        elif UNSAFE_FONT_FAMILY_RE.search(ff):
+            rep.err("pack.fontFamily must not contain ; { } < > \\ /* or url(")
+    if "fonts" in pack:
+        fonts = pack["fonts"]
+        if not isinstance(fonts, list):
+            rep.err("pack.fonts must be a list of Google Fonts family names")
+        else:
+            for i, f in enumerate(fonts):
+                if not (isinstance(f, str) and FONT_NAME_RE.match(f.strip())):
+                    rep.err(f"pack.fonts[{i}] {f!r} is not a Google Fonts family name (letters, digits, spaces, optional ':wght@400;700')")
+    if "lineHeight" in pack:
+        lh = pack["lineHeight"]
+        if not (is_num(lh) and 1 <= lh <= 4):
+            rep.err("pack.lineHeight must be a number in 1..4")
+    if pack.get("rtl") is True and not pack.get("fontFamily") and not pack.get("fonts"):
+        rep.warn("pack.rtl is true but neither fontFamily nor fonts is set: RTL text falls back to system fonts")
 
 
 def check_words(words, levels, rep):

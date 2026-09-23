@@ -591,5 +591,187 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   check("audioSlot: stop() before any play creates nothing", made === 1);
 })();
 
+// ------------------------------------------------------------ [17] scripts: RTL, no-space, readings
+(function(){
+  console.log("\n[17] script display, RTL / no-space synthetic packs, highlight, search, folding");
+  const join = parts => parts.map(x=>x.text).join("");
+  const hitsOf = parts => parts.filter(x=>x.hit).map(x=>x.text);
+
+  // --- script display props
+  const zd = VC.scriptDisplay(PACK);
+  check("zh script display: lang from tts ('zh'), LTR, no font/lineHeight overrides, no font link",
+    zd.lang === "zh" && zd.rtl === false && zd.fontFamily === null && zd.lineHeight === null && VC.fontsHref(PACK).href === null);
+  check("langTag overrides tts; invalid langTag falls back to tts language part",
+    VC.targetLang({tts:"ur-PK", langTag:"ur-Arab"}) === "ur-Arab" && VC.targetLang({tts:"fa-IR", langTag:'"><x'}) === "fa" && VC.targetLang({}) === "und");
+  check("rtl only when pack.rtl === true", VC.scriptDisplay({tts:"fa-IR", rtl:true}).rtl === true && VC.scriptDisplay({tts:"fa-IR", rtl:"yes"}).rtl === false);
+  check("fontFamily: CSS family list accepted; declaration-escaping values refused",
+    VC.fontFamilyOf({fontFamily:'"Noto Nastaliq Urdu", serif'}) === '"Noto Nastaliq Urdu", serif' &&
+    ["x; color:red", "a}b", "url(http://e/x)", "a<b", "a\\b", "a/*b"].every(f => VC.fontFamilyOf({fontFamily:f}) === null));
+  check("lineHeight: number in 1..4 only", VC.lineHeightOf({lineHeight:2.2}) === 2.2 && [0.5, 9, "2", NaN, null].every(n => VC.lineHeightOf({lineHeight:n}) === null));
+  const fh = VC.fontsHref({fonts:["Noto Nastaliq Urdu", "Noto Naskh Arabic:wght@400;700", "x&family=y", '"><script>', "a/b", 7]});
+  check("fontsHref: only fonts.googleapis.com css2, names +-joined, axis spec kept, unsafe entries rejected and absent from URL",
+    fh.href === "https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu&family=Noto+Naskh+Arabic:wght@400;700&display=swap" &&
+    fh.rejected.length === 4 && !/script|&family=y|a\/b/.test(fh.href));
+
+  // --- synthetic RTL (Persian-like) pack, typing:null, spaced
+  const FA = { key:"fa_t", name:"fa", tts:"fa-IR", rtl:true, levels:[{id:"A1",label:"A1"}], setSize:10, placement:[["A1",1]],
+    functionWords:["man"], typing:null, showPron:true, hasLessons:false };
+  const FW = [
+    { id:"man", w:"من", en:"I", lv:"A1", pron:"man" },
+    { id:"ketab", w:"کتاب", en:"book", lv:"A1", pron:"ketâb" },
+    { id:"khan", w:"خواندن", en:"to read", lv:"A1", pron:"xândan", alt:["می‌خوانم"] },
+    { id:"ab", w:"آب", en:"water", lv:"A1", pron:"âb" },
+    { id:"abi", w:"آبی", en:"blue", lv:"A1", pron:"âbi" },
+    { id:"mi", w:"می", en:"(continuous prefix)", lv:"A1" },
+    { id:"khub", w:"خوب", en:"good", lv:"A1" }
+  ];
+  const FB = {}; FW.forEach(w=>{ FB[w.id] = w; });
+  const f1 = { id:"f1", t:"من کتاب را می‌خوانم.", en:"I read the book.", lv:"A1", words:["man","ketab","khan"] };
+  const f2 = { id:"f2", t:"آب آبی است.", en:"The water is blue.", lv:"A1", words:["ab","abi"] };
+  const f3 = { id:"f3", t:"من می‌خوانم.", en:"I am reading.", lv:"A1", words:["man","mi"] };
+  check("RTL: gap candidates skip function word; alt with ZWNJ (می‌خوانم) locates the verb", util.isDeepStrictEqual(VC.gapCandidateIndices(f1, FB, FA), [1,2]));
+  const fm = VC.gapMatch(f1, FB.ketab, FB, FA), fb = VC.blankSentence(f1, fm);
+  check("RTL: blank splits logical text exactly (before + answer + after = t)", fb.before === "من " && fb.answer === "کتاب" && fb.before + fb.answer + fb.after === f1.t);
+  check("RTL: whole-word match (آب not inside آبی)", util.isDeepStrictEqual(VC.gapCandidateIndices(f2, FB, FA), [0,1]) && VC.gapMatch(f2, FB.ab, FB, FA).start === 0);
+  check("RTL: ZWNJ is word-internal (می never matches inside می‌خوانم)", VC.findSurface(f3.t, "می", true).length === 0 && VC.gapCandidateIndices(f3, FB, FA).length === 0);
+  let noType = true; for(let i=0;i<50;i++){
+    const learned = FW.slice();
+    if(VC.buildReviewPlan(learned, {w:{}}, FA).some(p=>p.kind==="type") || VC.buildRecallPlan(learned, {w:{}}, FA, 8).some(p=>p.kind!=="recall")) noType = false;
+  }
+  const kinds = new Set(); for(let i=0;i<2000;i++) kinds.add(VC.sentenceKind(FA));
+  const rp = VC.buildReviewPlan(FW, {w:{}}, FA);
+  check("RTL typing:null: no type items (review/recall use recall), >=40% production, no typed gap",
+    noType && !kinds.has("gapType") && kinds.has("gap") && rp.filter(p=>p.kind==="recall").length / rp.length >= 0.4);
+  check("RTL highlight: taught verb bolded via its ZWNJ alt; text round-trips",
+    util.isDeepStrictEqual(hitsOf(VC.highlightParts(f1, FB.khan, FB, FA)), ["می‌خوانم"]) && join(VC.highlightParts(f1, FB.khan, FB, FA)) === f1.t);
+  // typed answers for an RTL pack with typing on (keyboard variants, harakat, ZWNJ)
+  const FAT = Object.assign({}, FA, { typing:{ accents:"lenient" } }), FAS = Object.assign({}, FA, { typing:{ accents:"strict" } });
+  check("Arabic-script typing: Arabic kaf/yeh = Persian forms (always); harakat and ZWNJ forgiven only when lenient",
+    VC.acceptTyped("كتاب", FB.ketab, FAS) && VC.acceptTyped("کِتاب", FB.ketab, FAT) && !VC.acceptTyped("کِتاب", FB.ketab, FAS) &&
+    VC.acceptTyped("میخوانم", FB.khan, FAT) && !VC.acceptTyped("میخوانم", FB.khan, FAS) && !VC.acceptTyped("کتب", FB.ketab, FAT));
+
+  // --- synthetic Japanese-like pack: spaced:false, compounds, kana readings
+  const JA = { key:"ja_t", name:"ja", tts:"ja-JP", levels:[{id:"N5",label:"N5"}], setSize:10, placement:[["N5",1]],
+    functionWords:["watashi"], typing:null, showPron:true, hasLessons:false, spaced:false, compounds:["日本語"] };
+  const JW = [
+    { id:"watashi", w:"私", en:"I", lv:"N5", pron:"わたし" },
+    { id:"nihon", w:"日本", en:"Japan", lv:"N5", pron:"にほん" },
+    { id:"hon", w:"本", en:"book", lv:"N5", pron:"ほん" },
+    { id:"gakusei", w:"学生", en:"student", lv:"N5", pron:"がくせい" },
+    { id:"yomu", w:"読む", en:"to read", lv:"N5", pron:"よむ", alt:["読みます"] },
+    { id:"daigaku", w:"大学", en:"university", lv:"N5", pron:"だいがく" }
+  ];
+  const JB = {}; JW.forEach(w=>{ JB[w.id] = w; });
+  const j1 = { id:"j1", t:"私は日本の学生です。", en:"I am a Japanese student.", lv:"N5", words:["watashi","nihon","gakusei"], pron:"わたしはにほんのがくせいです。" };
+  const j2 = { id:"j2", t:"日本語の本を読みます。", en:"I read a Japanese book.", lv:"N5", words:["nihon","hon","yomu"] };
+  const j3 = { id:"j3", t:"本を読む。", en:"Read a book.", lv:"N5", words:["hon","yomu"] };
+  check("no-space: substring cloze; function word skipped", util.isDeepStrictEqual(VC.gapCandidateIndices(j1, JB, JA), [1,2]));
+  check("no-space: 日本 inside compound 日本語 never blanked; 本 visible twice never blanked; alt 読みます blanks",
+    util.isDeepStrictEqual(VC.gapCandidateIndices(j2, JB, JA), [2]) && VC.gapMatch(j2, JB.yomu, JB, JA).text === "読みます");
+  check("no-space: single visible 本 is blankable", util.isDeepStrictEqual(VC.gapCandidateIndices(j3, JB, JA), [0,1]));
+  const hj = VC.highlightParts(j2, JB.hon, JB, JA);
+  check("no-space highlight: only the standalone 本 (not the one inside 日本語), at the right offset",
+    util.isDeepStrictEqual(hitsOf(hj), ["本"]) && hj[0].text === "日本語の" && join(hj) === j2.t);
+  check("no-space highlight: word visible only inside a compound -> no highlight",
+    hitsOf(VC.highlightParts(j2, JB.nihon, JB, JA)).length === 0 && join(VC.highlightParts(j2, JB.nihon, JB, JA)) === j2.t);
+  check("no-space typing:null: recall only, no typed gap",
+    VC.buildRecallPlan(JW, {w:{}}, JA, 6).every(p=>p.kind==="recall") && (()=>{ for(let i=0;i<500;i++) if(VC.sentenceKind(JA)==="gapType") return false; return true; })());
+
+  // --- highlight: spaced Latin, and zh sweep
+  const IT = { spaced:true }, gioco = { id:"g", w:"il gioco", alt:["gioco"] };
+  check("highlight (spaced): every occurrence, widest form, case-insensitive; absent -> one plain segment",
+    util.isDeepStrictEqual(hitsOf(VC.highlightParts({t:"Il gioco è qui, il gioco!"}, gioco, {}, IT)), ["Il gioco","il gioco"]) &&
+    util.isDeepStrictEqual(VC.highlightParts({t:"Giochi sempre."}, gioco, {}, IT), [{text:"Giochi sempre.", hit:false}]));
+  let zRound = 0, zCut = 0, zHit = 0, zN = 0;
+  WORDS.slice(0, 300).forEach(w => VC.exampleSentences(w, SENTENCES, PACK, 2).forEach(s => {
+    zN++;
+    const parts = VC.highlightParts(s, w, BY_ID, PACK);
+    if(join(parts) !== s.t) zRound++;
+    let at = 0; parts.forEach(x => { if(x.hit){ zHit++; if(x.text !== w.w || VC.spannedByLonger(s, {start:at, end:at+x.text.length, text:x.text}, BY_ID, PACK)) zCut++; } at += x.text.length; });
+  }));
+  check(`zh highlight sweep (${zN} examples): text round-trips, hits are the word and never inside a longer word/compound, most examples highlighted`,
+    zRound === 0 && zCut === 0 && zHit >= zN * 0.8);
+
+  // --- Words search
+  const SW = [
+    { id:"a", w:"молоко́", en:"milk", pron:"malakó" },
+    { id:"b", w:"کتاب", en:"Book", pron:"ketâb" },
+    { id:"c", w:"خواندن", en:"to read", alt:["می‌خوانم"] },
+    { id:"d", w:"你好", en:"hello", pron:"nǐ hǎo" },
+    { id:"e", w:"perché", en:"why; because" }
+  ];
+  const sIds = q => VC.searchWords(SW, q).map(v=>v.id).join(",");
+  check("search: target text (stress-folded, Arabic kaf variant, ZWNJ-folded), pron (accent/space-folded), gloss (case), alt",
+    sIds("молоко") === "a" && sIds("كتاب") === "b" && sIds("میخوانم") === "c" && sIds("nihao") === "d" && sIds("ni hao") === "d" &&
+    sIds("BOOK") === "b" && sIds("perche") === "e" && sIds("malako") === "a" && sIds("   ") === "" && sIds("zzz") === "");
+  const zw = WORDS.find(w => w.pron && VC.foldAccents(w.pron) !== w.pron);
+  check("search on zh: toneless pron finds the word; hanzi finds it", !!zw && VC.searchWords(WORDS, VC.foldAccents(zw.pron)).includes(zw) && VC.searchWords(WORDS, zw.w).includes(zw));
+  check("search limit caps results", VC.searchWords(WORDS, "a", 5).length === 5);
+
+  // --- folding keeps letters that marks distinguish
+  check("foldAccents: stress/ё folded; й, Devanagari vowel signs and kana voicing kept; nukta folded",
+    VC.foldAccents("молоко́") === "молоко" && VC.foldAccents("ёж") === "еж" && VC.foldAccents("мой") === "мой" &&
+    VC.foldAccents("कि") === "कि" && VC.foldAccents("ज़रा") === "जरा" && VC.foldAccents("が") === "が" && VC.foldAccents("perché") === "perche");
+
+  // --- showPron default comes from the pack
+  check("showPron default comes from pack.showPron", VC.defaultProg({levels:[], showPron:false}).showPron === false && VC.defaultProg({levels:[], showPron:true}).showPron === true);
+
+  // --- app.html render-site guard: every target-text element carries ${TA} (lang/dir/font)
+  const app = fs.readFileSync(path.join(ROOT, "engine", "app.html"), "utf8");
+  const bare = [...app.matchAll(/class="(big wd|med wd|wd|st|rw)"(?!\$\{TA\})/g)].map(m=>m[0]);
+  const optsW = [...app.matchAll(/optHtml: wordOptHtml\([^)]*\)(, optsT: true)?/g)];
+  check("app.html: every target-text element (big/med/wd/st/rw) carries ${TA}; every word-option item sets optsT",
+    bare.length === 0 && optsW.length >= 2 && optsW.every(m=>!!m[1]) && /id="tin"[^>]*\$\{TA\}/.test(app));
+})();
+
+// ------------------------------------------------------------ [18] validator script fields; distractor word class
+(function(){
+  console.log("\n[18] validate_pack.py script-display fields; word-option distractors keep the answer's word class");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vocab_pack_"));
+  const run = pack => {
+    const words = Array.from({length:20}, (_,i)=>({ id:`a${i}`, w:`w${i}`, en:`gloss ${i}`, lv:"A1" }));
+    fs.writeFileSync(path.join(tmp, "pack.json"), JSON.stringify(pack));
+    fs.writeFileSync(path.join(tmp, "words.json"), JSON.stringify(words));
+    fs.writeFileSync(path.join(tmp, "sentences.json"), "[]");
+    cp.spawnSync("python3", [path.join(ROOT, "tools", "jsonify_pack.py"), tmp]);
+    return cp.spawnSync("python3", [path.join(ROOT, "tools", "validate_pack.py"), tmp], { encoding:"utf8" });
+  };
+  const base = { key:"t", name:"T", tts:"fa-IR", levels:[{id:"A1",label:"A1"}], placement:[["A1",2]], typing:null, showPron:false, hasLessons:false };
+  const good = run(Object.assign({}, base, { rtl:true, langTag:"fa", fontFamily:'"Noto Naskh Arabic", serif', fonts:["Noto Naskh Arabic:wght@400;700"], lineHeight:2 }));
+  check("validator: valid rtl/langTag/fontFamily/fonts/lineHeight -> 0 errors, no rtl-font warning", good.status === 0 && !/rtl is true/.test(good.stdout));
+  const bad = run(Object.assign({}, base, { rtl:"yes", langTag:'"><x', fontFamily:"x; color:red", fonts:["x&family=y"], lineHeight:9 }));
+  const need = [/pack\.rtl must be a boolean/, /pack\.langTag must be/, /pack\.fontFamily must not contain/, /pack\.fonts\[0\]/, /pack\.lineHeight must be/];
+  check("validator: each invalid script field is its own error", bad.status === 1 && need.every(re => re.test(bad.stdout)));
+  const warn = run(Object.assign({}, base, { rtl:true }));
+  check("validator: rtl without fontFamily/fonts is a warning, not an error", warn.status === 0 && /rtl is true but neither fontFamily nor fonts/.test(warn.stdout));
+  fs.rmSync(tmp, { recursive:true, force:true });
+
+  // Distractor word class (recall and gap share wordOpts).
+  const P = { functionWords:["f0","f1","f2","f3"] };
+  const W = [
+    ...[["il","the"],["di","of"],["e","and"],["che","that"]].map(([w,en],i)=>({ id:`f${i}`, w, en, lv:"A1", pos:"x" })),
+    ...[["casa","house"],["cane","dog"],["gatto","cat"],["libro","book"],["sole","sun"]].map(([w,en],i)=>({ id:`c${i}`, w, en, lv:"A1", pos:"n" }))
+  ];
+  let contentOk = true, fnOk = true;
+  for(let i=0;i<200;i++){
+    if(VC.wordOpts(W[4], W, null, P).some(d => P.functionWords.includes(d.id))) contentOk = false;
+    if(!VC.wordOpts(W[0], W, null, P).every(d => P.functionWords.includes(d.id))) fnOk = false;
+  }
+  check("wordOpts: content-word answer never gets a function-word distractor; function-word answer gets function words first", contentOk && fnOk);
+  const tinyFn = [W[0], W[1], ...W.slice(4)];
+  check("wordOpts: function-word answer falls back to content words when too few function words", VC.wordOpts(W[0], tinyFn, null, P).length === 3);
+  const s = { id:"s", t:"Il cane e il gatto.", en:"x", lv:"A1", words:["f0","c1","f2","c2"] };
+  const BY = {}; W.forEach(w=>{ BY[w.id] = w; });
+  let gapOk = true;
+  for(let i=0;i<100;i++){ const gc = VC.gapChoices(BY.c1, VC.gapMatch(s, BY.c1, BY, P), W, P); if(gc.opts.some(o => ["il","di","e","che"].includes(o)) || gc.opts.length !== 4) gapOk = false; }
+  check("gapChoices: 4 options, none a function word, for a content-word blank", gapOk);
+  let zhFw = 0; const zfw = new Set(PACK.functionWords);
+  SENTENCES.slice(0, 300).forEach(zs => VC.gapCandidateIndices(zs, BY_ID, PACK).forEach(ix => {
+    const e = BY_ID[zs.words[ix]]; const gc = VC.gapChoices(e, VC.gapMatch(zs, e, BY_ID, PACK), WORDS, PACK);
+    if(Object.values(gc.byLabel).some(v => v.id !== e.id && zfw.has(v.id))) zhFw++;
+  }));
+  check("zh gap sweep (300 sentences): no function-word distractor in any cloze", zhFw === 0);
+})();
+
 console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);
