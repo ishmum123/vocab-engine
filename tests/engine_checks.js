@@ -450,7 +450,9 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   check("todayGates: review needs 5, listen/recall 4, sentences 8, learn needs a next set",
     util.isDeepStrictEqual(VC.todayGates(4, true, 7), {review:false, learn:true, listen:true, recall:true, sentences:false}) &&
     util.isDeepStrictEqual(VC.todayGates(5, false, 8), {review:true, learn:false, listen:true, recall:true, sentences:true}));
-  check("testGates: a pack with 0 sentences is not blocked on sentences", VC.testGates(20, 0, 0).needPlacement === false && VC.testGates(20, 0, 50).needPlacement === true && VC.testGates(5, 50, 50).needPlacement === true);
+  check("testGates: learn-first notice gates on learned words only (>= TEST_MIN_WORDS), never on sentences",
+    VC.TEST_MIN_WORDS === 8 && VC.testGates(8, 0).needPlacement === false && VC.testGates(10, 0).needPlacement === false &&
+    VC.testGates(7, 50).needPlacement === true && VC.testGates(10, 0).sentences === false && VC.testGates(10, 8).sentences === true && VC.testGates(10, 0).words === true);
 
   // speech
   const voices = [{lang:"en-US"}, {lang:"zh_TW"}, {lang:"it-IT"}];
@@ -515,6 +517,78 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const ro = VC.bootProg(null, PACK, true);
   check("bootProg: storage read error -> read-only defaults, no backup write", ro.readOnly === true && ro.backupRaw === null && util.isDeepStrictEqual(ro.prog, VC.defaultProg(PACK)));
   check("bootProg: normal read is not read-only", VC.bootProg(null, PACK).readOnly === false && VC.bootProg('{"sessions":2}', PACK).readOnly === false);
+})();
+
+// ------------------------------------------------------------ [16] Italian browser-verify round
+(function(){
+  console.log("\n[16] gap option bare forms, example-sentence chooser, audio slot");
+  const I = { levels:[{id:"A1",label:"A1"}], functionWords:[], spaced:true };
+  const nouns = [["gioco","game"],["padre","father"],["libro","book"],["treno","train"],["cane","dog"],["mare","sea"]]
+    .map(([b,en],i)=>({ id:"n"+i, w:(i%2?"la ":"il ")+b, en, lv:"A1", pos:"n", alt:[b, b+"s"] }));
+  const anno = { id:"anno", w:"l'anno", en:"year", lv:"A1", pos:"n", alt:["anno"] };
+  const acqua = { id:"acqua", w:"acqua", en:"water", lv:"A1", pos:"n", alt:["l'acqua"] };
+  const art = { id:"il", w:"il", en:"the", lv:"A1", pos:"art", alt:["lo","la"] };
+  const bello = { id:"bello", w:"bello", en:"beautiful", lv:"A1", pos:"adj", alt:["bella"] };
+  const W = [...nouns, anno, acqua, art, bello];
+  const BY = {}; W.forEach(w=>{ BY[w.id] = w; });
+  check("bareForm: alt[0] when it is a whole trailing token of w (il gioco -> gioco, l'anno -> anno)",
+    VC.bareForm(nouns[0]) === "gioco" && VC.bareForm(anno) === "anno" && VC.bareForm({w:"l’anno",alt:["anno"]}) === "anno");
+  check("bareForm: w otherwise (acqua/l'acqua, il/lo, bello/bella, no alt)",
+    VC.bareForm(acqua) === "acqua" && VC.bareForm(art) === "il" && VC.bareForm(bello) === "bello" && VC.bareForm({w:"casa"}) === "casa");
+  // Blank = alt (bare): "È un ____ di parole." must not offer "il padre".
+  const s1 = { id:"s1", t:"È un gioco di parole.", en:"x", lv:"A1", words:["n0"] };
+  const m1 = VC.gapMatch(s1, nouns[0], BY, I);
+  let bareOk = !!m1 && m1.text === "gioco";
+  for(let i=0;i<50;i++){
+    const gc = VC.gapChoices(nouns[0], m1, W, I);
+    const bad = gc.opts.some(o => /^(il|la|l') ?/.test(o) && o !== "il" && o !== "la") || gc.a !== "gioco" || gc.opts[0] !== gc.a ||
+      new Set(gc.opts).size !== gc.opts.length || gc.opts.some(o => !gc.byLabel[o]) || gc.byLabel[gc.a] !== nouns[0];
+    if(bad){ bareOk = false; console.log("    BAD", JSON.stringify(gc.opts)); break; }
+  }
+  check("gapChoices: blank matched an alt -> answer and every distractor shown bare, distinct, mapped back", bareOk);
+  // Inflected alt also triggers bare mode (answer shown by lemma).
+  const s1b = { id:"s1b", t:"Due giocos qui.", en:"x", lv:"A1", words:["n0"] };
+  const gcb = VC.gapChoices(nouns[0], VC.gapMatch(s1b, nouns[0], BY, I), W, I);
+  check("gapChoices: inflected alt blank -> bare labels too", gcb.a === "gioco" && gcb.opts.every(o => !/^(il|la) /.test(o)));
+  // Blank = w: all options keep w.
+  const s2 = { id:"s2", t:"Il gioco è bello.", en:"x", lv:"A1", words:["n0"] };
+  const m2 = VC.gapMatch(s2, nouns[0], BY, I);
+  const gc2 = VC.gapChoices(nouns[0], m2, W, I);
+  check("gapChoices: blank matched w -> every option shows its w", !!m2 && gc2.a === "il gioco" && gc2.opts.every(o => W.some(v => v.w === o)));
+  // Elided alt (acqua -> blank l'acqua): answer stays bare w, distractors bare.
+  const s3 = { id:"s3", t:"Bevo l'acqua.", en:"x", lv:"A1", words:["acqua"] };
+  const gc3 = VC.gapChoices(acqua, VC.gapMatch(s3, acqua, BY, I), W, I);
+  check("gapChoices: elided alt blank (l'acqua) -> answer 'acqua', distractors bare", gc3.a === "acqua" && gc3.opts.every(o => !/^(il|la) /.test(o)));
+  // zh: no alts -> unchanged behaviour (labels are w).
+  const zs = SENTENCES.find(s => VC.gapCandidateIndices(s, BY_ID, PACK).length);
+  const ze = BY_ID[zs.words[VC.gapCandidateIndices(zs, BY_ID, PACK)[0]]];
+  const zgc = VC.gapChoices(ze, VC.gapMatch(zs, ze, BY_ID, PACK), WORDS, PACK);
+  check("gapChoices on zh: labels are w, answer is w", zgc.a === ze.w && zgc.opts.every(o => BY_ID[zgc.byLabel[o].id].w === o));
+
+  // exampleSentences: only sentences listing the id; visible-w first, then visible-alt, then rest; pack order within tiers.
+  const S = [
+    { id:"e1", t:"Giochi sempre.", en:"x", lv:"A1", words:["n0"] },          // headword not visible
+    { id:"e2", t:"Un gioco nuovo.", en:"x", lv:"A1", words:["n0"] },         // alt visible
+    { id:"e3", t:"Il padre dorme.", en:"x", lv:"A1", words:["n1"] },         // other word
+    { id:"e4", t:"La gioco? Il gioco!", en:"x", lv:"A1", words:["n0"] },     // w visible
+    { id:"e5", t:"Il gioco è qui.", en:"x", lv:"A1", words:["n0"] }          // w visible
+  ];
+  const ex = VC.exampleSentences(nouns[0], S, I, 2).map(s=>s.id);
+  const exAll = VC.exampleSentences(nouns[0], S, I, 10).map(s=>s.id);
+  check("exampleSentences: prefers sentences showing w, then an alt, then the rest; never other words' sentences",
+    util.isDeepStrictEqual(ex, ["e4","e5"]) && util.isDeepStrictEqual(exAll, ["e4","e5","e2","e1"]));
+  const zex = VC.exampleSentences(ze, SENTENCES, PACK, 2);
+  check("exampleSentences on zh: every example lists the word id and shows its w",
+    zex.length > 0 && zex.every(s => s.words.includes(ze.id) && s.t.includes(ze.w)));
+
+  // audioSlot: one audio object for any number of plays; previous paused before each new play.
+  let made = 0, pauses = 0;
+  const slot = VC.audioSlot(() => { made++; return { src:"", pause(){ pauses++; } }; });
+  const a1 = slot.play("x.mp3"); slot.play("y.mp3"); slot.play("y.mp3"); slot.stop();
+  const a4 = slot.play("z.mp3");
+  check("audioSlot: 4 plays -> 1 audio object, previous paused each time, src updated", made === 1 && a1 === a4 && pauses === 4 && a4.src === "z.mp3");
+  const fresh = VC.audioSlot(() => { made++; return { pause(){} }; }); fresh.stop();
+  check("audioSlot: stop() before any play creates nothing", made === 1);
 })();
 
 console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);

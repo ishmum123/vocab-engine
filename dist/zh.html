@@ -43,6 +43,8 @@
   .next:last-child, .primary:last-child, .done .next{margin-top:auto}
   .actions{margin-top:auto;display:flex;flex-direction:column;gap:8px}
   .drill-body{flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;min-height:0}
+  /* Drill items centre in the tall card; dashboards (Today) read top-down, so they don't. */
+  .drill-body.top{justify-content:flex-start}
   .q{color:var(--mute);font-size:15px;margin:0 0 10px}
   .big{font-size:52px;line-height:1.3;text-align:center;margin:6px 0 16px;font-weight:500;overflow-wrap:anywhere}
   .med{font-size:22px;line-height:1.5;margin:2px 0 14px}
@@ -245,7 +247,10 @@ function meaningOpts(entry, pool){
 // same pos AND same level, then same level, then same pos elsewhere, then anything.
 // Distractors have distinct displayed `w`; a strict pass also keeps their glosses'
 // first two words distinct from each other, relaxed only for tiny pools.
-function wordOpts(entry, pool){
+// showOf (optional, default e => e.w): the label each option is displayed by. Distractor
+// labels are kept distinct from each other and from every answer surface under it.
+function wordOpts(entry, pool, showOf){
+  const show = showOf || (e => e.w);
   const ansGloss = normKey(entry.en), ansF2 = firstTwoWords(entry.en);
   const hasPos = !!entry.pos;
   const cands = (pool||[]).filter(v =>
@@ -259,10 +264,10 @@ function wordOpts(entry, pool){
   function pass(strict){
     // Every answer surface is already excluded from `cands`; among distractors only
     // the displayed `w` must differ (their alts are never shown, so sharing one is fine).
-    const chosen = []; const usedW = new Set(surfaces(entry)); const usedF2 = new Set();
+    const chosen = []; const usedW = new Set([...surfaces(entry), normKey(show(entry))]); const usedF2 = new Set();
     for(const v of ordered){
       if(chosen.length>=3) break;
-      const k = normKey(v.w), f2 = firstTwoWords(v.en);
+      const k = normKey(show(v)), f2 = firstTwoWords(v.en);
       if(usedW.has(k)) continue;
       if(strict && f2 && usedF2.has(f2)) continue;
       chosen.push(v); usedW.add(k); if(f2) usedF2.add(f2);
@@ -438,6 +443,42 @@ function gapCandidateIndices(sentence, wordsById, pack){
 function blankSentence(sentence, match){
   const t = String(sentence.t);
   return { before: t.slice(0, match.start), after: t.slice(match.end), answer: match.text };
+}
+// Surface key that also folds apostrophe variants (l’anno = l'anno).
+const surfKey = s => normKey(s).replace(/[\u2019\u02bc]/g, "'");
+// A word's bare form. Pack convention: when `w` carries an article or clitic
+// ("il gioco", "l'anno"), alt[0] is the bare lemma ("gioco", "anno"). alt[0] counts as
+// the bare form only when it is a whole trailing token of `w` (after a space or an
+// apostrophe), so alts that are other forms (il -> lo, bello -> bella) or longer
+// elided forms (acqua -> l'acqua) never replace `w`.
+function bareForm(e){
+  const w = String((e && e.w) || ""), a0 = e && e.alt && e.alt[0];
+  if(!a0 || a0.length >= w.length) return w;
+  const cut = w.length - a0.length, sep = w[cut - 1] || "";
+  return (surfKey(w.slice(cut)) === surfKey(a0) && (/\s/.test(sep) || isApos(sep))) ? String(a0) : w;
+}
+// MC options for a gap item. When the blank covers `w` itself, every option shows its
+// `w`. When the sentence used another form (an alt: bare or inflected, e.g. "gioco" for
+// "il gioco"), every option shows its bareForm instead, so article-carrying options never
+// sit inside the sentence's own article context ("È un ____" offering "il padre").
+// Returns { opts, a, byLabel } with byLabel mapping each label to its word.
+function gapChoices(entry, match, pool, pack){
+  const useBare = !!match && surfKey(match.text) !== surfKey(entry.w);
+  const show = useBare ? bareForm : (e => e.w);
+  const ds = wordOpts(entry, pool, show);
+  const byLabel = {}; [entry, ...ds].forEach(e => { byLabel[show(e)] = e; });
+  return { opts: [show(entry), ...ds.map(show)], a: show(entry), byLabel, bare: useBare };
+}
+// Up to n example sentences for `entry` (sentences whose `words` list its id), in pack
+// order within tiers: sentences where `w` is visible as a whole token first, then ones
+// where an alt is, then the rest (the headword isn't shown as written, e.g. inflected).
+function exampleSentences(entry, sentences, pack, n){
+  const spaced = !pack || pack.spaced !== false;
+  const seen = s => findSurface(s.t, entry.w, spaced).length ? 0
+    : (entry.alt||[]).some(a => a && findSurface(s.t, a, spaced).length) ? 1 : 2;
+  const tiers = [[], [], []];
+  (sentences||[]).forEach(s => { if((s.words||[]).indexOf(entry.id) >= 0) tiers[seen(s)].push(s); });
+  return [...tiers[0], ...tiers[1], ...tiers[2]].slice(0, n);
 }
 
 // ------------------------------------------------------------------ placement
@@ -726,12 +767,13 @@ function lessonSayMode(item, speechOK){
 function todayGates(learnedCount, hasNextSet, availSentCount){
   return { review: learnedCount >= 5, learn: !!hasNextSet, listen: learnedCount >= 4, recall: learnedCount >= 4, sentences: availSentCount >= 8 };
 }
-// Test tab: free word tests need 8 learned words; the sentence test needs 8 available
-// sentences. "Learn first" (placement CTA) shows while words are short, or while
-// sentences are short in a pack that has sentences at all.
-function testGates(learnedCount, availSentCount, totalSentences){
-  const words = learnedCount >= 8, sentences = availSentCount >= 8;
-  return { words, sentences, needPlacement: !words || (totalSentences > 0 && !sentences) };
+// Test tab: free word tests need TEST_MIN_WORDS learned words; the sentence test needs
+// 8 available sentences. The "learn first" notice depends on learned words only
+// (placement itself needs no sentences); the sentence button simply stays hidden.
+const TEST_MIN_WORDS = 8;
+function testGates(learnedCount, availSentCount){
+  const words = learnedCount >= TEST_MIN_WORDS, sentences = availSentCount >= 8;
+  return { words, sentences, needPlacement: !words };
 }
 
 // ------------------------------------------------------------------ speech
@@ -752,10 +794,26 @@ function speechUsable(apiPresent, voices, lang){
   return !!pickVoice(voices, lang);
 }
 
+// ------------------------------------------------------------------ audio
+// One shared playback slot for recorded audio. play(url) pauses whatever the slot played
+// last and reuses a single audio object (created once via make()), so repeated or
+// duplicated taps can never stack parallel players or requests.
+function audioSlot(make){
+  let a = null;
+  return {
+    play(url){
+      if(!a) a = make(); else { try{ a.pause(); }catch(e){} }
+      a.src = url;
+      return a;
+    },
+    stop(){ if(a){ try{ a.pause(); }catch(e){} } }
+  };
+}
+
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
-  meaningOpts, wordOpts, gapOpts, sentenceOpts,
+  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, gapChoices, exampleSentences, audioSlot, TEST_MIN_WORDS,
   foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
@@ -831,7 +889,7 @@ const nSets = lv => VC.nSets(levelList(lv), SIZE);
 const learnedWords = () => VC.learnedWords(WORDS, PACK, prog);
 const nextNewSet = () => VC.nextNewSet(WORDS, PACK, prog);
 const availableSentences = () => VC.availableSentences(SENTENCES, WORDS, PACK, prog);
-function wordExampleSentences(id, n){ return SENTENCES.filter(s => (s.words||[]).indexOf(id) >= 0).slice(0, n); }
+const wordExampleSentences = (entry, n) => VC.exampleSentences(entry, SENTENCES, PACK, n);
 
 // ===================== speech =====================
 const SS = window.speechSynthesis || null;
@@ -846,22 +904,28 @@ if(speechAPI){
   const pv = () => { const v = SS.getVoices(); ttsVoice = VC.pickVoice(v, TTS_LANG); hasSpeech = VC.speechUsable(speechAPI, v, TTS_LANG); };
   pv(); SS.onvoiceschanged = pv;
 }
-let currentAudio = null;
 // Speaks text via TTS, or plays audioUrl if given (sentence.audio). btn, if given,
 // gets a "speaking" class for the duration so the big speaker glyph can pulse.
+// Playback is idempotent: every speak() first stops the previous clip and any queued
+// TTS, and recorded audio goes through one shared audio object (VC.audioSlot), so a
+// tap that somehow fires twice restarts one sound instead of stacking players.
+const audioOut = VC.audioSlot(() => new Audio());
+let speakingBtn = null;
 function speak(text, btn, audioUrl){
-  if(currentAudio){ try{ currentAudio.pause(); }catch(e){} currentAudio = null; }
+  audioOut.stop();
+  if(SS){ try{ SS.cancel(); }catch(e){} }
+  if(speakingBtn){ speakingBtn.classList.remove("speaking"); speakingBtn = null; }
   if(audioUrl){
     try{
-      const a = new Audio(audioUrl); currentAudio = a;
-      if(btn){ btn.classList.add("speaking"); a.onended = a.onerror = () => btn.classList.remove("speaking"); }
+      const a = audioOut.play(audioUrl);
+      a.onended = a.onerror = null;
+      if(btn){ speakingBtn = btn; btn.classList.add("speaking"); a.onended = a.onerror = () => btn.classList.remove("speaking"); }
       a.play().catch(()=>{ if(btn) btn.classList.remove("speaking"); });
       return;
     }catch(e){}
   }
   if(!hasSpeech) return;
   try{
-    SS.cancel();
     const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; if(ttsVoice) u.voice = ttsVoice; u.rate = TTS_RATE;
     if(btn){
       u.onstart = () => btn.classList.add("speaking");
@@ -936,7 +1000,6 @@ function dnext(){
     const { right, seen, miss, onDone, summary } = D;
     setScore(0, 0);
     P.innerHTML = `<div class="done"><h2>${right} / ${seen}</h2>${summary ? summary(miss) : ""}<button class="next" id="ok">Continue</button></div>`;
-    wireSayTaps(P);
     D = null; drillKeyHandler = null;
     $("ok").onclick = onDone;
     return;
@@ -1011,17 +1074,18 @@ let drillKeyHandler = null;
 document.addEventListener("keydown", e => { if(drillKeyHandler) drillKeyHandler(e); });
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
-// Delegated tap-to-hear on `root` (default #rv): data-sent (a SENTENCES index) speaks
-// that sentence, data-wid (a word id) speaks that word.
-function wireSayTaps(root){
-  const el = (root && root.nodeType) ? root : $("rv"); if(!el) return;
-  el.addEventListener("click", e => {
-    const t = e.target.closest("[data-sent],[data-wid]");
-    if(!t || !el.contains(t)) return;
-    if(t.dataset.wid !== undefined){ const w = WORDS_BY_ID[t.dataset.wid]; if(w) say(w.w); return; }
-    const s = SENTENCES[+t.dataset.sent]; if(s) saySentence(s);
-  });
-}
+// Tap-to-hear for markup anywhere in #panel: data-sent (a SENTENCES index) speaks that
+// sentence, data-wid (a word id) speaks that word. INVARIANT: this is the only listener
+// for these attributes and it is attached exactly once, here, at load. #panel is
+// persistent (screens replace its innerHTML), so attaching per render/reveal/drill-end
+// would accumulate one more listener each time (N taps -> N sounds). Render code just
+// emits the attributes and never wires them.
+$("panel").addEventListener("click", e => {
+  const t = e.target.closest("[data-sent],[data-wid]");
+  if(!t) return;
+  if(t.dataset.wid !== undefined){ const w = WORDS_BY_ID[t.dataset.wid]; if(w) say(w.w); return; }
+  const s = SENTENCES[+t.dataset.sent]; if(s) saySentence(s);
+});
 
 // ===================== word drill items =====================
 function sentenceRowHTML(s){
@@ -1029,7 +1093,7 @@ function sentenceRowHTML(s){
   return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st">${escapeHtml(s.t)}</div>${p ? `<div class="sp">${escapeHtml(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
 }
 function exampleSentencesHTML(entry){
-  const ex = wordExampleSentences(entry.id, 2);
+  const ex = wordExampleSentences(entry, 2);
   if(!ex.length) return "";
   return `<p class="q" style="margin-top:12px">Example${ex.length>1?"s":""}:</p>${ex.map(sentenceRowHTML).join("")}`;
 }
@@ -1046,13 +1110,13 @@ function hearItem(entry){
     opts: meaningChoices(entry), a: VC.gloss(entry), reveal: `<div class="q">You heard:</div>${revealBlock(entry)}`,
     onAnswer: ok=>markWord(entry.id, ok),
     mount: () => { const btn = $("sp"); speak(entry.w, btn); btn.onclick = ()=>speak(entry.w, btn); },
-    onReveal: wireSayTaps };
+    };
 }
 // read — word shown; pick the meaning. Audio auto-plays.
 function readItem(entry){
   return { kind:"mc", key:"w:"+entry.id, label:"What does it mean?", optsClass:"opts-hero",
     html: bigWordHTML(entry), opts: meaningChoices(entry), a: VC.gloss(entry), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), mount: () => say(entry.w), onReveal: wireSayTaps };
+    onAnswer: ok=>markWord(entry.id, ok), mount: () => say(entry.w), };
 }
 // recall — meaning shown; pick the word (wordOpts: same pos/level first, never a
 // distractor that would also be a right answer).
@@ -1062,14 +1126,14 @@ function recallItem(entry){
   return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
     opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w, optHtml: wordOptHtml(byW), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => { say(entry.w); wireSayTaps(); } };
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
 }
 // type — meaning shown; type the word (normalised per pack.typing, alt forms accepted).
 function typeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:"Type the word",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
     check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => { say(entry.w); wireSayTaps(); } };
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
 }
 const WORD_ITEM = { hear: hearItem, read: readItem, recall: recallItem, type: e => TYPING ? typeItem(e) : recallItem(e) };
 const itemFromPlan = p => WORD_ITEM[p.kind](p.word);
@@ -1091,7 +1155,7 @@ function readSentence(s){
   return { kind:"mc", key:"s:"+s.id, label:"What does it mean?", optsClass:"opts-hero",
     html: `<div class="med wd">${escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
     opts: sentenceChoices(s), a: s.en, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
-    mount: () => saySentence(s), onReveal: wireSayTaps };
+    mount: () => saySentence(s), };
 }
 function hearSentence(s){
   if(!canHearSentence(s)) return Object.assign(readSentence(s), { html: speechNotice() + readSentence(s).html });
@@ -1100,7 +1164,7 @@ function hearSentence(s){
     opts: sentenceChoices(s), a: s.en, reveal: `<div class="q">You heard:</div>${sentenceRevealBlock(s)}`,
     onAnswer: ok=>markSentence(s.id, ok),
     mount: () => { const btn = $("sp"); saySentence(s, btn); btn.onclick = ()=>saySentence(s, btn); },
-    onReveal: wireSayTaps };
+    };
 }
 // gap — sentence with one content word blanked; pick it from 4, or type it. Returns
 // null when the sentence has no legal blank (callers fall back to readSentence). No
@@ -1113,15 +1177,14 @@ function gapSentence(s, typed){
   const b = VC.blankSentence(s, match);
   const html = `<div class="med wd">${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${escapeHtml(s.en)}</div>`;
   const base = { key:"s:"+s.id, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
-    onReveal: () => { saySentence(s); wireSayTaps(); } };
+    onReveal: () => saySentence(s) };
   if(typed && TYPING){
     return Object.assign(base, { kind:"type", label:"Type the missing word", html,
       check: val => VC.acceptTyped(val, entry, PACK, [match.text]) });
   }
-  const ds = VC.gapOpts(entry, WORDS);
-  const byW = {}; [entry, ...ds].forEach(e=>{ byW[e.w] = e; });
+  const gc = VC.gapChoices(entry, match, WORDS, PACK);
   return Object.assign(base, { kind:"mc", label:"What's the missing word?", optsClass:"opts-hero opts-w", html,
-    opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w, optHtml: wordOptHtml(byW) });
+    opts: gc.opts, a: gc.a, optHtml: wordOptHtml(gc.byLabel) });
 }
 function sentenceItemFor(s){
   const k = VC.sentenceKind(PACK);
@@ -1185,7 +1248,7 @@ function todayRender(){
   ];
   const showPlaceHint = !prog.placedOnce;
   const showSoundsHint = HAS_LESSONS && !prog.soundsOpened;
-  P.innerHTML = `<div class="drill-body">${pathStrip()}
+  P.innerHTML = `<div class="drill-body top">${pathStrip()}
     ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
@@ -1269,7 +1332,6 @@ function vocabTeach(list, lv, onDrill){
       const exWrap = document.createElement("div");
       exWrap.style.cssText = "margin:-4px 0 10px;padding-left:2px;font-size:14px";
       exWrap.innerHTML = exHtml;
-      wireSayTaps(exWrap);
       tl.appendChild(exWrap);
     }
   });
@@ -1391,12 +1453,12 @@ function testRender(){
   const P = $("panel");
   if(testSel === "placement"){ placeRender(); return; }
   const lw = learnedWords(); const availSent = availableSentences();
-  const tg = VC.testGates(lw.length, availSent.length, SENTENCES.length);
+  const tg = VC.testGates(lw.length, availSent.length);
   const needMore = tg.needPlacement;
   const n20 = Math.min(20, lw.length), sentN = Math.min(20, availSent.length);
   P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
     <div class="actions">
-      ${needMore ? `<div class="stmt">Learn a few words first — placement finds where to start.<button class="next" id="needPlace" style="margin-top:8px">Take the placement test</button></div>` : `<button class="next" id="pl">Take Placement</button>`}
+      ${needMore ? `<div class="stmt">Free tests unlock at ${VC.TEST_MIN_WORDS} learned words (${lw.length} so far). Learn ${VC.TEST_MIN_WORDS} words first, or let placement find where to start.<button class="next" id="needPlace" style="margin-top:8px">Take the placement test</button></div>` : `<button class="next" id="pl">Take Placement</button>`}
       ${tg.words ? `<div class="row" style="margin-top:8px;margin-bottom:0">
         <button class="ghost" id="tListen" style="flex:1">Listen ${n20}</button>
         <button class="ghost" id="tRecall" style="flex:1">Recall ${n20}</button>

@@ -78,7 +78,10 @@ function meaningOpts(entry, pool){
 // same pos AND same level, then same level, then same pos elsewhere, then anything.
 // Distractors have distinct displayed `w`; a strict pass also keeps their glosses'
 // first two words distinct from each other, relaxed only for tiny pools.
-function wordOpts(entry, pool){
+// showOf (optional, default e => e.w): the label each option is displayed by. Distractor
+// labels are kept distinct from each other and from every answer surface under it.
+function wordOpts(entry, pool, showOf){
+  const show = showOf || (e => e.w);
   const ansGloss = normKey(entry.en), ansF2 = firstTwoWords(entry.en);
   const hasPos = !!entry.pos;
   const cands = (pool||[]).filter(v =>
@@ -92,10 +95,10 @@ function wordOpts(entry, pool){
   function pass(strict){
     // Every answer surface is already excluded from `cands`; among distractors only
     // the displayed `w` must differ (their alts are never shown, so sharing one is fine).
-    const chosen = []; const usedW = new Set(surfaces(entry)); const usedF2 = new Set();
+    const chosen = []; const usedW = new Set([...surfaces(entry), normKey(show(entry))]); const usedF2 = new Set();
     for(const v of ordered){
       if(chosen.length>=3) break;
-      const k = normKey(v.w), f2 = firstTwoWords(v.en);
+      const k = normKey(show(v)), f2 = firstTwoWords(v.en);
       if(usedW.has(k)) continue;
       if(strict && f2 && usedF2.has(f2)) continue;
       chosen.push(v); usedW.add(k); if(f2) usedF2.add(f2);
@@ -271,6 +274,42 @@ function gapCandidateIndices(sentence, wordsById, pack){
 function blankSentence(sentence, match){
   const t = String(sentence.t);
   return { before: t.slice(0, match.start), after: t.slice(match.end), answer: match.text };
+}
+// Surface key that also folds apostrophe variants (l’anno = l'anno).
+const surfKey = s => normKey(s).replace(/[\u2019\u02bc]/g, "'");
+// A word's bare form. Pack convention: when `w` carries an article or clitic
+// ("il gioco", "l'anno"), alt[0] is the bare lemma ("gioco", "anno"). alt[0] counts as
+// the bare form only when it is a whole trailing token of `w` (after a space or an
+// apostrophe), so alts that are other forms (il -> lo, bello -> bella) or longer
+// elided forms (acqua -> l'acqua) never replace `w`.
+function bareForm(e){
+  const w = String((e && e.w) || ""), a0 = e && e.alt && e.alt[0];
+  if(!a0 || a0.length >= w.length) return w;
+  const cut = w.length - a0.length, sep = w[cut - 1] || "";
+  return (surfKey(w.slice(cut)) === surfKey(a0) && (/\s/.test(sep) || isApos(sep))) ? String(a0) : w;
+}
+// MC options for a gap item. When the blank covers `w` itself, every option shows its
+// `w`. When the sentence used another form (an alt: bare or inflected, e.g. "gioco" for
+// "il gioco"), every option shows its bareForm instead, so article-carrying options never
+// sit inside the sentence's own article context ("È un ____" offering "il padre").
+// Returns { opts, a, byLabel } with byLabel mapping each label to its word.
+function gapChoices(entry, match, pool, pack){
+  const useBare = !!match && surfKey(match.text) !== surfKey(entry.w);
+  const show = useBare ? bareForm : (e => e.w);
+  const ds = wordOpts(entry, pool, show);
+  const byLabel = {}; [entry, ...ds].forEach(e => { byLabel[show(e)] = e; });
+  return { opts: [show(entry), ...ds.map(show)], a: show(entry), byLabel, bare: useBare };
+}
+// Up to n example sentences for `entry` (sentences whose `words` list its id), in pack
+// order within tiers: sentences where `w` is visible as a whole token first, then ones
+// where an alt is, then the rest (the headword isn't shown as written, e.g. inflected).
+function exampleSentences(entry, sentences, pack, n){
+  const spaced = !pack || pack.spaced !== false;
+  const seen = s => findSurface(s.t, entry.w, spaced).length ? 0
+    : (entry.alt||[]).some(a => a && findSurface(s.t, a, spaced).length) ? 1 : 2;
+  const tiers = [[], [], []];
+  (sentences||[]).forEach(s => { if((s.words||[]).indexOf(entry.id) >= 0) tiers[seen(s)].push(s); });
+  return [...tiers[0], ...tiers[1], ...tiers[2]].slice(0, n);
 }
 
 // ------------------------------------------------------------------ placement
@@ -559,12 +598,13 @@ function lessonSayMode(item, speechOK){
 function todayGates(learnedCount, hasNextSet, availSentCount){
   return { review: learnedCount >= 5, learn: !!hasNextSet, listen: learnedCount >= 4, recall: learnedCount >= 4, sentences: availSentCount >= 8 };
 }
-// Test tab: free word tests need 8 learned words; the sentence test needs 8 available
-// sentences. "Learn first" (placement CTA) shows while words are short, or while
-// sentences are short in a pack that has sentences at all.
-function testGates(learnedCount, availSentCount, totalSentences){
-  const words = learnedCount >= 8, sentences = availSentCount >= 8;
-  return { words, sentences, needPlacement: !words || (totalSentences > 0 && !sentences) };
+// Test tab: free word tests need TEST_MIN_WORDS learned words; the sentence test needs
+// 8 available sentences. The "learn first" notice depends on learned words only
+// (placement itself needs no sentences); the sentence button simply stays hidden.
+const TEST_MIN_WORDS = 8;
+function testGates(learnedCount, availSentCount){
+  const words = learnedCount >= TEST_MIN_WORDS, sentences = availSentCount >= 8;
+  return { words, sentences, needPlacement: !words };
 }
 
 // ------------------------------------------------------------------ speech
@@ -585,10 +625,26 @@ function speechUsable(apiPresent, voices, lang){
   return !!pickVoice(voices, lang);
 }
 
+// ------------------------------------------------------------------ audio
+// One shared playback slot for recorded audio. play(url) pauses whatever the slot played
+// last and reuses a single audio object (created once via make()), so repeated or
+// duplicated taps can never stack parallel players or requests.
+function audioSlot(make){
+  let a = null;
+  return {
+    play(url){
+      if(!a) a = make(); else { try{ a.pause(); }catch(e){} }
+      a.src = url;
+      return a;
+    },
+    stop(){ if(a){ try{ a.pause(); }catch(e){} } }
+  };
+}
+
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
-  meaningOpts, wordOpts, gapOpts, sentenceOpts,
+  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, gapChoices, exampleSentences, audioSlot, TEST_MIN_WORDS,
   foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,

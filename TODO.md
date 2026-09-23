@@ -14,6 +14,9 @@
 - **No migration from hsk's `hsk_pinyin` localStorage progress.** It was out of scope, and the ids differ: hsk keyed progress by the hanzi, the engine keys it by word id. A one-off importer could map w→id.
 
 ## Engine follow-ups
+- **Tap-to-hear invariant** (fixed 2026-09-23): one delegated click listener on the persistent `#panel`, attached once at load. Never add per-render `addEventListener` on `#panel` or other persistent nodes; `el.onclick =` on freshly rendered nodes is fine. Recorded audio plays through a single shared audio object (core.js `audioSlot`). Not covered by the Node tests (DOM); verified with a jsdom probe that the old build fired 7 sounds per tap after 7 drills and the new one fires 1.
+- **Gap bare-form labels** rely on the pack convention "alt[0] = bare lemma when `w` carries an article". A pack that breaks it just gets `w` labels (no wrong labels), but article-bearing distractors can reappear in article contexts. `validate_pack.py` does not check the convention yet.
+- **Test tab**: the sentence test button stays hidden below 8 available sentences with no explanation. Consider a one-line "unlocks at 8 sentences" note.
 - **Voice detection:** when the browser never reports a voice list, the engine optimistically assumes speech works. On browsers that report the list late, the first hear item may be spoken by a default voice.
 - A missed **type** item is requeued until the learner types it correctly, as in hsk. Consider turning it into a recall item on the second miss.
 - `rank` is validated but unused. Sets follow file order. Consider sorting by `rank` within each level at pack-build time.
