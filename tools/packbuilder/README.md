@@ -142,6 +142,7 @@ Added for Russian; each defaults to a no-op, so other languages are unchanged.
 - `finalize_words(env, ctx, words)`: last pass over the word list after sentences; may set `pron` (ru: display spelling, stressed form, aspect suffix).
 - Flags: `numeral_verb_rule` (off in ru: "три" is not тереть), `rare_zipf` (rare-reading threshold), `finite_verb_lemma` (a finite token keeps the tagger lemma over a same-spelling infinitive: ru "есть" = is).
 - `extra_wordfreq(raw)`: extra wordfreq surfaces after the main loop (ru: hyphenated words such as кто-то, which wordfreq splits at the hyphen).
+- `drop_all_levels`: regex (text or English); matching sentences are removed at every level (rape, sexual/child abuse). `check` fails if a pack sentence matches. ru sets it; `sensitive_re` stays the A1/A2 tier.
 - `surface_link_ok(tok)`: may an unresolved token fall back to linking by surface (ru: not "О нет!" -> о "about").
 - `refill_unexampled`: words left with no example sentence (and not forced) are dropped and the next words by rank take their place (one extra words+sentences pass).
 - `caps_proper_pool`: gates the capitalisation-based proper-noun test in word selection, separately from `caps_mark_names` (ru: off, so Земля and Бог stay).
@@ -175,6 +176,10 @@ Added for Spanish; each defaults to off or a no-op, so Italian stays byte-identi
 - `prefer_headword_sentence`: sentence choice puts first a sentence showing the headword or an alt, then (verbs) one with a 3sg present form, so the engine's first example shows the word as taught.
 - `derived_form_tags`: lex: form-of senses with these tags (es: diminutive, augmentative) are words of their own, not inflections of the base (señorita is not señora). Bump `versions["lex"]`.
 - `fallback_rarity_margin`: when no reading fits the tagged POS, keep the tagger's lemma rather than a surface reading this many zipf rarer (es "linda" is not lindar); the token then links nothing.
+- `sensitive_gloss_re`: a sense matching it never leads or joins a gloss while a clean sense exists; `check` fails on any below-top-level gloss that still matches. `SENSITIVE_GLOSS_EN` in `langs/base.py` is the shared English list (vulgar and sexual senses: es mamar, perra).
+- `verb_homograph_ratio`: a surface that is a form of several verbs goes to the one the tagger's person, then Sub/Imp mood, uniquely fits (only when every reading is a listed form), else to a lemma used this many times more in the corpus (crees: creer, pare: parar). A lemma used 6x the ratio more always wins (vete: ir, not vetar).
+- `fallback_same_class`: a NOUN/ADJ-tagged token with no reading of its class falls back to nominal readings first ("video juego": juego, not jugar).
+- `phrase_en_cues`: a phrase links only when the translation contains one of its cue words (es "de nada": welcome).
 - `sensitive_re`: sentences matching it (text or English) are kept to the top level, except as examples of a word that itself matches (and then levelled at the top). Cross-pack policy: sexual content and threats/violence stay out of A1/A2. `langs/base.py` `SENSITIVE_EN` is the shared English half; each spec adds its own-language terms (es: matar, asesinar, disparar, "estás muerto").
 
 ## Determinism

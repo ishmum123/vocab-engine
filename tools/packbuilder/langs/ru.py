@@ -17,7 +17,7 @@ import hashlib
 import json
 import re
 
-from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS
 
 STRESS = "\u0301\u0300"
 VOWELS = "аеёиоуыэюя"
@@ -35,6 +35,7 @@ GREETINGS = "да нет привет здравствуйте спасибо п
 ORDINALS = "первый второй третий четвёртый пятый".split()
 CONJS = "и а но или".split()
 PREPS = "в на с у о к по из за от до".split()
+DEATH_LEMMAS = {"умереть", "умирать", "смерть", "помереть", "помирать", "погибнуть", "погибать"}
 PROFANE_STEMS = ("хуй", "хуе", "хуё", "хуя", "хуи", "пизд", "ебат", "ебан", "ебал", "ебну", "ёбан", "ебу",
                  "заеб", "уеб", "выеб", "бляд", "блят", "мудак", "мудил", "залуп", "гандон", "пидор",
                  "пидар", "шлюх", "жоп", "говн", "дерьм")
@@ -115,10 +116,13 @@ class Russian(LanguageSpec):
         TATOEBA_AUDIO[0]: TATOEBA_AUDIO[1],
         "kelly_ru.json": "https://raw.githubusercontent.com/kotoshu/frequency-list-kelly/main/data/ru.json",
     }
-    versions = {"corpus": "c1", "tag": "t14", "lex": "l3"}
+    versions = {"corpus": "c1", "tag": "t14", "lex": "l4"}
 
     typing = {"caseSensitive": False, "accents": "lenient", "strictFromLevel": None}
     show_pron = True
+    audio_rank_bonus = 5.0        # native audio outweighs one A1 difficulty point
+    bare_prefer_shared = True
+    example_shows_word = True     # one example shows мочь / хотеть itself, not only могу / хочу
 
     word_re = re.compile(r"[А-Яа-яЁё]+")
     lex_word_re = re.compile(r"^[а-яё]+(?:-[а-яё]+)*$")
@@ -186,8 +190,22 @@ class Russian(LanguageSpec):
     sensitive_re = re.compile(
         r"(?<![а-яёa-z])(секс\w*|сексуальн\w*|самоубийств\w*|покончи\w* с собой|изнасил\w*|насилова\w*|"
         r"порн\w*|голы[йехм]\w*|гола[яю]|обнаж\w*|проститут\w*|презерватив\w*|оргазм\w*|"
-        r"sex|sexual\w*|sexy|suicid\w*|rape[ds]?|raping|rapist|porn\w*|naked|nude|orgasm|condom|"
-        r"kill(?:ed|s)? (?:himself|herself|myself|yourself|themselves|ourselves))(?![а-яёa-z])", re.I)
+        # threats/violence, dying/death wishes, weapons (A1/A2 only; the top level keeps them)
+        r"уби[тлвй]\w*|убь\w*|убей\w*|убийств\w*|убийц\w*|застрел\w*|пристрел\w*|труп\w*|мёртв\w*|мертв\w*|"
+        r"зареж\w*|зарезал\w*|задуш\w*|сдох\w*|сдыха\w*|умри|умрите|"
+        r"оружи\w*|пистолет\w*|ружь\w*|винтовк\w*|(?:вы|за|при|под|по|от|пере|на)?стрел(?!к)\w*|насили\w*|"
+        r"kill\w*|murder\w*|shot|weapon\w*|guns?|pistol\w*|rifle\w*|"
+        + SENSITIVE_EN + r")(?![а-яёa-z])", re.I)
+    # removed at every level: rape, sexual abuse, child abuse
+    drop_all_levels = re.compile(
+        r"(?<![а-яёa-z])(изнасил\w*|насилова\w*|насилуе\w*|растл\w*|педофил\w*|"
+        r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*|paedophil\w*|pedophil\w*)(?![а-яёa-z])",
+        re.I)
+    sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)
+    # lex: diminutive / female-equivalent senses are words of their own, not
+    # inflections (столик is not a form of стол, принцесса not of принц)
+    derived_form_tags = {"diminutive", "augmentative", "pejorative", "endearing",
+                         "female equivalent", "male equivalent"}
 
     report_title = "Russian A1-B1 pack (corpus-tagged)"
     forced_description = ("days, months, seasons, numbers 0-20 + tens + сто/тысяча, colours, greetings, "
@@ -277,6 +295,21 @@ class Russian(LanguageSpec):
             upos = "PROPN"                         # Том/Тома/Тому (Tom), Миссис: never the words том, то, мистер
         lemma = self.LEMMA_FIX.get(lemma, lemma)
         return [text, lemma, upos, ms]
+
+    def marks_sentence(self, toks):
+        # death as a death wish, threat or omen about the speaker/addressee
+        # ("Я чувствую, что смерть уже на подходе", "Ты умрёшь") goes to the top
+        # level; a neutral report ("Его отец умер в 1990") keeps its level
+        death = [t for t in toks if t[1] in DEATH_LEMMAS]
+        if not death:
+            return False
+        if any("Mood=Imp" in t[3] or "Person=First" in t[3] or "Person=Second" in t[3] or
+               t[0].lower() in ("умереть", "умирать") for t in death):
+            return True             # я умру / умри / лучше умереть
+        return any(t[2] == "PRON" and ("Person=First" in t[3] or "Person=Second" in t[3]) for t in toks)
+
+    def clean_sentence_text(self, t):
+        return t.replace("\u0301", "")          # Tatoeba text with stress marks (pron keeps them)
 
     def surface_link_ok(self, tok):
         return not (tok[2] == "INTJ" and tok[0].lower() in set(PREPS) | set(CONJS) | set(PURE_PREPS))
@@ -646,7 +679,9 @@ class Russian(LanguageSpec):
             return f"noun {w['id']} {w['w']!r}: gloss without gender suffix: {w['en']!r}"
         if w.get("pos") == "verb" and not re.search(r"\((impf\.|pf\.|impf\./pf\.)\)$", w["en"]):
             return f"verb {w['id']} {w['w']!r}: gloss without aspect: {w['en']!r}"
-        if w.get("pron") and strip_stress(w["pron"]) != w["w"]:
+        if not w.get("pron"):
+            return f"word {w['id']} {w['w']!r}: no pron (every Russian word carries its stressed form)"
+        if strip_stress(w["pron"]) != w["w"]:
             return f"word {w['id']} {w['w']!r}: pron {w['pron']!r} is not the stressed w"
         return None
 

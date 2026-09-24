@@ -49,9 +49,14 @@ def truecase(text, low, cap, word_re):
 
 
 def tagged_path(env, corpus_file):
-    import spacy
     sp = env.spec
     ver = sp.versions["tag"]
+    if sp.tagger != "spacy" or sp.spacy_model is None:
+        # non-spaCy tagger (fa: Stanza): the spec names it and tags the texts
+        desc = sp.tagger_desc()
+        sig = hashlib.sha1(f"{ver}|{desc}|{corpus_file.name}".encode()).hexdigest()[:10]
+        return env.derived / f"tagged_{ver}_{sig}.jsonl.gz", desc
+    import spacy
     model = spacy.util.get_package_version(sp.spacy_model)
     sig = hashlib.sha1(f"{ver}|{spacy.__version__}|{sp.spacy_model}-{model}|{corpus_file.name}".encode()).hexdigest()[:10]
     return env.derived / f"tagged_{ver}_{sig}.jsonl.gz", f"spaCy {spacy.__version__}, {sp.spacy_model} {model}"
@@ -65,27 +70,30 @@ def stage_tag(env, corpus):
     if out.exists() and meta_path.exists():
         stat("tag_meta", json.loads(meta_path.read_text()))
         return out
-    import spacy
     t0 = time.time()
     rows = corpus["rows"]
     low, cap = truecase_stats(rows, sp.word_re, sp.sentence_openers)
     texts = [truecase(r[1], low, cap, sp.word_re) for r in rows]
     n_lowered = sum(1 for r, t in zip(rows, texts) if r[1] != t)
     texts = [sp.tag_text(t) for t in texts]
-    nlp = spacy.load(sp.spacy_model, exclude=["parser", "ner"])
-    sp.setup_nlp(nlp)
+    if sp.tagger != "spacy" or sp.spacy_model is None:
+        docs = sp.tag_texts(texts)      # per text: [(text, lemma, upos, {feat: value})]
+        tok_fields = lambda doc: doc
+    else:
+        import spacy
+        nlp = spacy.load(sp.spacy_model, exclude=["parser", "ner"])
+        sp.setup_nlp(nlp)
+        docs = nlp.pipe(texts, batch_size=2000, n_process=sp.spacy_n_process)
+        tok_fields = lambda doc: ((t.text, t.lemma_, t.pos_, t.morph.to_dict()) for t in doc if not t.is_space)
     keep = sp.morph_keep or MORPH_KEEP
     tmp = out.with_suffix(".part")
     n_tok = 0
     with gzip.GzipFile(tmp, "wb", mtime=0) as g:
-        for r, doc in zip(rows, nlp.pipe(texts, batch_size=2000, n_process=sp.spacy_n_process)):
+        for r, doc in zip(rows, docs):
             toks = []
-            for t in doc:
-                if t.is_space:
-                    continue
-                md = t.morph.to_dict()
+            for text, lemma, pos, md in tok_fields(doc):
                 ms = "|".join(f"{k}={md[k]}" for k in keep if k in md)
-                toks.append(sp.fix_token([t.text, t.lemma_, t.pos_, ms]))
+                toks.append(sp.fix_token([text, lemma, pos, ms]))
             toks = sp.fix_sentence(toks, r, doc)
             n_tok += len(toks)
             g.write((json.dumps([r[0], toks], ensure_ascii=False) + "\n").encode("utf-8"))

@@ -7,7 +7,7 @@ from .lexicon import CONTENT_GROUPS, SKIP_UPOS
 from .tag import iter_tagged
 from .util import stat
 
-SENT_END_RE = re.compile(r"[.!?…][\"'»”)]*$")
+SENT_END_RE = re.compile(r"[.!?…؟][\"'»”)]*$")     # ؟ Arabic-script question mark (fa)
 PRONOMINAL_LINKED_SHARE = 0.6   # -rsi label needs this share of its linked sentences reflexive
 EN_REGISTER_RE = re.compile(r"\b(ain't|gonna|wanna|gotta|y'all|dunno|lemme|gimme|innit|ya|yer)\b"
                             r"|buzzed the control tower", re.I)
@@ -30,7 +30,7 @@ HOMOGRAPH_STOP = {"to", "a", "an", "the", "of", "be", "do", "for", "in", "on", "
 EN_WORD_RE = re.compile(r"[a-z]+")
 
 
-def phrase_spans(toks, sp, key_to_id):
+def phrase_spans(toks, sp, key_to_id, en=None):
     """Token-level phrase matches (spec.phrase_token_spans). Contractions are
     split first (es: del = de + el). Returns (phrase ids in sentence order,
     fully consumed token indices, {token index: leftover words} for a
@@ -46,9 +46,13 @@ def phrase_spans(toks, sp, key_to_id):
         else:
             seq += [(w, i) for w in low.split()]
     used, found = set(), []
+    en_low = set(EN_WORD_RE.findall((en or "").lower()))
     for phrase in sorted(sp.multiword, key=lambda p: (-len(p.split()), p)):   # longest first
         if (phrase, "PHRASE") not in key_to_id:
             continue
+        cues = sp.phrase_en_cues.get(phrase)
+        if cues and en is not None and not en_low & set(cues):
+            continue        # "No la conozco de nada": not "you're welcome"
         pw = phrase.split()
         for j in range(len(seq) - len(pw) + 1):
             if all(seq[j + k][0] == pw[k] and j + k not in used for k in range(len(pw))):
@@ -84,6 +88,7 @@ def homograph_table(words, sp):
             cues = set(EN_WORD_RE.findall(re.sub(r"\(.*?\)", " ", w["en"].lower()))) - HOMOGRAPH_STOP
             cues |= set(sp.homograph_cues.get((lem, w["pos"]), ()))
             out[lem].append((w["id"], cues))
+        out[("adv", lem)] = {w["id"] for w in ws if w["pos"] == "adv"}
     return out
 
 
@@ -97,7 +102,7 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
     resolved = lexicon.resolve_sentence(toks, groups)
     consumed, partial, phrase_ids = set(), {}, []
     if sp.phrase_token_spans:
-        phrase_ids, consumed, partial = phrase_spans(toks, sp, key_to_id)
+        phrase_ids, consumed, partial = phrase_spans(toks, sp, key_to_id, en)
     en_words = None
     if homs and en:
         en_words = set(EN_WORD_RE.findall(en.lower()))
@@ -159,8 +164,15 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
                 # several entries for this lemma: the English translation decides
                 # when it names the other entry's sense and not this one's
                 cues = dict(homs[lem])
-                if wid in cues and not cues[wid] & en_words:
-                    hit = [x for x, c in homs[lem] if x != wid and c & en_words]
+                advs = homs[("adv", lem)]
+                inflected = "Gender=Fem" in ms or "Number=Plur" in ms
+                if inflected and wid in advs:
+                    # an adverb does not inflect: "una sola pierna" is the adjective
+                    other = [x for x, _ in homs[lem] if x not in advs]
+                    if len(other) == 1:
+                        wid = other[0]
+                elif wid in cues and not cues[wid] & en_words:
+                    hit = [x for x, c in homs[lem] if x != wid and c & en_words and not (inflected and x in advs)]
                     if len(hit) == 1:
                         wid = hit[0]
                         if st is not None:
@@ -241,6 +253,8 @@ def build_sentences(env, ctx, words, top3000):
     tok_forms = {}     # sid -> folded token surfaces (example_shows_word only)
     for sid, toks in iter_tagged(ctx["tagged"]):
         text = rows[sid][1]
+        if sp.untranslated_rows and not rows[sid][3]:
+            continue            # tagged for evidence only: no English translation
         if not SENT_END_RE.search(text.strip()):
             st["no_terminal_punct"] += 1
             continue
@@ -266,6 +280,10 @@ def build_sentences(env, ctx, words, top3000):
             st["content_lemma_outside_pack_top3000"] += 1
             continue
         if not links:
+            continue
+        if sp.drop_all_levels is not None and (sp.drop_all_levels.search(text) or
+                                               sp.drop_all_levels.search(rows[sid][3])):
+            st["dropped_all_levels"] += 1
             continue
         sensitive = sp.sensitive_re is not None and bool(
             sp.sensitive_re.search(text) or sp.sensitive_re.search(rows[sid][3]))
@@ -325,13 +343,19 @@ def build_sentences(env, ctx, words, top3000):
         good = [s for s in ok if sp.min_len[lv] <= info[s][0]]
         if lv == first_lv and len(good) < 2:
             good += [s for s in ok if info[s][0] == 3]
-        good.sort(key=lambda s: (lv_ord[info[s][3]] > lv_ord[lv], rank_pen[(s, lv)], hw_tier.get((s, wid), 0),
+        good.sort(key=lambda s: (lv_ord[info[s][3]] > lv_ord[lv],
+                                 rank_pen[(s, lv)] - (sp.audio_rank_bonus if info[s][2] else 0),
+                                 hw_tier.get((s, wid), 0),
                                  not info[s][2],
                                  abs(info[s][0] - sp.target_len[lv]), use[s] == 0, s))
         if sp.example_shows_word and good:
             # one example shows the word itself (Haus, not only Häuser) when any can
             form = surface_of[wid]
             bare = [s for s in good if form in tok_forms.get(s, ())]
+            if sp.bare_prefer_shared:
+                # among the bare-form sentences: one with audio, then one already
+                # chosen for another word (fewer extra sentences, audio kept)
+                bare.sort(key=lambda s: (not info[s][2], use[s] == 0))
             if bare and not any(s in bare for s in good[:2]):
                 good.remove(bare[0])
                 good.insert(0, bare[0])
@@ -353,6 +377,7 @@ def build_sentences(env, ctx, words, top3000):
                "words": links}
         if row[4] is not None:
             rec["audio"] = f"https://tatoeba.org/audio/download/{row[4]}"
+        rec.update(sp.sentence_fields(row))     # fa: "src": "gen" on sentences written for the pack
         sentences.append(rec)
         if row[2]:
             users.add(row[2])

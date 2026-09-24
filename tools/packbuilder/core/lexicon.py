@@ -3,7 +3,7 @@ validated against the Wiktionary lexicon, with context rules on top of the
 tagger. Language tables (clitics, articles, copulas...) come from the spec;
 an empty table switches its rule off."""
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 
 GROUP_OF = {"AUX": "VERB", "CCONJ": "CONJ", "SCONJ": "CONJ"}
 SKIP_UPOS = {"PUNCT", "SYM", "X", "SPACE"}
@@ -54,6 +54,12 @@ def sense_tags(ent, sn):
     return set(sn[2]) - ent["ht"]
 
 
+FORM_TARGET_OF_RE = re.compile(r"\bof ([^\s:;,()]+)")
+PERSON_TAG = {"1": "first-person", "2": "second-person", "3": "third-person"}
+MOOD_TAG = {"Sub": "subjunctive", "Imp": "imperative"}     # Ind is too often a tagger default
+STRONG_PRIOR = 6        # x verb_homograph_ratio: beyond this use ratio the tagger's person/mood is overruled
+
+
 def demote_tags(spec):
     return BASE_DEMOTE_TAGS | spec.regional_tags
 
@@ -80,6 +86,7 @@ class Lexicon:
         self.n_copula_adj = 0
         self.n_pron_as_article = 0
         self.n_imperative = 0
+        self.n_verb_homograph = 0
         self.lemma_votes = Counter()
         spec.bind_lexicon(self)
 
@@ -174,6 +181,59 @@ class Lexicon:
             self._hp[s] = any(sn[3] == "form" and {"historic", "past"} <= set(sn[2])
                               for e in self.E.get(s, []) if e["p"] == "verb" for sn in e["s"])
         return self._hp[s]
+
+    def verb_form_tags(self, s):
+        """{lemma: [tag sets]} of the verb form-of senses for surface s
+        (crees: creer [second-person, indicative], crear [second-person, subjunctive])."""
+        out = defaultdict(list)
+        for e in self.E.get(s, []):
+            if e["p"] != "verb":
+                continue
+            for sn in e["s"]:
+                if sn[3] != "form":
+                    continue
+                m = FORM_TARGET_OF_RE.search(sn[1] + " " + sn[0])
+                if m:
+                    out[self.spec.fold(m.group(1))].append(set(sn[2]))
+        return out
+
+    def pick_verb_homograph(self, surface, lemma, morph):
+        """spec.verb_homograph_ratio: a surface that is a form of several verbs
+        goes to the one the tagger's person (then Sub/Imp mood) uniquely fits,
+        else to a lemma used verb_homograph_ratio times more (crees -> creer,
+        pare -> parar, not crear/parir); the tagger's lemma otherwise. A lemma
+        used STRONG_PRIOR times more than the pick always wins (vete: ir, not
+        vetar, whatever person the small tagger gives)."""
+        cands = sorted(self.verbs_only(self.candidates(surface, ["verb"])))
+        if len(cands) < 2 or lemma not in cands:
+            return lemma
+        votes = lambda c: self.lemma_votes.get(c, 0)
+        best = max(cands, key=lambda c: (votes(c), self.zipf(c), c))
+        strong = STRONG_PRIOR * self.spec.verb_homograph_ratio
+
+        def settle(pick):
+            if pick != best and votes(best) >= strong * max(votes(pick), 1):
+                pick = best
+            if pick != lemma:
+                self.n_verb_homograph += 1
+            return pick
+        tags = self.verb_form_tags(surface)
+        if all(c in tags for c in cands):
+            # morphology decides only when every reading is a listed form of the
+            # surface (vete: ir is a clitic reading, not a form)
+            person = next((PERSON_TAG[p] for p in PERSON_TAG if f"Person={p}" in morph), None)
+            if person:
+                fit = [c for c in cands if any(person in t for t in tags.get(c, []))]
+                if len(fit) == 1:
+                    return settle(fit[0])
+            mood = next((MOOD_TAG[m] for m in MOOD_TAG if f"Mood={m}" in morph), None)
+            if mood:
+                fit = [c for c in cands if any(mood in t for t in tags.get(c, []))]
+                if len(fit) == 1:
+                    return settle(fit[0])
+        if votes(best) >= self.spec.verb_homograph_ratio * max(votes(lemma), 1):
+            return settle(best)
+        return settle(lemma)
 
     def plural_pointer(self, s):
         return any(sn[3] == "form" and "plural" in sn[2]
@@ -317,6 +377,10 @@ class Lexicon:
                 # ("Estudio inglés", "Disculpa por...", "Lamento tener..."); a
                 # subject noun is followed by its finite verb ("Mamá está...")
                 verbs = self.verbs_only(self.candidates(low, ["verb"]))
+                nouns = self.candidates(low, ["noun"])
+                if verbs and sp.fallback_rarity_margin and nouns and \
+                        max(self.zipf(n) for n in nouns) >= self.zipf(self.best_by_freq(verbs)) + sp.fallback_rarity_margin:
+                    verbs = set()   # "Mamá, ..." / "Papá, ...": the common noun, not mamar/papar
                 if verbs:
                     self.n_imperative += 1
                     out.append((self.best_by_freq(verbs), "VERB"))
@@ -345,7 +409,7 @@ class Lexicon:
         """Return (lemma, group) or None for punctuation/symbols/digits."""
         plur = upos == "NOUN" and "Number=Plur" in morph
         fin = self.spec.finite_verb_lemma and upos in ("VERB", "AUX") and "VerbForm=Fin" in morph
-        key = (text, slemma, upos, plur, fin)
+        key = (text, slemma, upos, plur, fin) + ((morph,) if self.spec.verb_homograph_ratio else ())
         if key in self._cache:
             return self._cache[key]
         r = None
@@ -355,6 +419,8 @@ class Lexicon:
             # dictionary-valid lemma wins (ru "есть" = is -> быть, not "to eat")
             r = (slemma.lower(), "VERB")
         r = r or self._resolve(text.lower(), slemma.lower(), upos, plur)
+        if r and r[1] == "VERB" and self.spec.verb_homograph_ratio:
+            r = (self.pick_verb_homograph(text.lower(), r[0], morph or ""), "VERB")
         if r and r[1] not in ("PROPN",) and self.zipf(r[0]) < sp_rare_zipf(self.spec):
             # implausibly rare reading picked by the tagger ("carino" as a
             # form of cariare): take a far more common reading of the surface
@@ -409,6 +475,10 @@ class Lexicon:
             return (sp.clitic_of[s], g)    # mi -> io, ti -> tu (spaCy gives 'si' for ti)
         if sl in cands:
             return (sl, g)
+        if g == "VERB" and cands and sp.fallback_rarity_margin and sp.clitic_re is not None and sp.clitic_re.match(s):
+            v = self.clitic_verb(s)
+            if v and v not in cands and self.zipf(v) >= max(self.zipf(c) for c in cands) + sp.fallback_rarity_margin:
+                return (v, "VERB")      # "vete" = ve + te (ir), not a form of the rare vetar
         if len(cands) == 1:
             return (next(iter(cands)), g)
         if cands:
@@ -423,6 +493,9 @@ class Lexicon:
         # ...else the surface's reading under another POS (tagger error:
         # "Lo giuro" tagged NOUN -> giurare)
         alt = self.readings(s)
+        if alt and sp.fallback_same_class and g in ("NOUN", "ADJ"):
+            # "video juego" (ADJ-tagged juego): the noun, not jugar
+            alt = [r for r in alt if r[1] in ("NOUN", "ADJ")] or alt
         if alt and sp.fallback_rarity_margin and sl and sl in self.E and \
                 self.zipf(sl) >= max(self.zipf(r[0]) for r in alt) + sp.fallback_rarity_margin:
             return (sl, g)      # es "linda" ADJ: lindo, never the rare lindar (no link beats a wrong one)

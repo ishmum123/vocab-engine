@@ -31,7 +31,7 @@ def english_bags(tagged, lexicon, keys, en_by_sid, groups=None):
         for r in lexicon.resolve_sentence(toks, groups):
             if r in keys and r not in seen:
                 seen.add(r)
-        if not seen:
+        if not seen or (lexicon.spec.untranslated_rows and not en_by_sid[sid]):
             continue
         stems = set(en_stems(en_by_sid[sid], keep_stop=True))
         for r in seen:
@@ -49,6 +49,18 @@ def build_words(env, ctx):
     from wordfreq import top_n_list, zipf_frequency
     en_top = set(top_n_list("en", 2000))
     demote = demote_tags(sp)
+
+    gloss_dropped = []
+
+    def compose(rows, lem=None):
+        # spec.sensitive_gloss_re: a vulgar/sexual sense never leads or joins
+        # the gloss while a clean sense exists (es mamar, perra)
+        if sp.sensitive_gloss_re is not None and rows:
+            clean = [r for r in rows if not sp.sensitive_gloss_re.search(r["g"])]
+            if clean and len(clean) < len(rows):
+                gloss_dropped.append(lem)
+                rows = clean
+        return compose_gloss(rows)
 
     def senses(e, g, df, nsent, closed):
         return sense_candidates(e, g, df, nsent, closed, ctx["en_bg"], ctx["en_bgn"], demote)
@@ -236,9 +248,13 @@ def build_words(env, ctx):
             if lem in en_top and sum(raw_upos.get(k, Counter()).values()) < 10 and \
                     zipf_frequency(lem, sp.wordfreq_code) < zipf_frequency(lem, "en") - 1.0:
                 exclude("English homograph rare in the tagged corpus (subtitle contamination)", lem); continue
+        if sp.min_corpus_tokens and not forced and \
+                sum(raw_upos.get(k, Counter()).values()) < sp.min_corpus_tokens:
+            # fa: subtitle fragments, names, web-only words unattested in the tagged sentences
+            exclude(f"fewer than {sp.min_corpus_tokens} tokens in the tagged corpus", lem); continue
         if sp.strict_selection and not forced and g == "NOUN" and ent["p"] not in ("noun", "name"):
             exclude("noun reading glossed only from another POS (not a noun)", lem); continue
-        gloss, top = compose_gloss(rows)
+        gloss, top = compose(rows, lem)
         tokens = sum(raw_upos.get(k, Counter()).values())
         if g == "NOUN" and not forced and tokens:
             # an imperative + clitic homograph ("Fallo subito." = do it, not the
@@ -270,7 +286,7 @@ def build_words(env, ctx):
                 prow = [r for r in rows if r["tags"] & {"pronominal", "reflexive"}] or None
             if prow:
                 base_gloss = gloss
-                gloss, top = compose_gloss(prow)
+                gloss, top = compose(prow, lem)
                 disp = rsi
                 pronominal.append(rsi)
         fem_of = []
@@ -304,7 +320,7 @@ def build_words(env, ctx):
                 if t_adj and top["defn"] and tbest[0]["score"] >= top["score"]:
                     drop = True          # nominalised adjective: la piccola = the little one
                 elif not t_adj and tbest[0]["score"] >= 1.0 and tbest[0]["score"] > top["score"] * 1.5:
-                    gloss, top = compose_gloss(tbest)
+                    gloss, top = compose(tbest, lem)
                     fem_glossed.append(lem)
             if drop:
                 exclude("feminine of an adjective used as a noun", lem); continue
@@ -356,6 +372,8 @@ def build_words(env, ctx):
     stat("second_pos_entries_in_pool", second_entries)
     stat("second_pos_diagnostics", second_diag)
     stat("pronominal_verbs_shown_as_rsi", sorted(pronominal))
+    if sp.sensitive_gloss_re is not None:
+        stat("sensitive_gloss_senses_skipped", sorted(set(x for x in gloss_dropped if x)))
     stat("gloss_overrides", {"applied": sorted(set(overridden)),
                              "unused": sorted(set(sp.gloss_overrides) - set(overridden))})
 
@@ -393,6 +411,8 @@ def build_words(env, ctx):
         fem_alt[mk].append(records[k]["lemma"])
     stat("feminine_folded_into_masculine", sorted(f"{records[k]['lemma']}->{records[m]['lemma']}"
                                                   for k, m in fem_folded.items()))
+    if sp.level_floor:
+        chosen = apply_level_floor(chosen, forced_ok, sp)    # id: colloquial words no lower than A2
     level_of = assign_levels(forced_ok, chosen, sp.bands)
     final = forced_ok + chosen
     stat("words_pos_from_dictionary", sorted(records[k]["lemma"] for k in final if records[k].get("pos_from_dict")))
@@ -441,6 +461,32 @@ def build_words(env, ctx):
                 mw = main_word(new)
         taken[g].setdefault(mw, rec["lemma"])
     stat("gloss_collisions_resolved", collisions)
+
+    if sp.lower_level_gloss_re is not None:
+        # cross-pack policy: no sexual/violent gloss below the top level. A gloss
+        # with clean ";"-segments keeps only those ("to pull; to shoot" -> "to
+        # pull"); a chosen word with none moves to the end of the level order,
+        # i.e. the top level (forced words stay and are reported)
+        top = sp.level_ids[-1]
+        cleaned, moved, forced_hits = [], [], []
+        for k in final:
+            if level_of[k] == top or not sp.lower_level_gloss_re.search(records[k]["en"]):
+                continue
+            segs = [x for x in re.split(r"\s*;\s*", records[k]["en"]) if not sp.lower_level_gloss_re.search(x)]
+            if segs:
+                cleaned.append(f"{records[k]['lemma']}: {records[k]['en']} -> {'; '.join(segs)}")
+                records[k]["en"] = "; ".join(segs)
+            elif k in forced_ok:
+                forced_hits.append(records[k]["lemma"])
+            else:
+                moved.append(k)
+        if moved:
+            chosen = [k for k in chosen if k not in moved] + moved
+            if sp.level_floor:
+                chosen = apply_level_floor(chosen, forced_ok, sp)    # keep the floor after the move
+            level_of = assign_levels(forced_ok, chosen, sp.bands)
+        stat("sensitive_glosses", {"cleaned": cleaned, "moved_to_top_level": sorted(records[k]["lemma"] for k in moved),
+                                   "forced_unresolved": forced_hits})
 
     words = []
     for k in final:
@@ -496,6 +542,21 @@ def build_words(env, ctx):
         if len(top3000) >= 3000:
             break
     return words, records, top3000
+
+
+def apply_level_floor(chosen, forced_ok, sp):
+    """spec.level_floor {(lemma, group): level}: a chosen key ranked into an
+    earlier band moves to the start of its floor band (the keys it passes
+    move up one place each)."""
+    start, acc = {}, -len(forced_ok)
+    for lv, n in sp.bands:
+        start[lv] = max(acc, 0)
+        acc += n
+    out = [k for k in chosen if k not in sp.level_floor]
+    for i, k in enumerate(chosen):
+        if k in sp.level_floor:
+            out.insert(min(max(i, start[sp.level_floor[k]]), len(out)), k)
+    return out
 
 
 def assign_levels(forced_ok, chosen, bands):

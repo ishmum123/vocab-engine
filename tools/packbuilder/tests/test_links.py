@@ -43,6 +43,12 @@ class PhraseSpans(unittest.TestCase):
         t = toks("Dijo por, favor.")
         self.assertEqual(phrase_spans(t, self.sp, self.k2i)[0], [])
 
+    def test_phrase_needs_english_cue(self):
+        t = toks("No la conozco de nada.")
+        self.assertEqual(phrase_spans(t, self.sp, self.k2i, "I don't know her at all.")[0], [])
+        t = toks("De nada.")
+        self.assertEqual(phrase_spans(t, self.sp, self.k2i, "You're welcome.")[0], ["p_de nada"])
+
     def test_longest_phrase_first(self):
         t = toks("Muchas gracias.")
         ids, consumed, _ = phrase_spans(t, self.sp, self.k2i)
@@ -57,7 +63,8 @@ class HomographTable(unittest.TestCase):
                  {"id": "w2", "_key": ("solo", "ADJ"), "pos": "adj", "en": "alone, by oneself"},
                  {"id": "w3", "_key": ("casa", "NOUN"), "pos": "noun", "en": "house"}]
         t = homograph_table(words, sp)
-        self.assertEqual(set(t), {"solo"})
+        self.assertEqual({k for k in t if isinstance(k, str)}, {"solo"})
+        self.assertEqual(t[("adv", "solo")], {"w1"})
         cues = dict(t["solo"])
         self.assertIn("just", cues["w1"])              # spec homograph_cues
         self.assertIn("alone", cues["w2"])
@@ -76,6 +83,10 @@ class DefaultsAreOff(unittest.TestCase):
         self.assertFalse(sp.prefer_headword_sentence)
         self.assertEqual(sp.derived_form_tags, set())
         self.assertEqual(sp.fallback_rarity_margin, 0)
+        self.assertEqual(sp.verb_homograph_ratio, 0)
+        self.assertFalse(sp.fallback_same_class)
+        self.assertEqual(sp.phrase_en_cues, {})
+        self.assertIsNone(sp.sensitive_gloss_re)
         self.assertEqual(LanguageSpec.sense_tags(None, ["Mexico"]), ["Mexico"])
 
 
@@ -93,6 +104,21 @@ class SpanishHooks(unittest.TestCase):
         self.assertTrue(self.sp.translation_mismatch(lo, "I saw her."))
         self.assertFalse(self.sp.translation_mismatch(lo, "I saw him."))
         self.assertFalse(self.sp.translation_mismatch(lo, "I saw it."))
+
+    def test_sensitive_gloss(self):
+        self.assertTrue(self.sp.sensitive_gloss_re.search("to bullshit or fuck around"))
+        self.assertTrue(self.sp.sensitive_gloss_re.search("bitch"))
+        for ok in ("female dog", "rooster, cock", "arsenal", "prostitute", "sex"):
+            self.assertFalse(self.sp.sensitive_gloss_re.search(ok), ok)
+
+    def test_drop_all_levels(self):
+        d = self.sp.drop_all_levels
+        self.assertTrue(d.search("La violaron."))
+        self.assertTrue(d.search("He was raped."))
+        self.assertFalse(d.search("Él violó la ley."))
+        self.assertFalse(d.search("Fue una violación de derechos."))
+        self.assertTrue(self.sp.sensitive_re.search("Quiero que te mueras."))
+        self.assertTrue(self.sp.sensitive_re.search("Tiene un arma."))
 
     def test_sensitive(self):
         self.assertTrue(self.sp.sensitive_re.search("He committed suicide."))

@@ -83,8 +83,10 @@ def ensure_downloaded(env, check_remote=False):
 def corpus_path(env):
     sp = env.spec
     ver = sp.versions["corpus"]
+    # extra_corpus_files: repo-relative files of spec.extra_corpus_rows (fa: sentences written for the pack)
     sig = hashlib.sha1("|".join([ver] + [file_sig(env.cache / n) for n in
-                       (sp.sentences_file, sp.eng_file, sp.links_file, sp.audio_file)]
+                       (sp.sentences_file, sp.eng_file, sp.links_file, sp.audio_file)] +
+                       [file_sig(env.repo / n) for n in sp.extra_corpus_files]
                        ).encode()).hexdigest()[:10]
     return env.derived / f"corpus_{ver}_{sig}.json.gz"
 
@@ -143,16 +145,20 @@ def stage_corpus(env):
             if len(p) < 4 or not p[0].isdigit() or not p[1].isdigit():
                 continue
             sid, aid, lic = int(p[0]), int(p[1]), p[3]
-            if sid in tgt and lic in PERMISSIVE_AUDIO:
+            if sid in tgt and lic in PERMISSIVE_AUDIO and sp.use_audio:   # id: no audio shipped
                 if sid not in audio or aid < audio[sid][0]:
                     audio[sid] = (aid, lic)
     rows = []
-    for sid in sorted(best_en):
+    # untranslated_rows (fa): every target sentence is tagged for frequency and
+    # lemma evidence; one without an English link has english "" and is never shipped
+    for sid in sorted(tgt if sp.untranslated_rows else best_en):
         text, user = tgt[sid]
         aid, lic = audio.get(sid, (None, None))
-        rows.append([sid, text, user, eng[best_en[sid]], aid, lic])
+        rows.append([sid, text, user, eng[best_en[sid]] if sid in best_en else "", aid, lic])
+    extra = sp.extra_corpus_rows(env)
+    rows += extra
     # key names kept from the Italian build ("n_ita") so cached corpora stay valid
-    result = {"rows": rows, "n_ita": len(tgt), "n_with_en": len(rows),
+    result = {"rows": rows, "n_ita": len(tgt), "n_with_en": len(best_en) + len(extra),
               "n_audio": sum(1 for r in rows if r[4])}
     with gzip.GzipFile(out, "wb", mtime=0) as g:
         g.write(json.dumps(result, ensure_ascii=False).encode("utf-8"))

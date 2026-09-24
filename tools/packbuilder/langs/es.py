@@ -7,7 +7,7 @@ repo's tools/.
 """
 import re
 
-from .base import LanguageSpec, SENSITIVE_EN, TATOEBA_ENG, TATOEBA_AUDIO
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO
 
 VOWELS = "aeiouáéíóúü"
 STRONG = "aeoáéó"
@@ -41,14 +41,29 @@ PHRASES = ("sin embargo", "por supuesto", "de repente", "a través de", "a menud
 
 # sensitive topics kept out of A1/A2 sentences (Spanish text or English translation)
 SENSITIVE_RE = re.compile(
-    r"\b(sexo|sexual\w*|sexy|suicid\w*|violar|violó|violación|violada|violado|porno\w*|desnud\w*|"
+    r"\b(sexo|sexual\w*|sexy|suicid\w*|porno\w*|desnud\w*|"
     r"prostitut\w*|orgasmo|condón|preservativo|"
-    # threats and violence (cross-pack policy): matar in any form, asesinar,
-    # disparar, "estás muerto", "te quiero muerto"
+    # threats, violence, dying and death wishes, weapons (cross-pack policy):
+    # matar and morir in any form, asesinar, disparar, "estás muerto"
     r"mat(ar|o|as|a|amos|áis|an|é|aste|ó|asteis|aron|e|es|emos|en|ando|ado|ada|ados|adas|aba\w*|ar[éá]\w*|"
     r"aría\w*|ara\w*|ase\w*)(me|te|lo|la|le|nos|os|los|las|les)?|"
-    r"asesin\w*|dispar\w*|(estás|eres) muert[oa]s?|te quiero muert[oa]|"
-    + SENSITIVE_EN + r")\b", re.I)
+    r"mor(ir|irse|ía\w*|ir[éá]\w*|iría\w*|ido|imos|ís|irme|irte)|muer(o|es|e|en|a|as|an|amos|te|tes)|"
+    r"muri(ó|eron|endo|era\w*|ese\w*)|muert[oa]s?|"
+    r"asesin\w*|dispar\w*|armas?|pistolas?|revólver\w*|cuchillos?|navajas?|fusil\w*|"
+    r"(estás|eres) muert[oa]s?|te quiero muert[oa]|"
+    + SENSITIVE_EN + r"|die|dies|died|dying|weapons?|guns?|knife|knives|serial killer)\b", re.I)
+
+# removed at every level: rape, sexual and child abuse (violar la ley is kept)
+DROP_ALL_LEVELS_RE = re.compile(
+    r"\b(viol(ar|ó|a|an|ado|ada|ados|adas|aron|aba\w*|ar[áé]\w*|ando|e|en)"
+    r"(?! (la|las|el|los|una|un|sus|su|esta|este|nuestr\w+)\s?(ley|leyes|norma\w*|regla\w*|contrato\w*|promesa\w*|"
+    r"acuerdo\w*|tratado\w*|derecho\w*|frontera\w*|espacio|secreto\w*|domicilio|intimidad|privacidad|"
+    r"código\w*|reglamento\w*|principio\w*|tregua|límite\w*))|"
+    r"violación(?! (de|del) (la |las |los |el )?(ley|leyes|norma\w*|derecho\w*|contrato\w*|acuerdo\w*|tratado\w*|"
+    r"frontera\w*|espacio|código\w*|reglamento\w*|privacidad|intimidad))|violador\w*|"
+    r"abuso sexual|abusos sexuales|abus(ó|ar|aron|ado|ada) sexualmente|pederast\w*|pedófil\w*|incesto|"
+    r"rape[ds]?|raping|rapist\w*|molest(ed|ing|er\w*|ation)|child abuse|sexual(?:ly)? abuse\w*|"
+    r"paedophil\w*|pedophil\w*)\b", re.I)
 
 # unaccented spellings a frequency list may use for an accented word
 ACCENT_PAIRS = {"si": ["sí"], "el": ["él"], "tu": ["tú"], "mi": ["mí"], "se": ["sé"], "mas": ["más"],
@@ -151,15 +166,20 @@ class Spanish(LanguageSpec):
     sentence_openers = "¿¡"
     strict_selection = True
     phrase_token_spans = True
+    phrase_en_cues = {"de nada": ("welcome", "mention", "problem", "worries")}
     initial_noun_verb_homograph = True
     prefer_headword_sentence = True
     fallback_rarity_margin = 1.5
+    verb_homograph_ratio = 8
+    fallback_same_class = True
     propn_lowercase_rescue = 10      # tierra, dios, reino, vía: common nouns as well as names
     homograph_by_translation = True
     homograph_cues = {("solo", "adv"): ("only", "just", "merely", "simply", "solely"),
                       ("solo", "adj"): ("alone", "lonely", "lone", "single", "own", "oneself"),
                       ("bajo", "adj"): ("low", "short"), ("bajo", "prep"): ("under", "below", "beneath")}
     sensitive_re = SENSITIVE_RE
+    drop_all_levels = DROP_ALL_LEVELS_RE
+    sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)
     # pronoun paradigms the small tagger mangles (vosotros NOUN -> "vosotro",
     # contigo PROPN, conmigo NOUN/ADP): the surface is the word
     closed_surfaces = {**{p: (p, "PRON") for p in ("yo tú él ella ello nosotros nosotras vosotros vosotras "
@@ -424,6 +444,25 @@ class Spanish(LanguageSpec):
                 # ("Dan vio el video" is not dar)
                 out[i] = (low, "PROPN")
                 continue
+            prev = next((j for j in range(i - 1, -1, -1) if toks[j][2] != "PRON"), None)
+            if lex is not None and prev is not None and toks[prev][0].lower() == "no" and r and \
+                    toks[i][2] in ("ADP", "NOUN", "PROPN"):
+                # "no" is followed by its verb (clitics aside): "No des de comer"
+                # is dar, not desde
+                verbs = lex.verbs_only(lex.candidates(low, ["verb"]))
+                if verbs:
+                    out[i] = (lex.best_by_freq(verbs), "VERB")
+                    continue
+            nxt = toks[i + 1] if i + 1 < len(toks) else None
+            if low == "sé" and nxt is not None and nxt[2] == "ADJ":
+                out[i] = ("ser", "VERB")        # "Sé bueno": imperative of ser, not saber
+                continue
+            nxt2 = toks[i + 2] if nxt is not None and nxt[0].lower() in ("tan", "muy", "bastante", "un", "algo") \
+                and i + 2 < len(toks) else nxt
+            if r == ("sentar", "VERB") and nxt2 is not None and \
+                    (nxt2[2] == "ADJ" or nxt2[0].lower() in ("mal", "bien", "mejor", "peor", "solo", "sola", "poco")):
+                out[i] = ("sentir", "VERB")     # "No te sientas mal": sentirse, not sentarse
+                continue
             if lex is not None and fin and r and r[1] == "VERB":
                 j = i - 1
                 while j >= 0 and toks[j][2] == "ADV":
@@ -442,6 +481,9 @@ class Spanish(LanguageSpec):
                 verbs = lex.verbs_only(lex.candidates(low, ["verb"]))
                 if verbs:
                     out[i] = (lex.best_by_freq(verbs), "VERB")
+            if r == ("ver", "VERB") and low in ("ve", "vete") and nxt is not None and nxt[0].lower() in ("a", "al"):
+                out[i] = ("ir", "VERB")         # "Ve a hablar con Jane": imperative of ir
+                continue
             if r == ("ser", "VERB") and toks[i][0].lower() in IR_SER_PRETERITE and i + 1 < len(toks) and \
                     toks[i + 1][0].lower() in ("a", "al", "hacia"):
                 out[i] = ("ir", "VERB")

@@ -110,6 +110,9 @@ def stage_freq(env, surf, raw_upos):
             if len(parts) != 2 or not sp.sub_token_re.match(parts[0]):
                 continue
             w = sp.fold(parts[0])         # ru: еще + ещё are one surface
+            w = sp.subtitle_surface(w)    # fa: colloquial spelling -> written form; None skips
+            if not w:
+                continue
             raw[w] = raw.get(w, 0) + int(parts[1])
             if len(raw) >= N_SUB_SURFACES:
                 break
@@ -153,7 +156,16 @@ def stage_freq(env, surf, raw_upos):
         return {k: i + 1 for i, (k, _) in enumerate(sorted(counter.items(), key=lambda kv: (-kv[1], kv[0])))}
     sr, wr = ranks(sub), ranks(wf)
     common = sorted(set(sr) & set(wr))
-    blended = sorted(((math.log(sr[k]) + math.log(wr[k])) / 2.0, k) for k in common)
+    cw = sp.corpus_rank_weight
+    if cw:
+        # id: the tagged corpus's own (lemma, POS) counts are a third ranking,
+        # weighted cw against the subtitle and wordfreq ranks (1 each)
+        cr = ranks(Counter({k: sum(c.values()) for k, c in raw_upos.items()}))
+        miss = len(cr) + 1
+        blended = sorted(((math.log(sr[k]) + math.log(wr[k]) + cw * math.log(cr.get(k, miss))) / (2.0 + cw), k)
+                         for k in common)
+    else:
+        blended = sorted(((math.log(sr[k]) + math.log(wr[k])) / 2.0, k) for k in common)
     stat("freq", {"sub_surfaces": sub_stats, "wf_surfaces": wf_stats, "unknown_pos_keys": n_q,
                   "sub_keys": len(sr), "wf_keys": len(wr), "common_keys": len(common)})
     return [(k, sc, sr[k], wr[k], sub[k] + 0.0) for sc, k in blended]

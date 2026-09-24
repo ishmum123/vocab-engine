@@ -62,6 +62,7 @@ def attribution(env, ctx, users, sentences):
         "audio": {"source": "Tatoeba sentences_with_audio.tsv",
                   "licences": "per clip; recorders listed per licence",
                   "recorders": audio_recorders(env, sentences)},
+        **sp.extra_attribution(env, sentences),
     }
 
 
@@ -70,12 +71,15 @@ def prepare(env, ctx):
     ctx["rows_by_sid"] = {r[0]: r for r in corpus["rows"]}
     ctx["en_by_sid"] = {r[0]: r[3] for r in corpus["rows"]}
     ctx["truecase"] = truecase_stats(corpus["rows"], env.spec.word_re, env.spec.sentence_openers)
-    for r in corpus["rows"]:
+    # untranslated rows (spec.untranslated_rows, english "") are tagged but never
+    # ship and carry no English evidence
+    en_rows = [r for r in corpus["rows"] if r[3]] if env.spec.untranslated_rows else corpus["rows"]
+    for r in en_rows:
         EN_VOCAB.update(EN_WORD_RE.findall(r[3].lower()))
     bg = Counter()
-    for r in corpus["rows"]:
+    for r in en_rows:
         bg.update(set(en_stems(r[3], keep_stop=True)))
-    ctx["en_bg"], ctx["en_bgn"] = bg, len(corpus["rows"])
+    ctx["en_bg"], ctx["en_bgn"] = bg, len(en_rows)
     stat("corpus", {k: v for k, v in corpus.items() if k != "rows"})
     ctx["tagged"] = stage_tag(env, corpus)
     ctx["lexicon"] = Lexicon(stage_lex(env), env.spec)
@@ -115,6 +119,8 @@ def run(env, stage="all", check_remote=False):
                         "noun_after_copula_read_as_adjective": lx.n_copula_adj,
                         "pronoun_before_noun_read_as_article": lx.n_pron_as_article,
                         "initial_noun_before_determiner_read_as_imperative": lx.n_imperative})
+    if sp.verb_homograph_ratio:
+        stat("verb_homographs_by_person_mood_or_use", lx.n_verb_homograph)
     if stage == "freq":
         log(json.dumps(STATS.get("freq"))); return
     words, records, top3000 = build_words(env, ctx)

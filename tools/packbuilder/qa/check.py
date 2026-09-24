@@ -48,6 +48,9 @@ def check(spec):
             a0 = alt[0]
             if not (w["w"].endswith(" " + a0) or w["w"].endswith("'" + a0)):
                 fail(f"word {w['id']} {w['w']!r}: alt[0] {a0!r} is not its trailing bare form")
+        if spec.sensitive_gloss_re is not None and w.get("lv") != spec.level_ids[-1] and \
+                spec.sensitive_gloss_re.search(w.get("en", "")):
+            fail(f"word {w['id']} {w['w']!r} ({w['lv']}): sensitive gloss {w['en']!r}")
         if w.get("lv") not in valid_levels:
             fail(f"word {w['id']} has invalid lv: {w.get('lv')}")
         else:
@@ -66,6 +69,9 @@ def check(spec):
         for key in ("id", "t", "en", "lv", "words"):
             if key not in s:
                 fail(f"sentence {s.get('id','?')} missing key {key}")
+        if spec.drop_all_levels is not None and (spec.drop_all_levels.search(s.get("t", "")) or
+                                                 spec.drop_all_levels.search(s.get("en", ""))):
+            fail(f"sentence {s['id']}: matches drop_all_levels: {s.get('t')!r}")
         if s["id"] in sent_ids_seen:
             fail(f"duplicate sentence id: {s['id']}")
         sent_ids_seen.add(s["id"])

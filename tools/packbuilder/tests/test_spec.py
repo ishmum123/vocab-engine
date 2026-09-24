@@ -17,7 +17,7 @@ from packbuilder.langs import get_spec  # noqa: E402
 from packbuilder.langs.base import LanguageSpec, parse_forced_file  # noqa: E402
 from packbuilder.core.words import assign_levels, assign_ids  # noqa: E402
 
-REQUIRED = ["code", "name_en", "pack_name", "tts", "stt", "tatoeba_code", "spacy_model", "tagger_attribution",
+REQUIRED = ["code", "name_en", "pack_name", "tts", "stt", "tatoeba_code", "tagger_attribution",
             "subtitles_file", "kaikki_file", "sentences_file", "report_title"]
 
 
@@ -29,6 +29,14 @@ class SpecFields(unittest.TestCase):
     def check_spec(self, sp):
         for f in REQUIRED:
             self.assertTrue(getattr(sp, f), f"{sp.code}: {f} is empty")
+        # the tagger: a spaCy model, or a Stanza language (fa) whose spec tags the texts itself
+        # (a spec with spacy_model None and its own tag_texts is a custom tagger: id)
+        self.assertIn(sp.tagger, ("spacy", "stanza"), f"{sp.code}: unknown tagger")
+        if sp.tagger == "stanza":
+            self.assertTrue(sp.stanza_lang, f"{sp.code}: stanza_lang is empty")
+        if not (sp.tagger == "spacy" and sp.spacy_model):
+            self.assertIsNot(type(sp).tag_texts, LanguageSpec.tag_texts, f"{sp.code}: no spacy_model and no tag_texts")
+            self.assertIsNot(type(sp).tagger_desc, LanguageSpec.tagger_desc, f"{sp.code}: no spacy_model and no tagger_desc")
         for role in ("subtitles_file", "kaikki_file", "sentences_file", "eng_file", "links_file", "audio_file"):
             self.assertIn(getattr(sp, role), sp.sources, f"{sp.code}: {role} has no source url")
         self.assertEqual(set(sp.versions), {"corpus", "tag", "lex"})
@@ -36,7 +44,8 @@ class SpecFields(unittest.TestCase):
         self.assertEqual([p[0] for p in sp.placement], sp.level_ids)
         for table in (sp.target_len, sp.min_len):
             self.assertEqual(set(table), set(sp.level_ids))
-        self.assertIn(sp.typing.get("strictFromLevel"), sp.level_ids + [None])
+        if sp.typing is not None:       # null turns typed production off (fa)
+            self.assertIn(sp.typing.get("strictFromLevel"), sp.level_ids + [None])
         for w, g in sp.forced_closed:
             self.assertTrue(w and g.isupper(), (w, g))
         for k in sp.fixed_word:

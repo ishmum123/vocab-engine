@@ -11,7 +11,7 @@ lg 99.7%; word after the subject tagged VERB/AUX: sm 88.8%, lg 96.9%;
 import math
 import re
 
-from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO
 
 LETTERS = "a-zàâäçéèêëîïôöùûüÿœæ"
 VOWELS = "aeiouàâäéèêëîïôöùûüœæ"      # y counts as a consonant for elision (le yaourt)
@@ -90,6 +90,50 @@ MARKED_SENSE_TAGS = {"figuratively", "figurative", "colloquial", "slang", "infor
 # determiner before the noun); the gloss names the other gender's sense
 PRON_ALTS = {"le": ["la", "les"]}
 MAJORITY_GENDER = {"tour": "m", "poste": "m"}
+# passé simple forms Wiktionary also lists as participles or nouns (dus, bus,
+# lus): marked only right after a subject. Forms shared with the present
+# (dit, vit, finit) are not listed.
+PRENOMINAL_ADJ = {"beau", "bon", "grand", "gros", "haut", "jeune", "joli", "long", "mauvais", "meilleur",
+                  "nouveau", "petit", "vieux", "vrai", "faux", "premier", "dernier", "seul", "autre", "même",
+                  "prochain", "ancien", "pauvre", "cher", "double", "pire", "moindre"}
+
+
+def clause_end(toks, i):
+    """Index of the first punctuation token after i (or the end)."""
+    for j in range(i + 1, len(toks)):
+        if toks[j][2] == "PUNCT":
+            return j
+    return len(toks)
+
+
+PS_AFTER_SUBJECT = set("""dus dut dûmes durent fus fut fûmes furent eus eut eûmes eurent fis fit fîmes firent
+    pus put purent sus sut surent vins vint vînmes vinrent tins tint tinrent voulus voulut voulurent mit mirent
+    prit prirent crus crut crurent bus but burent lus lut lurent connus connut connurent parus parut parurent
+    mourut moururent naquit naquirent plut reçus reçut reçurent vécus vécut vécurent sortit sortirent partit
+    partirent ouvrit ouvrirent offrit offrirent rendit rendirent perdit perdirent attendit attendirent
+    entendit entendirent répondit répondirent devint devinrent revint revinrent""".split())
+REFLEXIVE_SENSE_SHARE = 0.15   # share of a plain verb's corpus uses with a reflexive clitic
+# hand se-senses for common verbs (used with >= 5 reflexive corpus uses, any share)
+REFL_SENSE = {"trouver": "to be (located)", "rendre": "to go (to)", "passer": "to happen",
+              "mettre": "to start (se mettre à)", "tenir": "to stand; to behave", "retrouver": "to end up; to meet up",
+              "présenter": "to introduce oneself", "nommer": "to be called", "appeler": "to be called",
+              "demander": "to wonder", "douter": "to suspect", "réaliser": "to come true",
+              "servir": "to help oneself; to use (se servir de)", "battre": "to fight", "remettre": "to recover (from)",
+              "entraîner": "to practise, to train", "accorder": "to agree", "révéler": "to turn out",
+              "arrêter": "to stop", "sentir": "to feel", "faire": "to get (done)",
+              "aller": "to go away (s'en aller)", "rappeler": "to remember", "lever": "to get up",
+              "coucher": "to go to bed", "laver": "to wash (oneself)", "promener": "to go for a walk",
+              "habiller": "to get dressed", "reposer": "to rest", "marier": "to get married",
+              "occuper": "to look after (s'occuper de)", "inquiéter": "to worry", "tromper": "to make a mistake",
+              "perdre": "to get lost", "voir": "to see each other; to be seen", "dire": "to say to oneself",
+              "maintenir": "to remain, to hold", "élever": "to rise", "arranger": "to work out; to manage",
+              "imposer": "to be essential; to assert oneself", "disputer": "to argue", "adapter": "to adapt",
+              "débarrasser": "to get rid (of)", "éloigner": "to move away", "relever": "to get up again",
+              "taper": "to put up with (informal)", "appliquer": "to apply oneself; to apply (to)",
+              "mêler": "to interfere (in)", "habituer": "to get used (to)", "accrocher": "to hold on (to)",
+              "figurer": "to imagine", "éteindre": "to die out, to go out", "arracher": "to fight over"}
+# the displayed se-form when it is not se/s' + verb
+REFL_FORM = {"aller": "s'en aller"}
 NOT_PLAIN_TAGS = MARKED_SENSE_TAGS | {"dialectal", "archaic", "obsolete", "dated", "rare", "literary",
                                       "regional", "historical", "nonstandard", "proscribed", "Louisiana"}
 # a usage note, not a translation: does not count as a plain sense
@@ -100,7 +144,7 @@ IN_THE_FORM_RE = re.compile(r"\b(?:in|into) the (?:form|shape) of\b")
 DET_LIKE_ADJ = {"premier", "dernier", "seul", "même", "autre", "meilleur", "pire", "prochain", "suivant",
                 "deuxième", "second", "troisième", "tel", "nombreux", "certain", "moindre", "tout"}
 # cut a gloss at an explanatory tail: "a sponge cake, i.e. a cake...", "dollar, usually the US dollar"
-TAIL_CUT_RE = re.compile(r",?\s+(?:i\.\s?e\.|e\.\s?g\.|viz\.|especially|usually|typically|particularly|"
+TAIL_CUT_RE = re.compile(r",?\s+(?:i\.\s?e\b\.?|e\.\s?g\b\.?|viz\b\.?|especially|usually|typically|particularly|"
                          r"generally|mainly|mostly|chiefly|such as|including|in particular)\b")
 META_SENSE_RE = re.compile(r"^(general senses?|in general|literally|figuratively|other senses?)$", re.I)
 FEM_ADJ_RE = re.compile(rf"^feminine(?: singular)? of ([{LETTERS}-]+)$")
@@ -168,6 +212,8 @@ MWES = [
     (({"s'"}, {"il"}, {"vous"}, {"plaît", "plait"}), "s'il vous plaît", "PHRASE", 3),
     (({"s'"}, {"il"}, {"te"}, {"plaît", "plait"}), "s'il te plaît", "PHRASE", 3),
     (({"excusez"}, {"-moi"}), "excusez-moi", "PHRASE", 0),
+    (({"y"}, Y_A, {"-t"}, {"-il"}), "il y a", "PHRASE", 1),      # "Combien y a-t-il ...?"
+    (({"y"}, Y_A, {"-il"}), "il y a", "PHRASE", 1),              # "y avait-il"
     (({"au"}, {"revoir"}), "au revoir", "PHRASE", 1),
 ]
 # suppletive comparatives are their own learner lemmas (Wiktionary: form-of bon/mauvais/petit)
@@ -274,7 +320,7 @@ class French(LanguageSpec):
     forced_closed = ([(w, "NOUN") for w in DAYS + MONTHS + SEASONS] + [(w, "NUM") for w in NUMBERS] +
                      [(w, "ADJ") for w in COLOURS + NATIONALITIES] +
                      [("oui", "INTJ"), ("non", "INTJ"), ("bonjour", "INTJ"), ("bonsoir", "INTJ"),
-                      ("merci", "INTJ"), ("pardon", "INTJ"), ("salut", "INTJ"), ("petit déjeuner", "NOUN"), ("y", "PRON"),
+                      ("merci", "INTJ"), ("pardon", "INTJ"), ("salut", "INTJ"), ("petit déjeuner", "NOUN"), ("y", "PRON"), ("leur", "PRON"),
                       ("s'il vous plaît", "PHRASE"), ("au revoir", "PHRASE"), ("il y a", "PHRASE"),
                       ("est-ce que", "PHRASE"), ("excusez-moi", "PHRASE"), ("s'il te plaît", "PHRASE"),
                       ("ça", "PRON"), ("cet", "DET"), ("eux", "PRON"), ("voilà", "INTJ"), ("voici", "INTJ"),
@@ -289,6 +335,7 @@ class French(LanguageSpec):
         ("cet", "DET"): "this, that (ce, cet, cette, ces)", ("enceinte", "ADJ"): "pregnant",
         ("eux", "PRON"): "them (stressed: avec eux, chez eux)",
         ("y", "PRON"): "there; about it, to it (j'y pense: I think about it)",
+        ("leur", "PRON"): "(to) them (je leur parle: I speak to them)",
     }
     fixed_word = {("le", "DET"): ("le", ["la", "l'", "les"]),
                   ("un", "DET"): ("un", ["une"])}
@@ -302,9 +349,31 @@ class French(LanguageSpec):
     strict_pronominal_links = True
     example_shows_word = True     # one example shows vouloir / l'an itself, not only veux / ans
     # kept to B1 (sex, drugs, suicide, rape, terrorism, torture); violence is only avoided (sentence_rank)
-    sensitive_re = re.compile(r"\b(sex\w*|rap(e|ed|ist)|suicid\w*|porn\w*|prostitut\w*|drugs?|cocaine|heroin|"
-                              r"terroris\w*|tortur\w*|naked|nude|condom\w*|viol(é|ée|er|ée)?|sexe|drogu\w*|"
-                              r"préservatif\w*)\b", re.I)
+    sensitive_re = re.compile(
+        r"\b(sexe|sexuel\w*|sexy|suicid\w*|porno\w*|prostitu\w*|préservatif\w*|drogu\w*|nue?s?|"
+        r"viol|viols|viol(er|é|ée|és|ées|ait|ent|eur\w*|ons|ez|era\w*)|"
+        # threats and violence (cross-pack policy): tuer in any form (never
+        # the pronoun tu), meurtre, assassiner, tirer sur, "t'es mort"
+        r"tu(er|e|es|ent|é|ée|és|ées|ons|ez|ait|aient|ais|a|âmes|èrent|era\w*|erai\w*|ant)|"
+        r"meurtr\w*|assassin\w*|poignard\w*|étrangl\w*|fusill\w*|tueur\w*|tueuse\w*|"
+        # death and weapons (re-QA v2): mourir in every form, arme, frapper,
+        # coups, crever, gueule, sang, pistolet, couteau
+        r"mour(ir|ais|ait|ions|iez|aient|ant|ra\w*|rai\w*|us|ut|ûmes|urent|ût)|meur(s|t|e|es|ent)|"
+        r"morte?s?|armes?|frapp\w*|coups?|crev\w*|gueules?|sang|pistolet\w*|fusils?|couteaux?|"
+        r"se suicid\w*|bless(é|ée|és|ées|er|ure\w*)|"
+        r"tir(er|e|es|ent|é|ez|ons|ait|aient|era\w*) sur|"
+        r"(t'es|tu es|vous êtes|il est|t'êtes) (un homme )?mort|te (veux|voudrais) mort|"
+        + SENSITIVE_EN + r"|die|dies|died|dying|weapons?|guns?|knife|knives|serial killer)\b", re.I)
+    # removed at every level: rape, sexual/child abuse
+    drop_all_levels = re.compile(
+        r"\b(viol|viols|viol(er|é|ée|és|ées|ait|aient|ent|eur\w*|era\w*)"
+        r"(?! (la|les|une|un|ses|son|sa|leur|leurs|cette|ce|des|nos|vos|l')\s?(loi|lois|règle\w*|contrat\w*|"
+        r"promesse\w*|accord\w*|traité\w*|droit\w*|frontière\w*|espace|secret\w*|domicile|intimité|vie privée))|abus sexuels?|abus(é|ée) sexuellement|"
+        r"attouchements?|pédophil\w*|inceste|"
+        r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*|paedophil\w*|pedophil\w*)\b",
+        re.I)
+    sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)   # vulgar senses never lead
+    lower_level_gloss_re = re.compile(r"\b(" + SENSITIVE_EN + r"|die|dies|died|dying|weapons?|guns?)\b", re.I)
     # tokens of these (lemma, group) keys link to the forced entry instead
     drop_keys = {("non", "ADV"): ("non", "INTJ"), ("oui", "ADV"): ("oui", "INTJ"),
                  ("baiser", "VERB"): None,                   # vulgar in modern use (le baiser "kiss" stays)
@@ -636,7 +705,8 @@ class French(LanguageSpec):
             if s in SURFACE_FIXED:
                 out[i] = SURFACE_FIXED[s]
                 continue
-            if s in DET_PARADIGM and upos == "DET":
+            if s in DET_PARADIGM and (upos == "DET" or (i + 1 < n and toks[i + 1][2] in ("NOUN", "ADJ") and
+                                                         not (i > 0 and toks[i - 1][2] == "DET"))):
                 out[i] = (DET_PARADIGM[s], "DET")      # cette -> ce, sa -> son: one entry per paradigm
                 continue
             if lx is None:
@@ -686,7 +756,14 @@ class French(LanguageSpec):
                 if c:
                     out[i] = (lx.best_by_freq(c), "NOUN")      # "Ma montre": the noun
                     continue
+            if r[1] == "ADJ" and i >= 2 and out[i - 1] is not None and out[i - 1] == (out[i - 1][0], "ADJ") and \
+                    out[i - 1][0] in PRENOMINAL_ADJ and (low[i - 2] in ARTICLES or low[i - 2] in DEM_POSS_DET):
+                c = lx.candidates(s, ["noun"])
+                if c:
+                    out[i] = (lx.best_by_freq(c), "NOUN")      # "une nouvelle politique": the noun
+                    continue
             if r[1] == "ADJ" and prev in ARTICLES and r[0] not in DET_LIKE_ADJ and \
+                    not (r[0] in PRENOMINAL_ADJ and nxt_up == "ADJ" and lx.candidates(low[i + 1], ["noun"])) and \
                     ((nxt_up == "ADJ" and (i + 2 >= n or toks[i + 2][2] != "NOUN")) or
                      nxt_up in ("PUNCT", "ADP", "CCONJ")):
                 c = lx.candidates(s, ["noun"])
@@ -716,11 +793,22 @@ class French(LanguageSpec):
                     (not i or toks[i - 1][2] not in ("DET", "ADJ", "NUM")):
                 out[i] = ("personne", "PRON")
                 continue
-            if r[1] == "NOUN" and (i == 0 or toks[i - 1][2] == "PUNCT") and i + 1 < n and \
-                    (toks[i + 1][2] == "PUNCT" or low[i + 1] in ("moi", "-moi", "bien", "donc")):
+            if r[1] in ("NOUN", "ADJ") and (i == 0 or toks[i - 1][2] == "PUNCT") and i + 1 < n and \
+                    (toks[i + 1][2] == "PUNCT" or low[i + 1] in ("moi", "-moi", "bien", "donc") or
+                     ((toks[i + 1][2] in ("DET", "ADV", "PRON", "ADP") or low[i + 1] in DET_PARADIGM or
+                       low[i + 1] in ARTICLES) and
+                      not any(t[2] in ("VERB", "AUX") for t in toks[i + 1:clause_end(toks, i)]))):
                 v = lx.imperative_form(s)
                 if v:
-                    out[i] = (v, "VERB")         # "Écoute, ..." / "Regarde !": imperative
+                    out[i] = (v, "VERB")         # "Écoute ton cœur", "Ferme doucement la porte": imperative
+                    continue
+            if r[1] == "NOUN" and i + 1 < n and (toks[i + 1][2] == "NOUN" or lx.candidates(low[i + 1], ["noun"])) \
+                    and toks[i + 1][2] not in ("VERB", "AUX", "ADP", "PUNCT") and i > 0 and \
+                    (toks[i - 1][2] == "DET" or low[i - 1] in DEM_POSS_DET):
+                a = lx.candidates(s, ["adj"])
+                al = lx.best_by_freq(a) if a else None
+                if al in PRENOMINAL_ADJ:
+                    out[i] = (al, "ADJ")         # "une nouvelle politique": nouveau, not la nouvelle
                     continue
             if r[1] == "NOUN":
                 j = i - 1
@@ -803,11 +891,66 @@ class French(LanguageSpec):
                 w["alt"] = [base]
                 w["en"] = re.sub(r";\s*(se |s')\S+:\s*", "; ", w["en"])
         for w in words:
+            # the core's pronominal revert rebuilds a verb gloss from the
+            # pre-override base sense: a hand override wins
+            ov = self.gloss_overrides.get(f"{w['_key'][0]}|verb") if w["pos"] == "verb" else None
+            if ov and not self.pronominal_base(w["lemma"]):
+                w["en"] = ov
+        self._append_reflexive_senses(ctx, words)
+        for w in words:
             pl = PLURAL_DISPLAY.get(w["lemma"])
             if w["pos"] == "noun" and pl:
                 w["lemma"], w["w"] = pl, f"les {pl}"
                 w["alt"] = [pl] + [a for a in (w.get("alt") or []) if a != pl]
                 w["en"] = re.sub(r" \((m|f|m/f)\)$", "", w["en"]) + ("" if w["en"].endswith("(pl.)") else " (pl.)")
+
+    def _reflexive_sense(self, base):
+        """First translation-like sense of se <base>: its own entry, else the
+        base entry's reflexive/pronominal senses."""
+        lx = self._lx
+        for e in lx.usable_entries(self.pronominal_form(base), ["verb"]):
+            for sn in e["s"]:
+                if sn[3] == "" and sn[0].startswith("to ") and not (NOT_PLAIN_TAGS - {"rare"}) & set(sn[2]):
+                    return sn[0]
+        for e in lx.usable_entries(base, ["verb"]):
+            for sn in e["s"]:
+                if sn[3] == "" and {"reflexive", "pronominal"} & set(sn[2]) and sn[0].startswith("to ") and \
+                        not (NOT_PLAIN_TAGS - {"rare"}) & set(sn[2]):
+                    return sn[0]
+        return None
+
+    def _append_reflexive_senses(self, ctx, words):
+        """A plain verb whose corpus uses often carry a reflexive clitic gets
+        the se-sense appended (appeler "to call; s'appeler: to be called")."""
+        refl = ctx.get("refl") or {}
+        stative = refl.get("_stative", {}) if refl else {}
+        raw = ctx.get("raw_upos") or {}
+        added = []
+        for w in words:
+            if w["pos"] != "verb" or self.pronominal_base(w["lemma"]) or ":" in w["en"] or \
+                    re.search(r"\b(se |s')", w["en"]):
+                continue
+            k = w["_key"]
+            active = sum(raw.get(k, {}).values()) - stative.get(k, 0)
+            r = refl.get(k, 0)
+            hand = REFL_SENSE.get(w["lemma"])
+            if r < 5 or (not hand and (active < 10 or r / active < REFLEXIVE_SENSE_SHARE)):
+                continue
+            sense = hand or self._reflexive_sense(w["lemma"])
+            if not sense:
+                continue
+            if not hand:
+                sense = self._tidy(re.split(r"[;,](?![^(]*\))", sense)[0].strip(), "verb")
+                if "(" in sense and ")" not in sense:
+                    sense = sense.split("(")[0].strip()
+            if sense.lower() in w["en"].lower():
+                continue
+            if w["lemma"] == "aller":
+                sense = "to go away"
+            form = REFL_FORM.get(w["lemma"]) or self.pronominal_form(w["lemma"])
+            w["en"] = f"{w['en']}; {form}: {sense}"
+            added.append(w["lemma"])
+        self._reflexive_senses_added = added
 
     # ---- morphology hooks ----------------------------------------------------
     def elides(self, w):
@@ -917,6 +1060,14 @@ class French(LanguageSpec):
         """Passé simple the tagger missed (it tags trouvâmes as present):
         a verb token whose surface is only a literary past form."""
         lx = self._lx
+        low = [t[0].lower() for t in toks]
+        for i, w in enumerate(low):
+            if w in PS_AFTER_SUBJECT:
+                j = i - 1
+                while j >= 0 and low[j] in OBJ_CLITICS:
+                    j -= 1
+                if j >= 0 and (low[j] in SUBJ_PRON or toks[j][2] in ("PROPN", "NOUN")):
+                    return True          # "Je dus partir", "Tom fut surpris"
         for t in toks:
             w = t[0].lower()
             if not self._literary_past(w):
@@ -989,7 +1140,9 @@ class French(LanguageSpec):
     def check_word(self, w):
         """A noun shows a singular article that fits its first letter (l' before
         a vowel or mute h, le/la otherwise), "les" only for pluralia tantum, and
-        alt[0] is the bare lemma."""
+        alt[0] is the bare lemma. No A1/A2 gloss matches lower_level_gloss_re."""
+        if w.get("lv") != self.level_ids[-1] and self.lower_level_gloss_re.search(w.get("en", "")):
+            return f"word {w['id']} {w['w']!r}: sensitive gloss below {self.level_ids[-1]}: {w['en']!r}"
         if w.get("pos") != "noun":
             return None
         shown, lemma = w["w"], w["lemma"]

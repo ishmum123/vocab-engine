@@ -20,6 +20,12 @@ SENSITIVE_EN = (r"sex|sexy|sexual\w*|rape[ds]?|raping|rapist|porn\w*|naked|nude|
                 r"suicid\w*|fuck\w*|shit\w*|bitch\w*|asshole\w*|pussy|"
                 r"kill(s|ed|ing|er|ers)?|murder\w*|dead|shoot(s|ing)?|stab(s|bed|bing)?|strangl\w*|"
                 r"want you dead|going to kill")
+# Shared English list for the gloss-level sensitive scan (spec.sensitive_gloss_re):
+# vulgar or sexual senses never lead a learner gloss (es mamar, perra). Each spec
+# may add its own terms to the regex it builds from this.
+SENSITIVE_GLOSS_EN = (r"fuck\w*|bullshit\w*|shit\w*|bitch\w*|asshole\w*|arsehole\w*|dick|pussy|cunt|whore\w*|"
+                      r"slut\w*|bastard\w*|wank\w*|jerk off|blow ?job|fellat\w*|masturbat\w*|orgasm\w*|"
+                      r"have sex|sexual intercourse|copulat\w*|screw around|fornicat\w*|vulgar|slur")
 TATOEBA_AUDIO = ("audio.tar.bz2", "https://downloads.tatoeba.org/exports/sentences_with_audio.tar.bz2")
 
 # UD (corpus) POS -> Wiktionary POS headers, in preference order. The first is
@@ -52,6 +58,8 @@ class LanguageSpec:
     spacy_model = None          # "it_core_news_sm"
     spacy_n_process = 6
     tagger_attribution = None   # dict written to attribution.json["tagger"]
+    tagger = "spacy"            # "spacy" (spacy_model) or "stanza" (stanza_lang; spec.tag_texts does the tagging)
+    stanza_lang = None          # Stanza language code when tagger == "stanza" (fa)
 
     # ---- sources (file name in .cache/ -> url). Roles name the files the
     # stages read; file names are part of the cache keys.
@@ -206,15 +214,21 @@ class LanguageSpec:
     # the phrase, and art_prep contractions are split first (es: "a pesar del" = a pesar de + el)
     phrase_token_spans = False
     prefer_headword_sentence = False   # sentence choice: the headword/alt visible first, then a 3sg present verb
+    verb_homograph_ratio = 0    # >0: a form of several verbs goes by person/mood, else to a lemma this many times more used
+    fallback_same_class = False  # a NOUN/ADJ-tagged token with no reading of its class falls back to nominal readings first
     fallback_rarity_margin = 0  # >0: keep the tagger lemma over a fallback reading this many zipf rarer
     derived_form_tags = set()   # lex: form-of senses with these tags are words, not inflections (es: diminutive)
     initial_noun_verb_homograph = False   # a clause-initial bare noun with a verb reading is the verb (es)
     function_lemmas = set()     # always function words, whatever the tagger said (es: vosotros tagged NOUN)
+    phrase_en_cues = {}         # phrase -> English words one of which the translation must contain (es: de nada -> welcome)
     closed_surfaces = {}        # surface -> (lemma, group) whatever the tag, even PROPN (es: vosotros, conmigo)
     propn_lowercase_rescue = 0  # >0: a lemma seen lowercase mid-sentence this often is not a proper noun
     homograph_by_translation = False   # links: pick between a lemma's entries by the English translation
     homograph_cues = {}         # (lemma, pos) -> extra English cue words for homograph_by_translation
+    sensitive_gloss_re = None   # a sense matching it never leads a gloss; check fails on an A1/A2 match
     sensitive_re = None         # sentences matching (text or English) are kept to the top level
+    drop_all_levels = None      # sentences matching (text or English) are removed at every level (rape, child abuse)
+    lower_level_gloss_re = None # a below-top-level gloss matching it keeps its clean ";"-segments or moves to the top level
 
     strict_pronominal_links = False  # a verb shown with its reflexive pronoun links only sentences that have it
     revert_dedupe_gloss = False     # a reverted -rsi/-se verb with the same head gloss shows it once
@@ -310,6 +324,7 @@ class LanguageSpec:
     finite_verb_lemma = False     # a finite verb token keeps the tagger lemma over a same-spelling infinitive (ru: есть)
     caps_proper_pool = True       # pool: a lemma capitalised mid-sentence more often than not is a name (ru: off)
     refill_unexampled = False     # a non-forced word with no example sentence is replaced by the next-ranked word
+    bare_prefer_shared = False    # example_shows_word: pick the bare-form sentence with audio / already used first
     example_shows_word = False    # sentences: one of a word's examples contains its bare lemma surface when any candidate does
     numeral_verb_rule = True     # a NUM token with no noun after it may be a verb form (it: "sei"); ru: off ("три" = тереть)
 
@@ -323,6 +338,38 @@ class LanguageSpec:
         """simplemma's lemma for a frequency-list surface the corpus never
         shows; a spec may reject it (ru: abbreviation expansions мм -> миллиметр)."""
         return lemma
+
+    # ---- corpus / tagger hooks (added for Persian; defaults are no-ops) --------
+    min_corpus_tokens = 0        # words: a non-forced (lemma, POS) needs this many tagged-corpus tokens (fa: 3)
+    untranslated_rows = False    # corpus: also tag target sentences with no English link (english ""), never shipped
+    extra_corpus_files = ()      # repo-relative files read by extra_corpus_rows (part of the corpus cache key)
+
+    def extra_corpus_rows(self, env):
+        """Extra corpus rows [sid, text, user, english, audio_id, licence]
+        appended after the Tatoeba rows (fa: sentences written for the pack)."""
+        return []
+
+    def sentence_fields(self, row):
+        """Extra fields for the sentences.json record of a corpus row (fa: src)."""
+        return {}
+
+    def extra_attribution(self, env, sentences):
+        """Extra top-level keys for attribution.json."""
+        return {}
+
+    def subtitle_surface(self, w):
+        """A (folded) frequency-list surface -> the surface matched against the
+        corpus; None drops it (fa: colloquial میخوام -> میخواهم)."""
+        return w
+
+    def tagger_desc(self):
+        """Tagger name/version for a spec with spacy_model None (part of the tag cache key)."""
+        raise NotImplementedError
+
+    def tag_texts(self, texts):
+        """Non-spaCy tagging (spacy_model None): per text, a list of
+        (text, lemma, upos, {feature: value}) tuples, in order."""
+        raise NotImplementedError
 
     def extra_wordfreq(self, raw):
         """Add written-frequency surfaces wordfreq's top list lacks, in place
@@ -379,6 +426,12 @@ class LanguageSpec:
         """Last pass over the built word list (after sentences), in place: display
         spelling, pron, gloss suffixes. May set word["pron"]."""
         return None
+
+    # ---- added for Indonesian (defaults are no-ops) ----------------------------
+    audio_rank_bonus = 0         # sentences: a sentence with native audio has its sentence_rank penalty lowered by this
+    use_audio = True             # corpus: attach permissive Tatoeba audio (id: off, TTS only)
+    corpus_rank_weight = 0       # >0: the tagged corpus's (lemma, POS) counts join the frequency blend
+    level_floor = {}             # (lemma, group) -> lowest level it may take (id: colloquial words A2+)
 
     # ---- QA scan config ---------------------------------------------------
     qa_closed_sets = {}          # name -> space-separated lemmas that must be A1
