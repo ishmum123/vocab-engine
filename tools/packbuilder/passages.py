@@ -21,7 +21,7 @@ Source format (tools/passages_src.json):
                    "options" | null, "answer", "words": [lemma, ...], "sentence"}]}]}
 Coverage = in-pack tokens / counted tokens; names, numerals, punctuation and
 symbols are not counted. A lemma outside the pack must be listed in "oop"
-with a reason. Question words are lemmas; each must be linked in the
+with a reason; one whose reason starts with "name" is a name and not counted. Question words are lemmas; each must be linked in the
 referenced sentence and is emitted as that sentence's word id.
 """
 import hashlib
@@ -46,6 +46,7 @@ DEFAULT_RULES = {
     "words_per_passage": {"A1": [60, 90], "A2": [90, 120], "B1": [110, 150]},
     "questions": [4, 5],
 }
+PHRASE_HEADS = {"rispetto": {"a"}, "fine": {"settimana"}}   # lemma -> next word that makes it part of a compound (rispetto a, fine settimana): no link
 MANUAL_MARK = "<!-- manual section: kept across runs -->"
 WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?|\d+", re.UNICODE)
 
@@ -142,6 +143,7 @@ class Linker:
             if w.get("_base"):
                 names.add(w["_base"][0])
             self.lemma_of[w["id"]] = names
+        self.num_ids = {w["_key"][0]: w["id"] for w in words if w["_key"][1] == "NUM"}
         self.homs = None
         if spec.homograph_by_translation:
             from .core.sentences import homograph_table
@@ -171,8 +173,9 @@ class Linker:
                               self.gender_of, self.epos_to_id, self.lemma_ids, en, self.homs, None)
 
     def classify(self, toks):
-        """Per counted token: (surface, lemma, word id or None). Names,
-        numerals, punctuation and symbols are skipped (not counted)."""
+        """Per counted token: (surface, lemma, word id or None, may link).
+        Names (capitalised), numerals, punctuation and symbols are skipped
+        (not counted). A lowercase token the tagger calls PROPN is counted."""
         sp = self.spec
         resolved = self.lexicon.resolve_sentence(toks, self.groups)
         out = []
@@ -187,14 +190,17 @@ class Linker:
                 continue
             r = resolved[i]
             low = text_t.lower()
-            if r is not None and (r[1] in ("PROPN", "NUM") or upos == "PROPN" or
-                                  (sp.caps_mark_names and not was_initial and text_t[:1].isupper())):
+            cap = text_t[:1].isupper()
+            name = (upos == "PROPN" or (r is not None and r[1] == "PROPN")) and cap
+            if name or (sp.caps_mark_names and not was_initial and cap):
                 continue
-            if r is None and (upos == "PROPN" or (not was_initial and text_t[:1].isupper())):
+            if r is not None and r[1] == "NUM":
                 continue
+            if low in self.num_ids and r is not None and r[1] != "VERB" and r[0] != low:
+                continue        # "venti minuti" read as the plural of vento: a numeral
             wid = self.key_to_id.get((low, "FORM")) or self.key_to_id.get((low, "INTJ"))
             lem = r[0] if r else low
-            if not wid and r is not None:
+            if not wid and r is not None and r[1] != "PROPN":
                 wid = self.key_to_id.get(tuple(r))
                 if wid is None and sp.drop_keys.get(tuple(r)):
                     wid = self.key_to_id.get(sp.drop_keys[tuple(r)])
@@ -202,8 +208,28 @@ class Linker:
                     wid = self.epos_to_id.get((r[0], sp.group_kpos[r[1]][0]))
             if not wid:
                 wid = self.lemma_ids.get(lem) or self.lemma_ids.get(low)
-            out.append((text_t, lem, wid))
+            nxt = toks[i + 1][0].lower() if i + 1 < len(toks) else ""
+            # compounds: "rispetto a/al..." is not the noun rispetto, "fine settimana" not la fine
+            may_link = not (lem in PHRASE_HEADS and (nxt in PHRASE_HEADS[lem] or
+                                                     sp.art_prep.get(nxt) in PHRASE_HEADS[lem]))
+            out.append((text_t, lem, wid, may_link))
         return out
+
+    def links_all(self, toks, text, en):
+        """sentence_links, then a lemma fallback: a counted token whose lemma
+        is a pack word under another POS (molto/tutto as determiners, lontano
+        as an adjective, po', mezza) links that word; compound-preposition
+        heads (rispetto a) never link."""
+        ws = list(self.links(toks, text, en))
+        cl = self.classify(toks)
+        drop = {wid for _, _, wid, ok in cl if wid and not ok}
+        keep = {wid for _, _, wid, ok in cl if wid and ok}
+        ws = [w for w in ws if w not in drop or w in keep]
+        extra = []
+        for _, _, wid, ok in cl:
+            if wid and ok and wid not in ws and wid not in extra:
+                extra.append(wid)
+        return ws + extra, cl
 
 
 def n_words(text):
@@ -242,11 +268,15 @@ def run(spec, check_only=False, out=sys.stdout):
         oop_ok = p.get("oop", {})
         sents, counted, oop, above = [], [], Counter(), {}
         linked = 0
+        used_oop = set()     # declared oop lemmas met as names or in questions/options
         for t, en in p["sentences"]:
             toks = lk.tag(t, en)
-            ws = lk.links(toks, t, en)
+            ws, cl = lk.links_all(toks, t, en)
             sents.append({"t": t, "en": en, "words": ws})
-            for surf, lem, wid in lk.classify(toks):
+            for surf, lem, wid, _ok in cl:
+                if wid is None and str(oop_ok.get(lem, "")).startswith("name"):
+                    used_oop.add(lem)
+                    continue    # a declared name the truecaser lowered ("Bruno" -> bruno)
                 counted.append(wid is not None)
                 linked += wid is not None and wid in ws
                 if wid is None:
@@ -260,9 +290,6 @@ def run(spec, check_only=False, out=sys.stdout):
         unlisted = sorted(set(oop) - set(oop_ok))
         if unlisted:
             perr.append(f"out-of-pack lemmas without a reason: {unlisted}")
-        stale = sorted(set(oop_ok) - set(oop))
-        if stale:
-            perr.append(f"oop lists lemmas not in the text: {stale}")
         nw = n_words(text)
         lo, hi = rules["words_per_passage"][lv]
         if not lo <= nw <= hi:
@@ -296,7 +323,9 @@ def run(spec, check_only=False, out=sys.stdout):
             # question and options stay inside the pack (plus this passage's listed oop)
             qtexts = [q["q"]] + (q["options"] or [])
             for qt in qtexts:
-                for surf, lem, wid in lk.classify(lk.tag(qt)):
+                for surf, lem, wid, _ok in lk.classify(lk.tag(qt)):
+                    if wid is None and lem in oop_ok:
+                        used_oop.add(lem)
                     if wid is None and lem not in oop_ok:
                         qe.append(f"out-of-pack {lem!r} in {qt!r}")
                     elif wid is not None and lv_rank[lv_of[wid]] > lv_rank[lv]:
@@ -304,6 +333,9 @@ def run(spec, check_only=False, out=sys.stdout):
             perr += [f"q{j}: {x}" for x in qe]
             qs.append({"q": q["q"], "en": q["en"], "type": q["type"], "options": q["options"] if q["type"] == "mc" else None,
                        "answer": q["answer"], "words": wids, "sentence": si})
+        stale = sorted(set(oop_ok) - set(oop) - used_oop)
+        if stale:
+            perr.append(f"oop lists lemmas used nowhere: {stale}")
         # level budget over the passage, its questions and options
         nxt, cap = rules["budget"][lv]
         for alv, lems in sorted(above.items()):
