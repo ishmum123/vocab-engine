@@ -65,6 +65,11 @@ SURFACE_LEMMA = {"цветы": "цветок", "цветами": "цветок",
 # capitalised, these are Tatoeba's stock names or titles (Tom, Mrs), never the homographs
 NAME_HOMOGRAPHS = {"том", "тома", "тому", "томом", "томе", "миссис", "мисс"}
 POSSESSIVE_3P = {"его": "он", "ее": "она", "их": "они"}
+# passages: capitalised correlative тот before ", кто/что" (Тому, кто...) collides with NAME_HOMOGRAPHS
+PASSAGE_CORRELATIVE = {"тому"}
+# passages: a sentence with one of these prices something, so стоит is стоить (cost)
+PASSAGE_COST_WORDS = {"сколько", "дорого", "дешево", "евро", "цена", "цену", "цене", "копеек"}
+RECIPROCAL_DRUG = {"друга", "другу", "другом", "друге"}
 ABBR_TAGS = {"abbreviation", "initialism", "acronym"}
 LETTER_RE = re.compile(r"\bletter\b.*\b(alphabet|script)\b|name of the .*\bletter\b", re.I)
 
@@ -215,6 +220,59 @@ class Russian(LanguageSpec):
     # ---- spelling ------------------------------------------------------------
     def fold(self, s):
         return fold(s)
+
+    def span_fold(self, s):
+        """Passages: tagger surfaces and lemmas are ё-folded (живет, артем);
+        spans are matched in folded text, oop lemmas compared folded."""
+        return fold(s)
+
+    # ---- passages only (packbuilder passages; the corpus build never runs these)
+    # хорошо/лучше/тихо/странно read as the short or comparative adjective, больше as a numeral
+    passage_adverb_from = ("ADJ", "NUM")
+
+    def passage_retag(self, toks):
+        n = len(toks)
+        low = [fold(t[0].lower()) for t in toks]
+        nxt = [next((j for j in range(i + 1, n) if toks[j][2] != "PUNCT"), None) for i in range(n)]
+        for i, t in enumerate(toks):
+            # "Тому, кто найдёт": the correlative тот, not Tom (NAME_HOMOGRAPHS makes it PROPN)
+            if low[i] in PASSAGE_CORRELATIVE and i + 2 < n and toks[i + 1][0] == "," and low[i + 2] in ("кто", "что"):
+                t[0], t[1], t[2] = t[0].lower(), "тот", "DET"
+            # стоит/стоят: стоить (cost, be worth) with a price or an infinitive, else стоять (stand)
+            elif low[i] in ("стоит", "стоят") and t[1] in ("стоить", "стоять"):
+                t[1] = "стоить" if self._cost_cue(toks, low, i, nxt[i]) else "стоять"
+            # the holiday Новый год is capitalised mid-sentence: the words новый + год, not a name
+            elif low[i].startswith("нов") and nxt[i] is not None and low[nxt[i]].startswith("год") \
+                    and t[1] == "новый" and t[0][:1].isupper():
+                j = nxt[i]
+                t[0], t[2] = t[0].lower(), "ADJ"
+                toks[j][0], toks[j][1], toks[j][2] = toks[j][0].lower(), "год", "NOUN"
+            # "Целую, мама": the letter sign-off целовать (I kiss), not целый (whole), when nothing follows it
+            elif low[i] == "целую" and (nxt[i] is None or nxt[i] > i + 1):
+                t[1], t[2] = "целовать", "VERB"
+            # меньше: the comparative of мало (the tagger calls it a numeral; no pack entry of its own)
+            elif low[i] == "меньше" and t[2] in ("NUM", "ADJ", "ADV"):
+                t[1], t[2] = "мало", "ADV"
+        return toks
+
+    @staticmethod
+    def _cost_cue(toks, low, i, j):
+        if j is not None and (low[j] in ("того", "ли") or
+                              (toks[j][2] in ("VERB", "AUX") and "VerbForm=Inf" in toks[j][3])):
+            return True         # стоит посмотреть, стоит того, стоит ли
+        return any(w in PASSAGE_COST_WORDS or w.startswith(("рубл", "доллар", "денег", "деньг")) or
+                   any(ch.isdigit() for ch in w) or toks[k][2] == "NUM" for k, w in enumerate(low))
+
+    def passage_no_link(self, toks):
+        # друг друга / друг другу / друг с другом = each other: neither token is друг "friend"
+        low = [fold(t[0].lower()) for t in toks]
+        out = set()
+        for i in range(len(toks) - 1):
+            if low[i] == "друг":
+                j = i + 2 if toks[i + 1][2] == "ADP" and i + 2 < len(toks) else i + 1
+                if low[j] in RECIPROCAL_DRUG:
+                    out |= {i, j}
+        return out
 
     def fallback_lemma(self, surface, lemma):
         # simplemma expands abbreviations (мм -> миллиметр, км -> километр,

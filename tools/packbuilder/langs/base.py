@@ -63,6 +63,8 @@ class LanguageSpec:
     # the text (per word / per other character) before matching (fa: Arabic
     # yeh/kaf, hamza carriers, ZWNJ and harakat dropped); span_joiners are characters the tagger's input rewrite
     # may delete inside a token (fa: the space of "می روم"). None / "" = exact.
+    # span_fold also folds a passage's declared oop lemmas and the tagger lemma
+    # they are matched with (ru: артём = артем).
     span_fold = None
     span_joiners = ""
     tagger = "spacy"            # "spacy" (spacy_model) or "stanza" (stanza_lang; spec.tag_texts does the tagging)
@@ -246,6 +248,11 @@ class LanguageSpec:
     truecase_after = ""         # a capitalised word right after one of these characters is truecased like a sentence start (es: «¡¿)
     truecase_after_end = ""     # ... and a capitalised word after one of these plus a space mid-text, if the lexicon reads it lowercase (es: !? in "¡Perfecto! Compro")
     surface_reading_fallback = False   # a counted token whose reading is out of pack links the most frequent other dictionary reading of its surface that is a pack word (es: leo -> leer, negra -> negro)
+    passage_mode = False        # True while passages.Linker resolves a sentence (post_resolve, then passage_post_resolve): gates passage-only rules inside post_resolve (de); never set by the corpus build
+    passage_particle_links = False     # a token post_resolve set to None whose lowercase surface prefixes the verb it was rejoined to counts and links as that verb (de: "steht ... auf" -> aufstehen)
+    passage_lemma_alias = {}    # tagger lemma -> pack lemma for the classify lemma fallback (de: vieler -> viel, chefin -> chef)
+    nouns_capitalised = False   # passages: a lowercase token's lemma fallback never lands on a noun (de: meisten is not der Meister)
+    passage_adverb_from = ()    # tagger POS whose token is relinked to the pack adverb spelled exactly like it (ru: ADJ, NUM: хорошо, лучше, больше)
 
     def copula_inflected(self, surface, adj):
         """After a copula, the surface is an inflected adjective form (it: fiera)."""
@@ -442,6 +449,17 @@ class LanguageSpec:
         it, so a rule can be tried on passages before it changes sentence
         links. es: fue/fui/fuera."""
         return out
+
+    def passage_retag(self, toks):
+        """Passages only: rewrite the tagged [text, lemma, upos, morph] tokens
+        (list copies) before linking; the corpus build never calls it. ru:
+        correlative Тому, кто; стоит/стоять; capitalised Новый год; меньше."""
+        return toks
+
+    def passage_no_link(self, toks):
+        """Passages only: token indices that link nothing (they stay counted
+        by their reading). ru: друг другу (each other, not friend)."""
+        return set()
 
     def sentence_rank(self, toks, lv):
         """Sort penalty for an example sentence of a word at level lv (lower is

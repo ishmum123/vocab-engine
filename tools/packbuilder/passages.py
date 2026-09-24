@@ -43,6 +43,7 @@ from pathlib import Path
 
 from .core.lexicon import SKIP_UPOS
 from .core.util import write_json
+from .langs.base import LanguageSpec
 
 HERE = Path(__file__).resolve().parent
 CTX_VERSION = "p3"      # p3: the pickle carries the spec state and the English vocabulary
@@ -178,18 +179,30 @@ class Linker:
                 names.add(w["_base"][0])
             self.lemma_of[w["id"]] = names
         self.num_ids = {w["_key"][0]: w["id"] for w in words if w["_key"][1] == "NUM"}
+        # a token whose lemma is an article (de relative/demonstrative der, the
+        # numeral "ein oder zwei") and no other pack word links the article entry
+        self.art_ids = {w["_key"][0]: w["id"] for w in words if w["pos"] == "art"}
+        # spec.passage_adverb_from: a pack adverb by its folded spelling -> its build lemma
+        self.adverbs = {spec.fold(k[0]): k[0] for k in self.key_to_id if k[1] == "ADV"} \
+            if getattr(spec, "passage_adverb_from", ()) else {}
         self.homs = None
         if spec.homograph_by_translation:
             from .core.sentences import homograph_table
             self.homs = homograph_table([dict(w, _key=tuple(w["_key"])) for w in words], spec)
         # spec.passage_post_resolve: passage-only resolve rules, after post_resolve,
-        # for classify and sentence_links alike (the build's resolve is untouched)
+        # for classify and sentence_links alike (the build's resolve is untouched).
+        # spec.passage_mode is True for the whole call, so post_resolve may gate
+        # passage-only rules inside it (de); the corpus build never sets it
         lex = self.lexicon
         if lex is not None and not getattr(lex, "_passage_wrapped", False):
             orig = lex.resolve_sentence
 
             def resolve_sentence(toks, groups=None):
-                return spec.passage_post_resolve(toks, orig(toks, groups))
+                spec.passage_mode = True
+                try:
+                    return spec.passage_post_resolve(toks, orig(toks, groups))
+                finally:
+                    spec.passage_mode = False
             lex.resolve_sentence = resolve_sentence
             lex._passage_wrapped = True
         self.tagged = {}     # (text, en) -> tokens
@@ -217,7 +230,7 @@ class Linker:
         texts = [sp.tag_text(a) for a in after]
         docs, fields = tag_docs(sp, texts, n_process=1)
         for (t, en), doc, b, a in zip(todo, docs, base, after):
-            self.tagged[(t, en)] = toks = doc_tokens(sp, doc, fields, ["passage", t, None, en, None, None])
+            self.tagged[(t, en)] = toks = self.retag(doc_tokens(sp, doc, fields, ["passage", t, None, en, None, None]))
             # tokens truecase_after lowered: to classify they are like a
             # sentence start (a lowered name is not a pack verb: «¡Leo, ven!»)
             moved = {j for j, (x, y) in enumerate(zip(b, a)) if x != y}
@@ -226,6 +239,24 @@ class Linker:
                 offs = token_offsets(a, toks, sp.span_fold, sp.span_joiners)
                 lowered = {i for i, o in enumerate(offs) if o and o[0] in moved}
             self.lowered[(t, en)] = lowered
+
+    def retag(self, toks):
+        """Passage-only token rules after the shared tagging (the corpus build
+        never sees them): spec.passage_retag (ru: correlative Тому, кто;
+        стоит/стоять; capitalised Новый год; меньше), then the adverb rule: a
+        token read with a POS in spec.passage_adverb_from (ru: ADJ, NUM) whose
+        surface is spelled like a pack adverb (after spec.fold) is that adverb
+        (хорошо, лучше, тихо, странно, больше: not хороший, тихий, the numeral)."""
+        sp = self.spec
+        own = getattr(type(sp), "passage_retag", LanguageSpec.passage_retag)
+        if own is LanguageSpec.passage_retag and not self.adverbs:
+            return toks         # nothing to rewrite: the tagged tokens as they are
+        toks = sp.passage_retag([list(t) for t in toks])
+        for t in toks:
+            lem = self.adverbs.get(sp.fold(t[0].lower()))
+            if lem and t[2] in sp.passage_adverb_from:
+                t[1], t[2] = lem, "ADV"
+        return toks
 
     def tag(self, text, en=""):
         if (text, en) not in self.tagged:
@@ -258,11 +289,15 @@ class Linker:
         ranges = []
         _, ph_tok, _ = phrase_spans(toks, sp, self.key_to_id, en, ranges)
         tok_phrase = {i: pid for a, b, pid in ranges for i in range(a, b + 1) if i in ph_tok}
+        no_link = sp.passage_no_link(toks) if hasattr(sp, "passage_no_link") else set()
+        alias = getattr(sp, "passage_lemma_alias", {})
         out = []
         initial = True
         for i, (text_t, sl, upos, ms) in enumerate(toks):
             if upos in SKIP_UPOS:
-                if text_t in (".", "!", "?", "…", ":"):
+                # an ellipsis ends a sentence too ("Так... Вижу"): the next
+                # capital is not a name
+                if text_t in ("!", "?", ":") or (text_t and set(text_t) <= {".", "…"}):
                     initial = True
                 continue
             was_initial, initial = initial, False
@@ -270,6 +305,17 @@ class Linker:
                 continue
             r = resolved[i]
             low = text_t.lower()
+            if r is None and i and getattr(sp, "passage_particle_links", False):
+                # a separable particle post_resolve rejoined to its verb ("steht
+                # ... auf" -> aufstehen, particle set to None) is that verb
+                for j in range(i - 1, -1, -1):
+                    rj = resolved[j]
+                    if toks[j][0] in (".", "!", "?", ";"):
+                        break
+                    if rj and rj[1] == "VERB" and rj[0].startswith(low) and len(rj[0]) > len(low) \
+                            and not toks[j][0].lower().startswith(low):
+                        r = rj
+                        break
             cap = text_t[:1].isupper()
             name = (upos == "PROPN" or (r is not None and r[1] == "PROPN")) and cap
             if name or (sp.caps_mark_names and not was_initial and cap):
@@ -278,7 +324,10 @@ class Linker:
                 continue
             if low in self.num_ids and r is not None and r[1] != "VERB" and r[0] != low:
                 continue        # "venti minuti" read as the plural of vento: a numeral
-            wid = self.key_to_id.get((low, "FORM")) or self.key_to_id.get((low, "INTJ"))
+            # a token read as a verb is not the interjection spelled like it
+            # ("Ich bitte Sie": bitten, not bitte)
+            wid = self.key_to_id.get((low, "FORM")) or \
+                (self.key_to_id.get((low, "INTJ")) if not (r and r[1] == "VERB") else None)
             lem = r[0] if r else low
             if not wid and r is not None and r[1] != "PROPN":
                 wid = self.key_to_id.get(tuple(r))
@@ -287,7 +336,10 @@ class Linker:
                 if wid is None and r[1] in sp.group_kpos:
                     wid = self.epos_to_id.get((r[0], sp.group_kpos[r[1]][0]))
             if not wid:
-                wid = self.lemma_ids.get(lem) or self.lemma_ids.get(low)
+                wid = self.lemma_ids.get(lem) or self.lemma_ids.get(low) or \
+                    self.lemma_ids.get(alias.get(lem)) or self.art_ids.get(lem)
+                if wid and getattr(sp, "nouns_capitalised", False) and self.by_id[wid]["pos"] == "noun" and text_t[:1].islower():
+                    wid = None      # de: a lowercase token never falls back to a noun (meisten is not Meister)
             if not wid:
                 wid = tok_phrase.get(i)
             if not wid and sp.surface_reading_fallback and not \
@@ -301,7 +353,8 @@ class Linker:
             nxt = toks[i + 1][0].lower() if i + 1 < len(toks) else ""
             # compounds: "rispetto a/al..." is not the noun rispetto, "fine settimana" not la fine
             may_link = not (lem in PHRASE_HEADS and (nxt in PHRASE_HEADS[lem] or
-                                                     sp.art_prep.get(nxt) in PHRASE_HEADS[lem]))
+                                                     sp.art_prep.get(nxt) in PHRASE_HEADS[lem])) \
+                and i not in no_link        # spec.passage_no_link: ru "друг другу" is not friend
             out.append((text_t, lem, wid, may_link, i))
         return out
 
@@ -510,7 +563,11 @@ def run(spec, check_only=False, out=sys.stdout):
         ids.add(pid)
         if lv not in lv_rank:
             perr.append(f"unknown level {lv}")
-        oop_ok = p.get("oop", {})
+        # declared oop lemmas match the tagger lemma after spec.span_fold (ru:
+        # ёлка = елка); the report shows the declared spelling
+        ofold = getattr(spec, "span_fold", None) or (lambda x: x)
+        oop_ok = {ofold(k): v for k, v in p.get("oop", {}).items()}
+        oop_name = {ofold(k): k for k in p.get("oop", {})}
         sents, counted, oop, above = [], [], Counter(), {}
         linked = 0
         used_oop = set()     # declared oop lemmas met as names or in questions/options
@@ -523,6 +580,7 @@ def run(spec, check_only=False, out=sys.stdout):
             n_ids += len(ws)
             unplaced += [(pid, len(sents) - 1, shipped[w]["w"], w) for w in ws if w not in placed]
             for surf, lem, wid, _ok, i in cl:
+                lem = ofold(lem)
                 if wid is None and str(oop_ok.get(lem, "")).startswith("name"):
                     used_oop.add(lem)
                     continue    # a declared name the truecaser lowered ("Bruno" -> bruno)
@@ -573,6 +631,7 @@ def run(spec, check_only=False, out=sys.stdout):
             qtexts = [q["q"]] + (q["options"] or [])
             for qt in qtexts:
                 for surf, lem, wid, _ok, _i in lk.classify(lk.tag(qt), None, lk.lowered.get((qt, ""), ())):
+                    lem = ofold(lem)
                     if wid is None and lem in oop_ok:
                         used_oop.add(lem)
                     if wid is None and lem not in oop_ok:
@@ -595,7 +654,8 @@ def run(spec, check_only=False, out=sys.stdout):
         passages.append({"id": pid, "lv": lv, "title": p["title"], "text": text, "sentences": sents,
                          "questions": qs, "src": "gen"})
         rows.append({"id": pid, "lv": lv, "title": p["title"], "words": nw, "cov": cov,
-                     "counted": len(counted), "link": linked / len(counted) if counted else 0.0, "oop": dict(sorted(oop.items())), "oop_reason": oop_ok,
+                     "counted": len(counted), "link": linked / len(counted) if counted else 0.0, "oop": dict(sorted((oop_name.get(k, k), n) for k, n in oop.items())),
+                     "oop_reason": p.get("oop", {}),
                      "above": {k: sorted(v) for k, v in sorted(above.items())},
                      "q": Counter(q["type"] for q in qs), "err": perr})
         errors += [f"{pid}: {e}" for e in perr]

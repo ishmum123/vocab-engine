@@ -131,6 +131,10 @@ QUESTION_WORDS = {"was", "wann", "wo", "wie", "warum", "wieso", "weshalb", "wer"
 RARE_PLURAL_MIN_SG = 50      # corpus singular tokens before a plural share is judged
 RARE_PLURAL_SHARE = 100     # ... and the noun's plural is under 1% of its corpus tokens
 RARE_PLURAL_HOMOGRAPH_ZIPF = 3.5   # a plural this common is real even when it doubles as a verb form
+MEIST_FORMS = {"meisten", "meiste"}   # die meisten, am meisten (surfaces)
+ZU_OBJECT_TAGS = ("ART", "PPER", "PRF", "PPOSAT", "PDAT")   # zu + article/pronoun: the preposition (zu viel/wenig: "too")
+ALL_FORMS = {"alle", "allen", "aller"}   # allem stays: "vor allem" is dative alles
+PLACE_PREPS = {"in", "aus", "nach", "von", "bei", "bis", "über", "durch"}
 MOECHTEN = {"möchte", "möchtest", "möchten", "möchtet"}
 FINITE_TAGS = ("Tag=VVFIN", "Tag=VVIMP", "Tag=VAFIN", "Tag=VAIMP", "Tag=VMFIN")
 QUOTES = set("\"'„“”‚‘’«»‹›()[]")
@@ -209,6 +213,16 @@ class German(LanguageSpec):
     regional_tags = REGIONAL
 
     caps_mark_names = False
+    # passages only (packbuilder passages; the corpus build never reads these).
+    # The QA link rules (_sense_guards via passage_post_resolve, and the
+    # passage_mode gates inside post_resolve) are passage-only: in the corpus
+    # build they shifted 6 word ids.
+    # tagger lemmas that name a pack word by another spelling: "viele" as a
+    # pronoun is lemmatised vieler (no entry); "Chefin" is the female form of a
+    # masculine pack noun Wiktionary does not point back to
+    passage_lemma_alias = {"vieler": "viel", "viele": "viel", "chefin": "chef"}
+    nouns_capitalised = True    # a lowercase token never links a noun by lemma fallback (meisten)
+    passage_particle_links = True   # "steht ... auf": the particle counts and links as aufstehen
     keep_unseen_keys = False    # a lemma never seen in 496k tagged sentences is junk here (letters, English, Swiss ss)
     numeral_verb_rule = False   # sieben/acht are numerals, not "to sieve"/"to heed"
 
@@ -483,7 +497,8 @@ class German(LanguageSpec):
                 continue
             low = text.lower()
             imp = self._imperative(low) if r[1] != "VERB" and initial_at(toks, i) and \
-                not any(e["p"] == "intj" for e in lx.E.get(low, [])) else None
+                not any(e["p"] == "intj" for e in lx.E.get(low, [])) and \
+                not (self.passage_mode and self._attributive(toks, i)) else None
             if imp and self._imperative_context(toks, i, loose=r[1] in ("ADJ", "ADV", "PROPN")):
                 # clause-initial imperative the small model tagged ADJ/NOUN
                 # ("Lass uns gehen", "Komm her!")
@@ -549,6 +564,104 @@ class German(LanguageSpec):
                 self.sep_stats["no_verb"] += 1
             if upos == "ADP" and "Tag=PTKVZ" in ms:
                 out[i] = None                     # a particle is never the preposition
+        return out
+
+    def passage_post_resolve(self, toks, out):
+        """Passages only: the QA sense guards (_sense_guards)."""
+        return self._sense_guards(toks, out)
+
+    def _attributive(self, toks, i):
+        """Token i is an attributive adjective (tagged ADJA) before a capitalised
+        noun or name: "Liebe Kunden!", "Lieber Tom," (a salutation)."""
+        nxt = toks[i + 1] if i + 1 < len(toks) else None
+        return "Tag=ADJA" in toks[i][3] and nxt is not None and nxt[2] in ("NOUN", "PROPN") and nxt[0][:1].isupper()
+
+    def _comparison_marker(self, toks, i):
+        """als in a comparison the comparative test misses: "alles andere als",
+        "kein Anderer als", "schlimmer als", "sowohl ... als auch"."""
+        nxt = toks[i + 1][0].lower() if i + 1 < len(toks) else ""
+        for t in toks[max(0, i - 6):i]:
+            lw = t[0].lower()
+            if lw.startswith("ander") or lw == "sowohl" or \
+                    (lw.endswith("er") and ("Tag=ADJD" in t[3] or "Tag=ADV" in t[3])):
+                return True
+        return nxt == "auch"
+
+    def _clause_span(self, toks, i):
+        a = i
+        while a > 0 and toks[a - 1][0] not in CLAUSE_PUNCT:
+            a -= 1
+        b = i
+        while b + 1 < len(toks) and toks[b + 1][0] not in CLAUSE_PUNCT:
+            b += 1
+        return a, b
+
+    def _sense_guards(self, toks, out):
+        """Second-entry routing the tagger's POS gets wrong in context (passage
+        QA): each rule names the reading it rejects."""
+        lx = self._lex
+        for i, (text, sl, upos, ms) in enumerate(toks):
+            r = out[i]
+            if r is None:
+                continue
+            low = text.lower()
+            prev = toks[i - 1] if i else None
+            nxt = toks[i + 1] if i + 1 < len(toks) else None
+            if r[1] == "ADJ" and upos in ("VERB", "AUX") and "VerbForm=Fin" in ms and \
+                    any(t is not None and "Tag=PPER" in t[3] for t in (prev, nxt)):
+                # "Ich heiße Ana": a finite verb next to its subject pronoun, never
+                # the adjective heiß (the tag said ADJA, the morphology a verb)
+                c = lx.verbs_only(lx.candidates(low, ["verb"]))
+                if c:
+                    out[i] = (max(c, key=lambda v: (self.verb_score(v), v)), "VERB")
+            elif r[1] == "VERB" and self._attributive(toks, i) and lx.candidates(low, ["adj"]):
+                out[i] = (lx.best_by_freq(lx.candidates(low, ["adj"])), "ADJ")   # "Liebe Kunden!": lieb
+            elif low in MEIST_FORMS and r[0] != "meist":
+                out[i] = ("viel", "ADJ")          # die meisten / am meisten: superlative of viel, never der Meister
+            elif low == "liebsten" and prev is not None and prev[0].lower() == "am":
+                out[i] = ("gern", "ADV")          # am liebsten: superlative of gern, never lieb
+            elif low == "als" and r == ("als", "ADP") and not self._comparative_before(toks, i) and \
+                    not self._comparison_marker(toks, i):
+                out[i] = ("als", "CONJ")          # "als Lehrer", "als Kind": as (a role), not than
+            elif low == "wie" and "Tag=PWAV" in ms and r[0] == "wie" and prev is not None and \
+                    (prev[0] == "," or prev[2] in ("VERB", "AUX", "PART", "ADV")) and nxt is not None and \
+                    nxt[2] != "PUNCT" and \
+                    not any(t[0].lower() in ("so", "genauso", "ebenso") for t in toks[max(0, i - 6):i]):
+                # an indirect question after a verb or comma ("..., wie wir leben"); not
+                # "so hoch, wie du kannst", "Wie ich höre" or a tag question ", wie?"
+                out[i] = ("wie", "ADV")           # "..., wie wir leben": indirect question, how
+            elif low in ALL_FORMS and r[0] == "alles":
+                out[i] = ("all", r[1])            # allen/alle: all, never alles "everything"
+            elif low == "zu" and r[1] != "ADP" and "Tag=PTKZU" not in ms and nxt is not None and \
+                    (nxt[2] in ("NUM", "NOUN", "PROPN") or any(f"Tag={t}" in nxt[3] for t in ZU_OBJECT_TAGS)):
+                out[i] = ("zu", "ADP")            # "bis zu achtzehn Grad": the preposition, not "too"
+            elif low == "um" and r == ("um", "CONJ"):
+                end = next((j for j in range(i + 1, len(toks)) if toks[j][0] in CLAUSE_END), len(toks))
+                if not any("Tag=PTKZU" in t[3] or "Tag=VVIZU" in t[3] or
+                           (t[2] in ("VERB", "AUX") and "zu" in t[0].lower()[1:-2]) for t in toks[i + 1:end]):
+                    out[i] = ("um", "ADP")        # "kämpften um den ersten Platz": no um ... zu + infinitive
+            elif low == "kennen" and r == ("kennen", "VERB") and "VerbForm=Inf" in ms:
+                a, _b = self._clause_span(toks, i)
+                for j in range(i - 1, a - 1, -1):
+                    if out[j] and out[j] == ("lernen", "VERB") and any(f in toks[j][3] for f in FINITE_TAGS):
+                        out[j], out[i] = ("kennenlernen", "VERB"), None   # "lernt ... kennen": kennenlernen
+                        break
+            elif r[1] == "PROPN" and text[:1].isupper() and "Eng=Yes" not in ms and self._has_noun(low) and \
+                    self._has_name(low) and not self._name_context(toks, i) and \
+                    not (prev is not None and prev[0].lower() in PLACE_PREPS | {"herr", "frau"}) and \
+                    not any("given name" in sn[0] for e in lx.E.get(low, []) if e["p"] == "name" for sn in e["s"]):
+                # a pack noun that is also a place/surname (Essen): outside a name
+                # or place context ("macht Essen für alle") the noun; given names
+                # (Johannes) and "Herr/Frau X" stay names
+                nouns = lx.candidates(low, ["noun"])
+                if nouns:
+                    out[i] = (lx.best_by_freq(nouns), "NOUN")
+            elif r[1] == "PROPN" and upos == "PROPN" and "Tag=NN" in ms and text[:1].isupper() and \
+                    "Eng=Yes" not in ms and not self._has_name(low) and not self._name_context(toks, i) and \
+                    lx.best_by_freq(lx.candidates(low, ["noun"]) or [low]) != low:
+                # the tag says common noun (NN) though the UPOS says name, and the
+                # surface is an inflected noun form: "zum Beispiel Äpfel" is der Apfel
+                out[i] = (lx.best_by_freq(lx.candidates(low, ["noun"])), "NOUN")
         return out
 
     def _route_ihr(self, toks, i):
@@ -663,7 +776,7 @@ class German(LanguageSpec):
         """A clause-final ge- form the tagger read as finite ("... von ihm
         gehört."): a participle when Wiktionary lists it as one."""
         nxt = toks[i + 1] if i + 1 < len(toks) else None
-        return low.startswith("ge") and (nxt is None or nxt[2] == "PUNCT") and \
+        return low.startswith("ge") and (nxt is None or nxt[2] == "PUNCT" or (self.passage_mode and nxt[2] == "CCONJ")) and \
             bool(self._participle_targets(low))
 
     def _plural_reading(self, toks, i, low, noun):
@@ -708,10 +821,13 @@ class German(LanguageSpec):
     def _name_context(self, toks, i):
         """Token i sits next to a name: a capitalised neighbour with no
         noun entry (Zuckerberg) or one tagged PROPN."""
+        if self.passage_mode and i and toks[i - 1][2] in ("DET", "ADJ") and "Tag=NN" in toks[i][3]:
+            return False                  # "Meine Mutter Maria", "letztem Sommer": the noun
         for j in (i - 1, i + 1):
             if 0 <= j < len(toks) and toks[j][0][:1].isupper() and toks[j][2] in ("PROPN", "NOUN", "X") and \
-                    not initial_at(toks, j) and not self._has_noun(toks[j][0].lower()):
-                return True
+                    not initial_at(toks, j) and not self._has_noun(toks[j][0].lower()) and \
+                    not (self.passage_mode and toks[j][2] == "NOUN" and self._lex.candidates(toks[j][0].lower(), ["noun"])):
+                return True               # a plural neighbour (Blumen, Minuten) is a noun, not a name
         return False
 
     def _imperative(self, s):
