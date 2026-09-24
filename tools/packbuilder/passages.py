@@ -39,6 +39,7 @@ import pickle
 import re
 import statistics
 import sys
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -168,6 +169,15 @@ class Linker:
         words = c["words"]
         self.words = words
         self.by_id = {w["id"]: w for w in words}
+        # passage rules that read a word's gloss (fr passage_fallback_ok) see
+        # the build's gloss, never a display-only one (tools/gloss_display.json,
+        # merged into words.json after linking): no display file, no change
+        from .core.words import load_gloss_display
+        disp = load_gloss_display(getattr(spec, "repo", None), getattr(spec, "gloss_display_file", "tools/gloss_display.json"))
+        if disp:
+            shipped = {wid: ({**w, "en": self.by_id[wid]["en"]}
+                             if f"{w['lemma']}|{w['pos']}" in disp and "en" in self.by_id.get(wid, {}) else w)
+                       for wid, w in shipped.items()}
         self.shipped = shipped
         self.key_to_id = {tuple(w["_key"]): w["id"] for w in words}
         self.gender_of = {w["id"]: w.get("_gender") for w in words}
@@ -489,6 +499,26 @@ class Linker:
         # a compound head (fine in "fine settimana") links nothing at that token
         not_ok = {i for _, _, wid, ok, i in cl if not ok}
         recs = [r for r in recs if not (r[0] == "tok" and not_ok & set(range(r[1], r[2] + 1)))]
+        # spec.passage_names_never_link (id): a capitalised token of a declared
+        # name never links, whatever sentence_links read it as ("Jawa Tengah"
+        # is not tengah "middle", "Museum Nasional" not the noun museum);
+        # opt-in, other languages keep their links
+        # The test reads the sentence text: the tagger may lowercase the token
+        # (id's PROPN rescue: "Tengah" -> tengah). Such tokens are not counted.
+        nt = set()
+        if getattr(self.spec, "passage_names_never_link", False) and names:
+            nt = {i for i, o in enumerate(offsets) if o and text[o[0]:o[1]] in names and text[o[0]:o[0] + 1].isupper()}
+            nspan = [offsets[i] for i in nt]
+
+            def on_name(r):
+                if r[0] == "tok":
+                    return bool(nt & set(range(r[1], r[2] + 1)))
+                return any(a < r[2] and r[1] < b for a, b in nspan)
+            kept = [r for r in recs if not on_name(r)]
+            gone_n = {r[3] for r in recs} - {r[3] for r in kept}
+            recs = kept
+            ws = [w for w in ws if w not in gone_n]
+            cl = [c for c in cl if c[4] not in nt]
         # a multiword expression resolved on its anchor token (fr parce qu',
         # est-ce qu', au lieu du; spec.passage_phrase_ranges): one span over it
         for a, b, anc in (self.spec.passage_phrase_ranges(toks) if hasattr(self.spec, "passage_phrase_ranges") else []):
@@ -606,11 +636,28 @@ def utf16_index(text, i):
     return i + sum(1 for ch in text[:i] if ord(ch) > 0xFFFF)
 
 
+def _is_mark(ch):
+    return unicodedata.category(ch) in ("Mn", "Mc")
+
+
+def _mark_bounds(text, a, b):
+    """A span owns the combining marks (Unicode Mn/Mc) that follow its last
+    character (fa لطفاً: the tanwin the folded surface lacks) and never starts
+    on one. Text without combining marks (NFC Latin, Cyrillic) is unchanged."""
+    while b < len(text) and _is_mark(text[b]):
+        b += 1
+    while a < b and _is_mark(text[a]):
+        a += 1
+    return a, b
+
+
 def make_spans(text, offsets, recs, ids):
     """Link records (sentence_links `where` entries) -> sorted, non-overlapping
     [[start, end, wordId], ...] in UTF-16 code units. Only ids in `ids` get
     spans; a record whose token has no offset is skipped. Overlaps keep the
-    longer span (per start, earliest first), so "per favore" beats favore."""
+    longer span (per start, earliest first), so "per favore" beats favore.
+    Each span's bounds pass _mark_bounds first (trailing combining marks join
+    the span; none starts on one)."""
     idset = set(ids)
     cand = []
     for kind, a, b, wid in recs:
@@ -622,6 +669,7 @@ def make_spans(text, offsets, recs, ids):
             se = (offsets[a][0], offsets[b][1])
         else:
             continue
+        se = _mark_bounds(text, *se)
         if se[1] > se[0] and text[se[0]:se[1]].strip():
             cand.append((se[0], se[1], wid))
     cand.sort(key=lambda c: (-(c[1] - c[0]), c[0]))
@@ -664,6 +712,9 @@ def run(spec, check_only=False, out=sys.stdout):
     lk.pretag([(t, en, names_of[id(p)]) for p in src["passages"] for t, en in p["sentences"]] +
               [(qt, "", names_of[id(p)]) for p in src["passages"] for q in p["questions"]
                for qt in [q["q"]] + (q["options"] or [])])
+    # titles: tagged in a batch of their own (the passage batch stays as it
+    # was), for the report-only note below
+    lk.pretag([(p["title"], "", names_of[id(p)]) for p in src["passages"]])
     for p in src["passages"]:
         pid, lv = p["id"], p["lv"]
         perr = []
@@ -751,6 +802,46 @@ def run(spec, check_only=False, out=sys.stdout):
             perr += [f"q{j}: {x}" for x in qe]
             qs.append({"q": q["q"], "en": q["en"], "type": q["type"], "options": q["options"] if q["type"] == "mc" else None,
                        "answer": q["answer"], "words": wids, "sentence": si})
+        # report only (the budget rule and the stale-oop check are unchanged):
+        # title words, and question or option words classify does not count (a
+        # numeral-like pack word: "Setengah jam"), that are out of the pack or
+        # above the passage's level
+        note = []
+        title = p["title"]
+        tnames = names_of[id(p)]
+        ttoks = lk.tag(title, "", tnames)
+        for surf, lem, wid, _ok, ti in lk.classify(ttoks, None, lk.lowered.get((title, "", tnames), ())):
+            lem = ofold(lem)
+            # numerals and names are not vocabulary: a numeral read, a declared
+            # name, a capitalised word after the first
+            if ttoks[ti][2] in ("NUM", "PROPN") or lem in lk.num_ids or surf in tnames or \
+                    (ti and surf[:1].isupper()):
+                continue
+            if wid is None:
+                if lem not in oop_ok:    # a declared oop word must still be used in the text (stale check)
+                    note.append(f"title {surf!r}: out of pack")
+            else:
+                # a pack word spelled like the surface that is not the one read
+                # (surprise / surpris, nouvelle "news" / nouveau): shown only when
+                # both are above the level, as the word spelled like it
+                w2 = lk.lemma_ids.get(surf.lower())
+                if w2 and w2 != wid:
+                    if lv_rank[lv_of[wid]] <= lv_rank[lv] or lv_rank[lv_of[w2]] <= lv_rank[lv]:
+                        continue
+                    wid = w2
+                if lv_rank[lv_of[wid]] > lv_rank[lv]:
+                    note.append(f"title {surf!r}: {shipped[wid]['lemma']} {lv_of[wid]}")
+        counted_q = {x for ls in above.values() for x in ls}
+        for q in p["questions"]:
+            for qt in [q["q"]] + (q["options"] or []):
+                seen = {i for *_x, i in lk.classify(lk.tag(qt, "", names), None, lk.lowered.get((qt, "", names), ()))}
+                for i, tk in enumerate(lk.tag(qt, "", names)):
+                    if i in seen or not any(ch.isalpha() for ch in tk[0] or "") or tk[2] in ("PROPN", "PUNCT") or \
+                            (tk[0] or "").lower() in lk.num_ids:     # a pack numeral (neuf "nine", not neuf "new")
+                        continue
+                    wid = lk.lemma_ids.get(tk[1]) or lk.lemma_ids.get((tk[0] or "").lower())
+                    if wid and lv_rank[lv_of[wid]] > lv_rank[lv] and shipped[wid]["lemma"] not in counted_q:
+                        note.append(f"{qt!r}: {shipped[wid]['lemma']} {lv_of[wid]} (not counted)")
         stale = sorted(oop_name[k] for k in set(oop_ok) - set(oop) - used_oop)
         if stale:
             perr.append(f"oop lists lemmas used nowhere: {stale}")
@@ -763,11 +854,11 @@ def run(spec, check_only=False, out=sys.stdout):
                 perr.append(f"{len(lems)} {alv} words > {cap}: {sorted(lems)}")
         passages.append({"id": pid, "lv": lv, "title": p["title"], "text": text, "sentences": sents,
                          "questions": qs, "src": "gen"})
-        rows.append({"id": pid, "lv": lv, "title": p["title"], "words": nw, "cov": cov,
+        rows.append({"id": pid, "lv": lv, "title": p["title"], "words": nw, "ws_words": len(text.split()), "cov": cov,
                      "counted": len(counted), "link": linked / len(counted) if counted else 0.0, "oop": dict(sorted((oop_name.get(k, k), n) for k, n in oop.items())),
                      "oop_reason": p.get("oop", {}),
                      "above": {k: sorted(v) for k, v in sorted(above.items())},
-                     "q": Counter(q["type"] for q in qs), "err": perr})
+                     "q": Counter(q["type"] for q in qs), "err": perr, "note": list(dict.fromkeys(note))})
         errors += [f"{pid}: {e}" for e in perr]
     for r in rows:
         flag = "  <-- " + "; ".join(r["err"]) if r["err"] else ""
@@ -797,25 +888,33 @@ def write_report(repo, rows, rules):
              "punctuation not counted). Level budget (passage + questions + options): A1 may use",
              "<=3 A2 lemmas and no B1; A2 may use <=3 B1 lemmas; B1 may use anything in the pack.",
              "Linked = tokens whose word id is also in the sentence's `words` (the stricter share:",
-             "a pack lemma can go unlinked when the tagger reads it with another POS).", ""]
+             "a pack lemma can go unlinked when the tagger reads it with another POS).",
+             "words = the builder's word count (the band rule); ws_words = whitespace-separated",
+             "tokens of the passage text, the count the app shows (report only).", ""]
     for lv in sorted({r["lv"] for r in rows}):
         rs = [r for r in rows if r["lv"] == lv]
         covs = [r["cov"] for r in rs]
         lks = [r["link"] for r in rs]
         nws = [r["words"] for r in rs]
+        wss = [r["ws_words"] for r in rs]
         qt = Counter()
         for r in rs:
             qt.update(r["q"])
         lines.append(f"- **{lv}**: {len(rs)} passages; words/passage {min(nws)}-{max(nws)} "
-                     f"(median {statistics.median(nws)}); coverage min {min(covs):.3f}, median "
+                     f"(median {statistics.median(nws)}); ws_words {min(wss)}-{max(wss)}; coverage min {min(covs):.3f}, median "
                      f"{statistics.median(covs):.3f} (rule >= {rules['coverage'][lv]}); linked min {min(lks):.3f}; questions "
                      f"mc {qt['mc']}, tf {qt['tf']}")
-    lines += ["", "| id | lv | title | words | coverage | linked | out-of-pack lemmas (reason) | higher-level lemmas |",
-              "|---|---|---|---|---|---|---|---|"]
+    lines += ["", "| id | lv | title | words | ws_words | coverage | linked | out-of-pack lemmas (reason) | higher-level lemmas |",
+              "|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         oop = ", ".join(f"{k} x{v} ({r['oop_reason'].get(k, '?')})" for k, v in r["oop"].items()) or "-"
         above = "; ".join(f"{k}: {', '.join(v)}" for k, v in r["above"].items()) or "-"
-        lines.append(f"| {r['id']} | {r['lv']} | {r['title']} | {r['words']} | {r['cov']:.3f} | {r['link']:.3f} | {oop} | {above} |")
+        lines.append(f"| {r['id']} | {r['lv']} | {r['title']} | {r['words']} | {r['ws_words']} | {r['cov']:.3f} | {r['link']:.3f} | {oop} | {above} |")
+    notes = [f"- {r['id']}: " + "; ".join(r["note"]) for r in rows if r.get("note")]
+    if notes:
+        lines += ["", "Title words, and question/option words the budget does not count (a numeral-like",
+                  "pack word), that are out of the pack or above the passage's level (report only;",
+                  "the budget rule above is unchanged):", ""] + notes
     path = repo / "tools" / "REPORT_passages.md"
     manual = ""
     if path.exists() and MANUAL_MARK in path.read_text():

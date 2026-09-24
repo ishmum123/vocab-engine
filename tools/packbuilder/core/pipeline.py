@@ -13,7 +13,7 @@ from .sentences import build_sentences
 from .sources import ensure_downloaded, stage_corpus, audio_recorders
 from .tag import stage_tag, truecase_stats, iter_tagged
 from .util import STATS, log, stat, dump_json, write_json
-from .words import build_words
+from .words import build_words, apply_gloss_display
 
 STAGES = ["all", "corpus", "tag", "lex", "freq", "words", "sentences", "final"]
 WORD_FIELDS = ("id", "w", "lemma", "pos", "en", "lv", "rank", "pron", "alt")
@@ -148,11 +148,14 @@ def run(env, stage="all", check_remote=False):
     words, records, top3000 = build_words(env, ctx)
     env.pack.mkdir(exist_ok=True)
     out_words = [{k: w[k] for k in WORD_FIELDS if k in w} for w in words]
+    if stage == "words":
+        apply_gloss_display(sp.repo, out_words, sp.gloss_display_file)
     write_json(env.pack / "words.json", out_words)
     if stage == "words":
         return
     words, records, top3000, sentences, users, primary = finish_words(env, ctx, words, records, top3000)
     out_words = [{k: w[k] for k in WORD_FIELDS if k in w} for w in words]
+    apply_gloss_display(sp.repo, out_words, sp.gloss_display_file)    # display-only senses, after everything else
     write_json(env.pack / "words.json", out_words)     # -rsi gate may revert entries
     write_json(env.pack / "sentences.json", sentences)
     write_json(env.pack / "pack.json", build_pack_json(env, words, ctx["raw_upos"]), compact=False)

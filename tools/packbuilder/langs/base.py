@@ -137,6 +137,7 @@ class LanguageSpec:
 
     # ---- language repo data files (repo-relative) ---------------------------
     gloss_overrides_file = "tools/gloss_overrides.json"
+    gloss_display_file = "tools/gloss_display.json"   # display-only en per "lemma|pos", applied to words.json after linking (core/words.apply_gloss_display)
     forced_a1_file = "tools/forced_a1.txt"
     id_map_file = "tools/id_map_v1.json"
     report_file = "tools/REPORT.md"
@@ -255,6 +256,7 @@ class LanguageSpec:
     passage_form_base = False   # an unresolved counted token links the pack word it is an inflected form of (passages.Linker.form_base; fr: amie -> ami, dansé -> danser, allemande -> allemand)
     passage_feminine_suffixes = (("", "e"),)   # form_base: (masculine ending, feminine ending) pairs that make a "female equivalent" / g "m=X" entry an inflection of X
     passage_adverb_from = ()    # tagger POS whose token is relinked to the pack adverb its surface spells after spec.fold (ru: ADJ, NUM: хорошо, лучше, больше, ещё = еще)
+    passage_names_never_link = False   # a capitalised token of a declared name never links and is not counted, whatever sentence_links read it as (id: "Jawa Tengah" is not tengah "middle")
 
     def copula_inflected(self, surface, adj):
         """After a copula, the surface is an inflected adjective form (it: fiera)."""
@@ -508,6 +510,13 @@ class LanguageSpec:
     use_audio = True             # corpus: attach permissive Tatoeba audio (id: off, TTS only)
     corpus_rank_weight = 0       # >0: the tagged corpus's (lemma, POS) counts join the frequency blend
     level_floor = {}             # (lemma, group) -> lowest level it may take (id: colloquial words A2+)
+    level_ceiling = {}           # (lemma, group) -> highest level it may take (ko: NIKL beginner words <= A2)
+
+    # ---- added for Japanese (defaults keep every other language unchanged) ------
+    spoken_from_corpus = False   # freq: the tagged corpus's (lemma, POS) counts are the spoken list; subtitles_file is not read (ja: hermitdave list unusable)
+    spoken_freq_label = None     # REPORT.md label of the spoken-list row (None: the subtitle list's)
+    use_simplemma = True         # freq: simplemma fallback lemma for surfaces unseen in the corpus (ja: unsupported, the surface is kept)
+    sentence_end_re = None       # sentences: regex a usable sentence must match at its end (None: core SENT_END_RE; ja adds 。！？)
 
     # ---- QA scan config ---------------------------------------------------
     qa_closed_sets = {}          # name -> space-separated lemmas that must be A1

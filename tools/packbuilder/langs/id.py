@@ -72,6 +72,37 @@ HONORIFICS = {"pak", "bapak", "ibu", "tuan", "nyonya", "nona", "kakak", "adik", 
 # lowercased for linking when capitalised mid-sentence (Minggu "Sunday" is minggu "week")
 LOWER_SURFACES = set(CAPITALISED) | {"minggu"} | HONORIFICS
 CAP_GROUP = {"anda": "PRON"}
+# passages only (passage_retag): kinship words and short address forms
+# capitalised mid-sentence ("Nenek pulang", "Selamat pagi, Bu") -> the pack noun
+PASSAGE_UPOS = {"verb": "VERB", "noun": "NOUN", "adj": "ADJ", "adv": "ADV"}
+PASSAGE_ADDRESS = {"nenek": "nenek", "kakek": "kakek", "ayah": "ayah", "mama": "mama", "bu": "ibu",
+                   "kak": "kakak", "dik": "adik", "dok": "dokter"}
+# passages only (passage_retag): titles capitalised before a name or in an
+# address ("Yth. Bapak Ketua RT", "Kepala Sekolah") are the pack noun, not a name
+PASSAGE_TITLES = {"ketua", "kepala", "manajer", "direktur", "presiden", "menteri", "guru", "dokter"}
+# passages only: two-word compounds read as one tap (passage_post_resolve +
+# passage_phrase_ranges): (first, second) -> (lemma, pack POS) of the pack word
+# the whole compound links. A compound that is a pack word links it (beri tahu
+# -> memberitahu); a compound the pack lacks links its first word, whose gloss
+# carries the compound sense (orang tua -> orang "(orang tua) parents"). The
+# second part never links on its own ("tua" is not "old" in orang tua).
+PASSAGE_COMPOUNDS = {tuple(k.split()): v for k, v in {
+    "beri tahu": ("memberitahu", "verb"),
+    "orang tua": ("orang", "noun"), "rumah sakit": ("rumah", "noun"), "rumah makan": ("rumah", "noun"),
+    "kamar mandi": ("kamar", "noun"), "kamar tidur": ("kamar", "noun"), "tempat tidur": ("tempat", "noun"),
+    "ruang tamu": ("ruang", "noun"), "ruang tunggu": ("ruang", "noun"), "air minum": ("air", "noun"),
+    "kereta api": ("kereta", "noun"), "masa depan": ("masa", "noun"), "salah satu": ("salah", "adj"),
+    "salah seorang": ("salah", "adj"), "ulang tahun": ("ulang", "verb"), "tata bahasa": ("tata", "noun"),
+    "tentu saja": ("tentu", "adv"), "makan siang": ("makan", "verb"), "makan malam": ("makan", "verb"),
+    "makan pagi": ("makan", "verb"), "teman kerja": ("teman", "noun"), "mabuk laut": ("mabuk", "adj"),
+    "masuk akal": ("masuk", "verb"), "sepak bola": ("sepak", "noun"), "buku tulis": ("buku", "noun"),
+}.items()}
+# passages only: a pack verb/noun homograph read as the noun (passage_post_resolve)
+NOUN_AFTER = {"cara"}                  # cara bicara "way of speaking", cara hidup
+CLAUSE_OPENERS = {"bahwa", "ternyata"}  # "bahwa hidup di sana tidak mudah": life
+# ... but not before an object: an imperative or verb with an object stays the
+# verb ("Isi botol itu", '"Gambar rumahmu," kata guru')
+OBJECT_UPOS = {"NOUN", "PRON", "PROPN", "DET", "NUM"}
 
 # enclitics the multi-word-token splitter separates from their host
 CLITICS = {"nya", "ku", "mu", "kah", "lah", "tah", "pun"}
@@ -293,6 +324,7 @@ class Indonesian(LanguageSpec):
     numeral_verb_rule = False
     phrase_absorbs_parts = True
     phrase_token_spans = True    # phrases match by token; "sama-sama" = you're welcome only with that English
+    passage_names_never_link = True   # passages: a declared name's capitalised token never links (Jawa Tengah)
     phrase_en_cues = {"sama-sama": ("welcome", "mention")}
     verb_endings = None
 
@@ -1326,6 +1358,198 @@ class Indonesian(LanguageSpec):
                 w["alt"] = ["tapi"]
         self.post_stats["headword shown as its me- verb"] = len(swapped)
         self.swapped_heads = swapped
+
+    # ---- reading passages (passage-only; the corpus build never calls these) --
+    def _pack_lemmas(self):
+        """Passages: {lemma: pos} of the shipped pack words (pack/words.json)."""
+        if getattr(self, "_pl", None) is None:
+            import json
+            ws = json.loads((self.repo / "pack" / "words.json").read_text())
+            self._pl = {}
+            self._pkeys = set()     # (lemma, pos) of every pack word (hidup is a verb and a noun)
+            for w in ws:
+                self._pl.setdefault(w["lemma"], w["pos"])
+                self._pkeys.add((w["lemma"], w["pos"]))
+        return self._pl
+
+    def _compounds(self, toks):
+        """Passages: [(i, lemma, pos)] for each PASSAGE_COMPOUNDS pair at
+        tokens i, i+1 whose target is a pack word, left to right, a token in
+        at most one pair."""
+        self._pack_lemmas()
+        out, used = [], set()
+        for i in range(len(toks) - 1):
+            pair = ((toks[i][0] or "").lower(), (toks[i + 1][0] or "").lower())
+            hit = PASSAGE_COMPOUNDS.get(pair)
+            if hit and i not in used and hit in self._pkeys:
+                out.append((i, hit[0], hit[1]))
+                used |= {i, i + 1}
+        return out
+
+    def passage_text(self, text, names, lexicon):
+        """Passages only: a capitalised word that opens the text, a sentence
+        after . ! ? or quoted speech, and is not a declared name, is lowercased
+        when it is a pack word or an address form ("Bu, saya mau...", "Nenek
+        tahu", "\"Kamu mau..."). tag_texts' PROPN rescue counts lowercase uses
+        across the texts it is given, so passage tagging (a small batch) may
+        otherwise keep such a word a name."""
+        pl = self._pack_lemmas()
+
+        def low(m):
+            w = m.group(2)
+            lw = w.lower()
+            if w in names or w.isupper() or not (lw in pl or lw in PASSAGE_ADDRESS):
+                return m.group(0)
+            return m.group(1) + lw
+        return re.sub(r'((?:^|[.!?]\s+|["\u201c]))([A-Z][a-z]+)\b', low, text)
+
+    def passage_post_resolve(self, toks, out):
+        """Passages only, after post_resolve:
+        - a short address form passage_retag read as its pack noun (Bu ->
+          ibu, Dok -> dokter) keeps that reading;
+        - a verb whose resolved lemma is not a pack word, while its tagger
+          lemma (or passage_retag's root) is a pack verb, reads as that pack
+          verb when the surface has no entry of its own or its glosses share
+          a word with the pack verb's (menunjuk "to point" -> tunjuk, memarkir
+          -> parkir); a surface with a sense of its own keeps it;
+        - baru before saja/akan or a verb, after a word that is not a noun or
+          adjective, is the adverb "just, only then" (not the adjective "new");
+          (after "yang" only when the next word is not ada/adalah: "Nomor saya
+          yang baru ada di bawah" is new, "orang yang baru tinggal" is just);
+        - quotative katanya (kata + -nya after a closing quote or opening a
+          clause: '"...," katanya', "Katanya sangat menakutkan") is berkata,
+          not kata "word";
+        - a pack verb/noun homograph or a verb whose surface is a pack noun
+          reads as the noun after cara ("cara bicara": bicara "talk", not
+          berbicara) or, for a surface that is both a pack verb and a pack
+          noun, opening a clause ("Ternyata hidup tanpa ponsel...", "bahwa
+          hidup di sana..."): hidup "life";
+        - an opaque idiom whose parts post_resolve unlinked and whose joined
+          spelling is a pack word ("memberi tahu" -> memberitahu) reads as
+          that word on its first part (passage_phrase_ranges spans both);
+        - a PASSAGE_COMPOUNDS pair reads as its target on its first part and
+          nothing on its second (passage_phrase_ranges spans both)."""
+        pl = self._pack_lemmas()
+        pk = self._pkeys
+        n = len(toks)
+        for i, t in enumerate(toks):
+            low = (t[0] or "").lower()
+            tgt = PASSAGE_ADDRESS.get(low)
+            r = out[i]
+            if tgt and tgt != low and t[1] == tgt:
+                out[i] = (tgt, "NOUN")
+            elif t[2] == "VERB" and pl.get(t[1]) == "verb" and t[1] != low and \
+                    (r is None or (r[1] == "VERB" and r[0] not in pl)) and \
+                    (i + 1 >= n or (low, toks[i + 1][0].lower()) not in OPAQUE_IDIOMS):
+                own = self._gloss_stems(low, "verb") if self._lx.usable_entries(low, "verb") else set()
+                if not own or overlaps(own, self._gloss_stems(t[1], "verb")):
+                    out[i] = (t[1], "VERB")
+            if low == "baru" and r == ("baru", "ADJ") and i + 1 < n and i and \
+                    (toks[i + 1][0].lower() in ("saja", "akan") or toks[i + 1][2] in ("VERB", "AUX")) and \
+                    toks[i - 1][2] not in ("NOUN", "ADJ") and \
+                    not (toks[i - 1][0].lower() == "yang" and toks[i + 1][0].lower() in ("ada", "adalah")):
+                out[i] = ("baru", "ADV")       # "itu baru akan berangkat", "Veteran baru saja dibuka": just, only then
+            prev = toks[i - 1][0] if i else ""
+            if low == "kata" and i + 1 < n and toks[i + 1][0].lower() == "nya" and \
+                    (not i or prev in ('"', "\u201d", "\u201c", ".", "!", "?", ",", ";", ":")) and \
+                    ("berkata", "verb") in pk:
+                out[i] = ("berkata", "VERB")   # quotative katanya: "he/she said"
+            elif r is not None and r[1] == "VERB" and (low, "noun") in pk and \
+                    (prev.lower() in NOUN_AFTER or ((low, "verb") in pk and r[0] == low and
+                                                     (not i or prev.lower() in CLAUSE_OPENERS or
+                                                      not any(ch.isalnum() for ch in prev)) and
+                                                     (i + 1 >= n or toks[i + 1][2] not in OBJECT_UPOS))):
+                out[i] = (low, "NOUN")         # cara bicara, "Ternyata hidup tanpa ponsel": the noun
+        for i in range(n - 1):
+            pair = (toks[i][0].lower(), toks[i + 1][0].lower())
+            joined = "".join(pair)
+            if pair in OPAQUE_IDIOMS and out[i] is None and out[i + 1] is None and joined in pl:
+                out[i] = (joined, PASSAGE_UPOS.get(pl[joined], "NOUN"))
+        for i, lem, pos in self._compounds(toks):
+            out[i], out[i + 1] = (lem, PASSAGE_UPOS.get(pos, "NOUN")), None
+        return out
+
+    def passage_fallback_ok(self, lexicon, reading, word, en=""):
+        """Passages only: a verb reading with no pack key never falls back to a
+        function word of the same lemma (membagi is not the preposition bagi
+        "for")."""
+        return not (reading[1] == "VERB" and word["pos"] in ("prep", "conj", "pron", "det", "part"))
+
+    def passage_phrase_ranges(self, toks):
+        """Passages only: an opaque idiom read as one pack word on its first
+        part (passage_post_resolve: "memberi tahu" -> memberitahu) and a
+        PASSAGE_COMPOUNDS pair (orang tua, rumah sakit) are one span over both
+        parts."""
+        pl = self._pack_lemmas()
+        rs = {(i, i + 1, i) for i in range(len(toks) - 1)
+              if (toks[i][0].lower(), toks[i + 1][0].lower()) in OPAQUE_IDIOMS
+              and toks[i][0].lower() + toks[i + 1][0].lower() in pl}
+        rs |= {(i, i + 1, i) for i, _l, _p in self._compounds(toks)}
+        return sorted(rs)
+
+    def passage_retag(self, toks):
+        """Passages only:
+        - a kinship word or short address form capitalised mid-sentence
+          (Nenek, Kakek, Ayah, Mama; Bu, Kak, Dik, Dok) is the common noun
+          (ibu, kakak, adik, dokter for the short forms), as fix_token does
+          for Pak/Ibu/Paman (HONORIFICS); declared names keep PROPN; so is a
+          title noun capitalised mid-sentence (PASSAGE_TITLES: "Bapak Ketua
+          RT"), which caps_mark_names would otherwise skip as a name;
+        - a di-/bare -kan or -i form whose me- form is a pack verb other than
+          the tagger's root is that me- verb (dikembalikan, masukkan ->
+          mengembalikan, memasukkan; not kembali "to return", masuk "to enter");
+        - a verb form the tagger leaves unresolved or mislemmatises is the pack
+          verb it is built on: an object-voice / imperative -i form (hubungi ->
+          bubung, sukai, pelajari, kunjungi) -> its me- form (menyukai,
+          mengunjungi, mempelajari) or bare root (hubung); a me-/di- form
+          (menunjuk, memarkir -> markir, memberi before tahu) -> the root
+          me_roots gives (tunjuk, parkir, beri), -kan/-i dropped. Only when
+          neither the tagger lemma nor the surface is a pack lemma; a di- form
+          whose tagger lemma is a pack non-verb reads as its me- pack verb
+          (dikurangi -> mengurangi, not kurang "less");
+        - an X-tagged token (not an enclitic) that is a pack word (oke) gets
+          its dictionary class."""
+        pl = self._pack_lemmas()
+        kw = self._kaikki_words()
+        for i, t in enumerate(toks):
+            text = t[0] or ""
+            low = text.lower()
+            if low in PASSAGE_ADDRESS and not text.isupper() and t[2] not in ("PUNCT", "NUM") and \
+                    (PASSAGE_ADDRESS[low] != low or (i and text[:1].isupper() and t[2] == "PROPN")):
+                t[0], t[1], t[2] = low, PASSAGE_ADDRESS[low], "NOUN"
+                continue
+            if low in PASSAGE_TITLES and pl.get(low) == "noun" and i and text[:1].isupper() and \
+                    not text.isupper() and t[2] in ("PROPN", "NOUN"):
+                t[0], t[1], t[2] = low, low, "NOUN"     # lowercased: caps_mark_names would skip it
+                continue
+            stem = low[2:] if low.startswith("di") else low
+            mf = me_form(stem) if len(stem) >= 6 and stem.endswith(("kan", "i")) else None
+            if mf and low.isalpha() and low not in pl and not low.startswith(("me", "ber", "ter", "pe")) and \
+                    t[2] not in ("PROPN", "PUNCT", "NUM") and pl.get(mf) == "verb" and t[1] and \
+                    t[1] != mf and stem != t[1] and stem.startswith(t[1]):
+                t[1], t[2] = mf, "VERB"     # dikembalikan: mengembalikan, not kembali
+                continue
+            if t[2] == "X" and low not in CLITICS and low in pl and low in kw:
+                t[1] = low
+                t[2] = next(u for p, u in KPOS_UPOS + [(None, "X")] if p is None or p in kw[low][0])
+                continue
+            if len(low) >= 6 and low.isalpha() and low.startswith("di") and low not in pl and \
+                    t[2] not in ("PROPN", "PUNCT", "NUM") and pl.get(t[1]) not in (None, "verb") and \
+                    pl.get(me_form(low[2:])) == "verb":
+                t[1], t[2] = me_form(low[2:]), "VERB"     # dikurangi: mengurangi, not kurang "less"
+                continue
+            if len(low) >= 5 and low.isalpha() and t[1] not in pl and low not in pl and \
+                    t[2] not in ("PROPN", "PUNCT", "NUM"):
+                cands = []
+                if low.endswith("i"):
+                    cands += [me_form(low)] + (["mem" + low] if low.startswith("pe") else []) + [low[:-1]]
+                if low.startswith(("me", "di")):
+                    for r in me_roots(low):
+                        cands += [r] + ([r[:-3]] if r.endswith("kan") else []) + ([r[:-1]] if r.endswith("i") else [])
+                hit = next((c for c in cands if pl.get(c) == "verb"), None)
+                if hit:
+                    t[1], t[2] = hit, "VERB"
+        return toks
 
 
 SPEC = Indonesian

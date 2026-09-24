@@ -279,7 +279,7 @@ def build_sentences(env, ctx, words, top3000):
         text = rows[sid][1]
         if sp.untranslated_rows and not rows[sid][3]:
             continue            # tagged for evidence only: no English translation
-        if not SENT_END_RE.search(text.strip()):
+        if not (sp.sentence_end_re or SENT_END_RE).search(text.strip()):
             st["no_terminal_punct"] += 1
             continue
         if sp.bad_text_re is not None and sp.bad_text_re.search(text):

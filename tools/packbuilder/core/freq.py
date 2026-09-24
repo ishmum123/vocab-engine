@@ -96,15 +96,27 @@ def accent_split(counts, surf, stats, moved, spec):
     return out
 
 
+class _no_lines(list):
+    """An empty line source usable in a with-statement (spec.spoken_from_corpus)."""
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 def stage_freq(env, surf, raw_upos):
     import simplemma
     from wordfreq import zipf_frequency, top_n_list
     sp = env.spec
     stats = Counter()
-    sm = lambda w: sp.fallback_lemma(w, sp.fold(simplemma.lemmatize(w, lang=sp.simplemma_code)))
+    if sp.use_simplemma:
+        sm = lambda w: sp.fallback_lemma(w, sp.fold(simplemma.lemmatize(w, lang=sp.simplemma_code)))
+    else:
+        sm = lambda w: sp.fallback_lemma(w, sp.fold(w))     # ja: simplemma has no model
     moved = []
     raw = {}
-    with open(env.cache / sp.subtitles_file, encoding="utf-8") as f:
+    with open(env.cache / sp.subtitles_file, encoding="utf-8") if not sp.spoken_from_corpus else _no_lines() as f:
         for line in f:
             parts = line.rstrip("\n").split(" ")
             if len(parts) != 2 or not sp.sub_token_re.match(parts[0]):
@@ -120,6 +132,11 @@ def stage_freq(env, surf, raw_upos):
     for w, c in accent_split(raw, surf, stats, moved, sp).items():
         for k, cc in distribute(w, c, surf, sm, stats, sp):
             sub[k] += cc
+    if sp.spoken_from_corpus:
+        # ja: no usable subtitle list; the tagged corpus's own (lemma, POS)
+        # token counts are the spoken ranking
+        sub = Counter({k: float(sum(c.values())) for k, c in raw_upos.items()})
+        stats = Counter({"corpus": len(sub)})
     sub_stats = dict(stats)
     stats = Counter()
     raw = {}

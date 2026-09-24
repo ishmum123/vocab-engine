@@ -82,7 +82,7 @@ def write_report(env, ctx):
       "to simplemma.\n")
     a("| list | surfaces resolved from corpus | simplemma fallback |")
     a("|---|---|---|")
-    a(f"| subtitles (top {N_SUB_SURFACES:,} surfaces) | {fr['sub_surfaces'].get('corpus', 0):,} | "
+    a(f"| {sp.spoken_freq_label or f'subtitles (top {N_SUB_SURFACES:,} surfaces)'} | {fr['sub_surfaces'].get('corpus', 0):,} | "
       f"{fr['sub_surfaces'].get('fallback', 0):,} |")
     a(f"| wordfreq top {N_WORDFREQ:,} | {fr['wf_surfaces'].get('corpus', 0):,} | {fr['wf_surfaces'].get('fallback', 0):,} |")
     rs = S.get("resolution", {})

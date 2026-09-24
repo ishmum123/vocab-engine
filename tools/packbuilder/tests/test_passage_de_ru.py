@@ -429,14 +429,15 @@ class HookOwners(unittest.TestCase):
             sp = langs.spec_class(m)
             self.assertEqual(bool(sp.passage_particle_links), m == "de", m)
             self.assertEqual(bool(sp.nouns_capitalised), m == "de", m)
-            self.assertEqual(bool(sp.passage_lemma_alias), m == "de", m)
+            self.assertEqual(bool(sp.passage_lemma_alias), m in ("de", "fa"), m)
             self.assertEqual(bool(sp.passage_adverb_from), m == "ru", m)
-            self.assertEqual(own(sp, "passage_retag"), m in ("ru", "fr"), m)
+            self.assertEqual(own(sp, "passage_retag"), m in ("ru", "fr", "id", "fa"), m)
             self.assertEqual(own(sp, "passage_no_link"), m == "ru", m)
-            self.assertEqual(own(sp, "passage_post_resolve"), m in ("es", "de", "fr"), m)
+            self.assertEqual(own(sp, "passage_post_resolve"), m in ("es", "de", "fr", "id", "fa"), m)
             self.assertEqual(bool(sp.passage_form_base), m == "fr", m)
+            self.assertEqual(bool(sp.passage_names_never_link), m == "id", m)
             for h in ("passage_text", "passage_fallback_ok", "passage_phrase_ranges"):
-                self.assertEqual(own(sp, h), m == "fr", (m, h))
+                self.assertEqual(own(sp, h), m in ("fr", "id"), (m, h))
             self.assertFalse(sp.passage_mode, m)
 
 

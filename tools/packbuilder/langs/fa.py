@@ -40,6 +40,9 @@ TANWIN_KEEP_RE = re.compile("[\u064c-\u065f\u0670\u0640\u200d\u200e\u200f]")   #
 # copula, comparative); anything else means the lemma is only a substring
 GRAM_SUFFIX_RE = re.compile("(ها|های|هایی|ان|ات|ین|گان)?(ی|ای|یی)?"
                             "(ام|ات|اش|مان|تان|شان|م|ت|ش|یم|یش|ست|است|اند|ایم|اید|ند|ید|تر|ترین|مون|تون|شون)?")
+# passages only: a comparative may come before the indefinite ی (مهم‌تری)
+PASSAGE_SUFFIX_RE = re.compile("(ها|های|هایی|ان|ات|ین|گان)?(تر|ترین)?(ی|ای|یی)?"
+                               "(ام|ات|اش|مان|تان|شان|م|ت|ش|یم|یش|ست|است|اند|ایم|اید|ند|ید)?")
 # Tatoeba sentences with errors (ungrammatical, a typo that reads as vulgar,
 # a misspelt verb, a nonsense translation): matched as substrings
 BAD_SENTENCES = ("او از من شروع کرد", "مرد درخت را تحت است", "به ذهن تام رید", "حضور داشیم", "این جعبه از جوب است")
@@ -149,7 +152,13 @@ CONJS = [("و", "CONJ"), ("یا", "CONJ"), ("اما", "CONJ"), ("ولی", "CONJ"
 FUNCTION = set("را که به از در با تا و یا اما".split())
 DISPLAY = {"سهشنبه": "سه\u200cشنبه", "پنجشنبه": "پنج\u200cشنبه", "قهوهای": "قهوه\u200cای", "لطفا": "لطفا\u064b",
            "آنها": "آن\u200cها", "اینها": "این\u200cها", "تخممرغ": "تخم\u200cمرغ", "کتابخانه": "کتابخانه",
-           "میتوان": "می\u200cتوان", "خواهش میکنم": "خواهش می\u200cکنم", "ابتدا": "ابتدا"}
+           "میتوان": "می\u200cتوان", "خواهش میکنم": "خواهش می\u200cکنم", "ابتدا": "ابتدا",
+           # reduplicated / هیچ compounds the corpus writes without ZWNJ
+           "کمکم": "کم\u200cکم", "هیچوقت": "هیچ\u200cوقت", "هیچکس": "هیچ\u200cکس", "هیچکدام": "هیچ\u200cکدام"}
+# passages: English words too common to show a gloss is meant (_mark_en_gloss)
+EN_GLOSS_STOP = frozenset("the and for with from into that this one who which what little".split())
+# a counted unit after نه makes it "nine" (نه سال, نه نفر); corpus and passages
+NINE_UNITS = frozenset({"سال", "ساعت", "روز", "ماه", "نفر", "دقیقه", "هفته", "بار", "کتاب", "تا"})
 PLEASE_PHRASE = "خواهش میکنم"      # "you're welcome / please", taught as one phrase
 FIXED_PRON = {"ابتدا": "ebtedâ", "همگی": "hamegi", "اینکه": "inke", "خواهش میکنم": "xâheš mikonam", "یعنی": "ya'ni", "ایشان": "išân", "لطفا": "lotfan", "متشکرم": "motešakkeram", "ببخشید": "bebaxšid", "خداحافظ": "xodâhâfez",
               "آنها": "ânhâ", "سهشنبه": "se-šanbe", "پنجشنبه": "panj-šanbe", "قهوهای": "qahve-i"}
@@ -622,7 +631,7 @@ class Persian(LanguageSpec):
         ("تمامی", "DET"): "all, the whole of", ("همگی", "PRON"): "all (of us/them), everybody",
         ("توانایی", "NOUN"): "ability", ("ادعا", "NOUN"): "claim", ("ترجیح", "NOUN"): "preference",
         ("عدالت", "NOUN"): "justice", ("قبلی", "ADJ"): "previous", ("اولیه", "ADJ"): "initial, primary",
-        ("بهتر", "ADJ"): "better", ("احمقانه", "ADJ"): "stupid, silly", ("سختی", "NOUN"): "difficulty, hardship",
+        ("بهتر", "ADJ"): "better; (بهترین) best", ("احمقانه", "ADJ"): "stupid, silly", ("سختی", "NOUN"): "difficulty, hardship",
         ("مخصوصا", "ADV"): "especially", ("آنان", "PRON"): "they (formal)", ("بسیاری", "DET"): "many, a lot of",
         ("متنفر", "ADJ"): "hating, disgusted (از ... متنفرم: I hate ...)", ("زیرا", "CONJ"): "because",
         ("مطمئنا", "ADV"): "surely, certainly", ("جرات", "NOUN"): "courage, nerve", ("نزد", "ADP"): "to, at, with (someone)",
@@ -754,6 +763,192 @@ class Persian(LanguageSpec):
         """Passages span alignment: fix_token's surfaces are fold()ed (applied
         per word, so پائین = پایین and final ابتداء = ابتدا)."""
         return fold(s)
+
+    # ---- reading passages only (never run by `build`) -----------------------
+    X_POS = (("noun", "NOUN"), ("adj", "ADJ"), ("adv", "ADV"), ("pron", "PRON"), ("prep", "ADP"))
+
+    def passage_retag(self, toks):
+        """Seraji leaves some plain words as X, mostly the parts of a set
+        phrase ("فردا شب", "به سر کار"): X is skipped, so they would be
+        neither counted nor linked. A letters-only X token gets its
+        dictionary class (noun, adj, adv, pron, prep; first that has a lemma
+        entry) and goes through fix_token again (UPOS_FIX: فردا, بعد). A verb
+        whose lemma is still no infinitive after fix_token ("از او چه خواست؟":
+        Stanza lemma خوا) is re-read from its surface alone (خواستن); a noun
+        split as host + copula (or with a lemma the dictionary lacks) whose
+        surface is a past stem is that verb. An ordinal the pack lacks (سیزدهم)
+        is a numeral."""
+        info, infs, pack = self._info(), self._verbs()[0], self._passage_pack()
+        for k, t in enumerate(toks):
+            if t[2] == "X" and t[0] and all(ch.isalpha() or ch == ZWNJ for ch in t[0]):
+                rows = info.get(fold(t[0]), [])
+                for kpos, up in self.X_POS:
+                    if any(r[1] == kpos and r[4] for r in rows):
+                        toks[k] = self.fix_token([t[0], t[0], up, t[3]])
+                        break
+            elif t[2] == "NOUN" and fold(t[0]) + "ن" in infs and fold(t[0]) != t[1] and \
+                    (not info.get(t[1]) or "Clitic=Yes" in t[3]):
+                # a past-tense verb read as a noun + copula ("چه خواست؟": خوا "taste" + ست)
+                t[1], t[2] = fold(t[0]) + "ن", "VERB"
+            elif fold(t[0]) not in pack and any(fold(t[0]).endswith(e) and fold(t[0])[:-len(e)] in NUMBERS
+                                                for e in ("مین", "م", "ام")):
+                # an ordinal the pack does not teach (سیزدهم): a numeral, not counted
+                t[1], t[2] = fold(t[0]), "NUM"
+            elif t[2] in ("VERB", "AUX") and t[1] not in infs and t[1] != "باید":
+                # Stanza's lemma was no past stem ("چه خواست؟" -> خوا): read the surface alone
+                alt = self._formal_inf(self._verb_lemma(fold(t[0]), fold(t[0])))
+                if alt in infs:
+                    t[1] = alt
+        # homographs the tagger reads by position; each needs its neighbours
+        f = [fold(t[0] or "") for t in toks]
+        for k, t in enumerate(toks):
+            prev, nxt = (f[k - 1] if k else ""), (f[k + 1] if k + 1 < len(f) else "")
+            if f[k] == "نه" and t[2] == "NUM" and not (
+                    prev == "ساعت" or nxt in NINE_UNITS or (prev in ("از", "تا") and any(
+                        j != k and (toks[j][2] == "NUM" or f[j] == "ساعت") for j in range(len(toks))))):
+                # نه is "nine" only as a time, a range or before a bare unit
+                # (ساعت نه, از نه تا پنج, نه سال, نه نفر); elsewhere "not": a
+                # unit with ی is no count ("، نه هفته‌ای یک بار": not once a week)
+                t[2] = "ADV"
+            elif f[k] == "در" and t[2] == "ADP" and nxt in ("آن", "این") and \
+                    (f[k + 2] if k + 2 < len(f) else "") == "را":
+                # a preposition never heads an object: "در آن را ببندید" is its lid/door
+                t[1], t[2] = "در", "NOUN"
+            elif t[2] == "NOUN" and t[1] in infs and f[k] != t[1] and f[k].startswith(t[1]) and \
+                    f[k][len(t[1]):] in ("ش", "م", "ت", "اش", "شان", "مان", "تان"):
+                # an infinitive with a pronoun clitic ("درست کردنش": repairing it)
+                # is the verb, so its compound (درست کردن) can form
+                t[2] = "VERB"
+        return toks
+
+    def passage_post_resolve(self, toks, out):
+        """fix_token makes بهتر "better", بیشتر "more", کمتر "less" words of
+        their own (lemma بهتر, not به "to"); the resolver still reads بهتر as
+        the comparative of به "good", which then falls back to the preposition
+        به. A token whose tagger lemma is such a comparative keeps it
+        (بهترین: بهتر). Then, against the pack's own lemmas: a light-verb
+        compound the pack lacks splits into its parts, and a noun/adjective
+        with indefinite/ezafe ی read as a non-pack derived word is its stem, and
+        a preposition with a pronoun clitic (برایت) is the preposition, and a
+        comparative kept whole (بزرگ‌ترها) is its adjective. A compound whose
+        noun is the object of a bare preposition (بعد از غذا بخورید) splits,
+        when its verb is finite (از اشتباه کردن, برای یاد گرفتن stay) and the
+        preposition carries no clitic (برایش دست زدند stays)."""
+        for i, t in enumerate(toks):
+            r, lem = out[i], t[1]
+            if r is None or r[1] not in ("ADJ", "ADV"):
+                continue
+            cand = lem[:-2] if lem.endswith("ترین") else lem
+            if cand.endswith("تر") and cand[:-2] in ("به", "بیش", "کم") and r[0] in (lem, cand + "ین", cand[:-2]):
+                out[i] = (cand, r[1])
+        for i, t in enumerate(toks):
+            r = out[i]
+            if r and " " in r[0] and r[1] == "VERB" and t[2] not in ("VERB", "AUX") and \
+                    (i == 0 or out[i - 1] != r) and i and toks[i - 1][2] == "ADP" and toks[i - 1][1] != "را" and \
+                    fold(toks[i - 1][0]) == toks[i - 1][1] and not r[0].startswith(toks[i - 1][1] + " ") and \
+                    any(out[j] == r and toks[j][2] in ("VERB", "AUX") and fold(toks[j][0]) != toks[j][1]
+                        for j in range(i + 1, len(toks))):
+                # the noun is a preposition's object ("بعد از غذا بخورید": take it
+                # after food), not the light verb's (غذا خوردن); به دنیا آمدن keeps it
+                for j in range(i, len(toks)):
+                    if out[j] == r:
+                        out[j] = (toks[j][1], "VERB" if toks[j][2] in ("VERB", "AUX") else toks[j][2])
+        pack = self._passage_pack()
+        for i, t in enumerate(toks):
+            r, w = out[i], fold(t[0] or "")
+            if r and r[1] == "NOUN" and t[2] == "NOUN" and t[1] == w and w != r[0] and \
+                    "noun" in pack.get(w, ()) and "noun" in pack.get(r[0], ()) and \
+                    any(w == r[0] + e for e in ("ی", "ای", "یی")) and "EnGloss=Yes" in (t[3] or ""):
+                # the resolver stripped an indefinite ی off a surface that is
+                # itself a pack noun the tagger kept whole, and the English names
+                # that noun (_mark_en_gloss): یک ماهی بزرگ "a large fish" is fish,
+                # not ماه; یک گوشی نو "a new phone" is گوشی, not گوش. Without
+                # it the stem stays (یک دوستی "a friend", ماهی یک بار "once a
+                # month"). An adjective stem (روز خوبی: خوب) or a participle
+                # keeps its stem: the surface is no pack noun there.
+                out[i] = (w, "NOUN")
+        for i, t in enumerate(toks):
+            r = out[i]
+            if r is None and t[2] in ("NOUN", "ADJ", "ADV") and t[1] in pack and fold(t[0]).startswith(t[1]) and \
+                    PASSAGE_SUFFIX_RE.fullmatch(fold(t[0])[len(t[1]):]):
+                # the substring guard dropped a pack word with a comparative
+                # before its indefinite ی (پروژه‌های مهم‌تری): the word
+                out[i] = (t[1], t[2])
+                continue
+            w = fold(t[0] or "")
+            cuts = [k for k in range(2, len(w) - 1) if "noun" in pack.get(w[:k], ()) and "noun" in pack.get(w[k:], ())]
+            if (r is None or r[0] == w) and t[2] == "NOUN" and w == t[1] and w not in pack and len(cuts) == 1:
+                # a noun compound (written with ZWNJ, which the tagger input
+                # drops) whose two nouns the pack teaches but not the whole
+                # (ثبت‌نام = ثبت + نام): its head noun
+                out[i] = (w[:cuts[0]], "NOUN")
+                continue
+            if r is None or r[0] in pack:
+                continue
+            if " " in r[0] and r[1] == "VERB":
+                # a light-verb compound the pack does not teach (دوست شدن):
+                # its parts read as themselves (دوست, شدن)
+                for j in range(len(toks)):
+                    if out[j] == r:
+                        up = "VERB" if toks[j][2] in ("VERB", "AUX") else toks[j][2]
+                        out[j] = (toks[j][1], up)
+            elif r[1] in ("ADP", "NOUN", "ADJ", "ADV") and any(
+                    fold(t[0]).endswith(c) and fold(t[0])[:-len(c)] in pack and "prep" in pack[fold(t[0])[:-len(c)]]
+                    for c in ("شان", "تان", "مان", "ش", "ت", "م")):
+                # preposition + pronoun clitic (برایت, برایش): the preposition
+                w = fold(t[0])
+                c = next(c for c in ("شان", "تان", "مان", "ش", "ت", "م")
+                         if w.endswith(c) and w[:-len(c)] in pack and "prep" in pack[w[:-len(c)]])
+                out[i] = (w[:-len(c)], "ADP")
+            elif r[1] in ("NOUN", "ADJ", "ADV") and re.search("(تر|ترین)(ها|های|ی)?$", fold(t[0])) and \
+                    re.sub("(تر|ترین)(ها|های|ی)?$", "", fold(t[0])) in pack and \
+                    "adj" in pack[re.sub("(تر|ترین)(ها|های|ی)?$", "", fold(t[0]))]:
+                # a comparative/superlative the resolver kept whole (بزرگ‌ترها "elders"): its adjective
+                out[i] = (re.sub("(تر|ترین)(ها|های|ی)?$", "", fold(t[0])), "ADJ")
+            elif r[1] in ("NOUN", "ADJ"):
+                # a noun/adjective + indefinite or ezafe ی read as a derived
+                # word the pack does not have (زن خوب و آرامی: آرام, not
+                # آرامی "calmness"); خوبی, which the pack has, stays
+                done = False
+                for w in (r[0], fold(t[0])):      # the lemma first: کودکی‌اش has lemma کودکی
+                    for end in ("یی", "ای", "ی"):
+                        stem = w[:-len(end)]
+                        if w.endswith(end) and len(stem) >= 2 and stem in pack:
+                            grp = r[1] if r[1].lower() in pack[stem] else \
+                                ("ADJ" if "adj" in pack[stem] else "NOUN" if "noun" in pack[stem] else None)
+                            if grp:
+                                out[i] = (stem, grp)
+                            done = True
+                            break
+                    if done:
+                        break
+        return out
+
+    def _passage_gloss(self):
+        """{folded pack lemma: its glosses joined} from pack/words.json (passages only)."""
+        if not hasattr(self, "_p_gloss"):
+            g = {}
+            for w in json.loads((self.repo / "pack" / "words.json").read_text(encoding="utf-8")):
+                k = fold(w["lemma"])
+                g[k] = (g[k] + "; " if k in g else "") + w["en"]
+            self._p_gloss = g
+        return self._p_gloss
+
+    def _passage_pack(self):
+        """{folded pack lemma: {pos}} from pack/words.json (passages only)."""
+        if not hasattr(self, "_p_pack"):
+            pk = {}
+            for w in json.loads((self.repo / "pack" / "words.json").read_text(encoding="utf-8")):
+                pk.setdefault(fold(w["lemma"]), set()).add(w["pos"])
+            self._p_pack = pk
+        return self._p_pack
+
+    # Tagger lemma -> pack lemma for the passage lemma fallback. ساله ("هفت
+    # ساله", N years old) is سال. پزیدن: Wiktionary also lists an infinitive
+    # built on the present stem پز, which shadows the pack verb پختن (بپزم,
+    # می‌پزد). It is the only such shadow of a pack verb that is not itself a
+    # pack word (بریدن/بردن, کشیدن/کشتن, گردیدن/گشتن are all pack verbs).
+    passage_lemma_alias = {"ساله": "سال", "پزیدن": "پختن"}
 
     def _stanza_dir(self):
         return str(self.repo / ".cache" / "stanza")
@@ -1005,7 +1200,7 @@ class Persian(LanguageSpec):
         """Stock names whose spelling is also a word (جان "life", کن "do!")
         are names when the English translation has the name."""
         en = row[3] if row else ""
-        units = {"سال", "ساعت", "روز", "ماه", "نفر", "دقیقه", "هفته", "بار", "کتاب", "تا"}
+        units = NINE_UNITS
         for i, t in enumerate(toks):
             nxt = toks[i + 1][2] if i + 1 < len(toks) else "PUNCT"
             nxt_t = toks[i + 1][0] if i + 1 < len(toks) else ""
@@ -1067,7 +1262,25 @@ class Persian(LanguageSpec):
                 t[1], t[2] = "را", "ADP"        # colloquial object marker (کاغذها رو بردارید)
             if t[0] in NAME_EN and re.search(r"\b" + NAME_EN[t[0]] + r"\b", en):
                 t[2] = "PROPN"
+        if row and row[0] == "passage":
+            self._mark_en_gloss(toks, en)       # passages only; the corpus never has this row id
         return toks
+
+    def _mark_en_gloss(self, toks, en):
+        """Passage rows only: a token spelled like a pack noun X+ی whose stem X
+        is also a pack noun (ماهی/ماه, گوشی/گوش, دوستی/دوست) gets the morph
+        flag EnGloss=Yes when the English names a gloss word of X+ی ("a large
+        fish", "a new phone"). passage_post_resolve keeps such a token whole;
+        without the flag it is X + indefinite/ezafe ی (یک دوستی: a friend,
+        ماهی یک بار: once a month)."""
+        pack, gl = self._passage_pack(), self._passage_gloss()
+        ew = set(re.findall("[a-z]+", en.lower()))
+        ew |= {w[:-1] for w in ew if w.endswith("s")} | {w[:-2] for w in ew if w.endswith("es")}
+        for t in toks:
+            w = fold(t[0] or "")
+            if w.endswith("ی") and "noun" in pack.get(w, ()) and "noun" in pack.get(w[:-1], ()) and \
+                    ew & (set(re.findall("[a-z]{3,}", re.sub(r"\(.*?\)", " ", gl.get(w, "").lower()))) - EN_GLOSS_STOP):
+                t[3] = (t[3] + "|" if t[3] else "") + "EnGloss=Yes"
 
     SHARED_STEM = {("کشیدن", "کشتن"), ("کشتن", "کشیدن"), ("شدن", "شستن")}
 
@@ -1278,6 +1491,8 @@ class Persian(LanguageSpec):
                 w = m.group(0).strip(ZWNJ)
                 spell.setdefault(fold(w), Counter())[w] += 1
 
+        corpus_text = "\n".join(display_norm(r[1]) for r in ctx["rows_by_sid"].values())
+
         def display(key):
             if key in DISPLAY:
                 return DISPLAY[key]
@@ -1351,6 +1566,15 @@ class Persian(LanguageSpec):
                     w.pop("alt", None)
             elif w.get("alt"):
                 w.pop("alt", None)
+            if ZWNJ in w["w"]:
+                # the engine matches examples literally: a ZWNJ headword (آن‌ها,
+                # کم‌کم) also carries its joined spelling, and its spaced one
+                # when the corpus writes it so (آن ها), or those examples go unfound
+                forms = [w["w"].replace(ZWNJ, "")]
+                spaced = w["w"].replace(ZWNJ, " ")
+                if re.search(f"(?<![{LET}\u200c]){re.escape(spaced)}(?![{LET}\u200c])", corpus_text):
+                    forms.append(spaced)
+                w["alt"] = (w.get("alt") or []) + [f for f in forms if f not in (w.get("alt") or [])]
         stat("fa_display", {"words_without_pron": sorted(no_pron),
                             "pron_coverage": f"{len(words) - len(no_pron)}/{len(words)}"})
 

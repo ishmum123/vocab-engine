@@ -411,7 +411,7 @@ def build_words(env, ctx):
         fem_alt[mk].append(records[k]["lemma"])
     stat("feminine_folded_into_masculine", sorted(f"{records[k]['lemma']}->{records[m]['lemma']}"
                                                   for k, m in fem_folded.items()))
-    if sp.level_floor:
+    if sp.level_floor or sp.level_ceiling:
         chosen = apply_level_floor(chosen, forced_ok, sp)    # id: colloquial words no lower than A2
     level_of = assign_levels(forced_ok, chosen, sp.bands)
     final = forced_ok + chosen
@@ -482,7 +482,7 @@ def build_words(env, ctx):
                 moved.append(k)
         if moved:
             chosen = [k for k in chosen if k not in moved] + moved
-            if sp.level_floor:
+            if sp.level_floor or sp.level_ceiling:
                 chosen = apply_level_floor(chosen, forced_ok, sp)    # keep the floor after the move
             level_of = assign_levels(forced_ok, chosen, sp.bands)
         stat("sensitive_glosses", {"cleaned": cleaned, "moved_to_top_level": sorted(records[k]["lemma"] for k in moved),
@@ -556,6 +556,20 @@ def apply_level_floor(chosen, forced_ok, sp):
     for i, k in enumerate(chosen):
         if k in sp.level_floor:
             out.insert(min(max(i, start[sp.level_floor[k]]), len(out)), k)
+    # spec.level_ceiling {(lemma, group): level} (ko: a NIKL beginner word is
+    # never B1): a key ranked past the end of its ceiling band moves into that
+    # band, and the band's last keys without a ceiling move down one band each
+    ceil = sp.level_ceiling or {}
+    if ceil:
+        order = [lv for lv, _ in sp.bands]
+        for ci, (lv, _) in enumerate(sp.bands[:-1]):
+            lim = start[order[ci + 1]]
+            over = [k for k in out[lim:] if k in ceil and order.index(ceil[k]) <= ci]
+            if not over:
+                continue
+            free = [k for k in out[start[lv]:lim] if k not in ceil][::-1][:len(over)]
+            head = [k for k in out[:lim] if k not in free]
+            out = head + over + free[::-1] + [k for k in out[lim:] if k not in over]
     return out
 
 
@@ -591,3 +605,37 @@ def assign_ids(words, idmap):
             wd["id"] = f"w{nxt:04d}"
             nxt += 1
     return reused
+
+
+def load_gloss_display(repo, path="tools/gloss_display.json"):
+    """The repo's display-only gloss table {"lemma|pos": en} ({} without the
+    file; keys starting with _ are comments)."""
+    from pathlib import Path
+    p = Path(repo) / path if repo else None
+    if p is None or not p.exists():
+        return {}
+    return {k: v for k, v in json.loads(p.read_text()).items() if not k.startswith("_")}
+
+
+def apply_gloss_display(repo, out_words, path="tools/gloss_display.json"):
+    """Display-only glosses: the optional repo file `path` maps "lemma|pos"
+    (the shipped words.json lemma and pos, as in gloss_overrides.json; keys
+    starting with _ are comments) to the `en` text shipped for that word.
+    Applied to the written word list only, after ranking, example selection
+    and linking, so a display sense never changes rank, order, examples or
+    links (gloss_overrides.json feeds those). No file: no change. Returns
+    (applied keys, unused keys)."""
+    table = load_gloss_display(repo, path)
+    if not table:
+        return [], []
+    applied = set()
+    for w in out_words:
+        k = f"{w.get('lemma')}|{w.get('pos')}"
+        if k in table:
+            w["en"] = table[k]
+            applied.add(k)
+    unused = sorted(set(table) - applied)
+    stat("gloss_display", {"applied": sorted(applied), "unused": unused})
+    if unused:
+        log(f"gloss_display: {len(unused)} keys match no shipped word: {unused[:10]}")
+    return sorted(applied), unused
