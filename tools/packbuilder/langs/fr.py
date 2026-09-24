@@ -1231,6 +1231,154 @@ class French(LanguageSpec):
             return f"noun {w['id']} {shown!r}: l' noun without a (m)/(f) gender tag"
         return None
 
+    # ---- passages only (packbuilder passages; the word/sentence build never calls these).
+    # The subject-pronoun repair (passage_retag) is passage-only: in the word
+    # build it shifted 3 word ids.
+    passage_form_base = True      # amie -> ami, dansé -> danser, allemande -> allemand
+    # regular feminines (amie, chanteuse, actrice, étrangère, copine); drôlesse (-esse) is a derivation
+    passage_feminine_suffixes = (("", "e"), ("eur", "euse"), ("teur", "trice"), ("er", "ère"), ("ier", "ière"),
+                                 ("en", "enne"), ("on", "onne"), ("et", "ette"), ("el", "elle"), ("f", "ve"),
+                                 ("x", "se"), ("ain", "ine"), ("eau", "elle"))
+
+    def passage_text(self, text, names, lexicon):
+        """A capitalised word that is not a declared name is lowercased for the
+        tagger when the dictionary has it as a common word: quote-initial
+        « Les gens », « J'ai », « Surprise ! », titles (Madame Martin,
+        "Madame, Monsieur,") and nationality nouns (un Espagnol, les jeunes
+        Français). Passages declare every name, so what is left capitalised
+        is not a name."""
+        def low(m):
+            w = m.group(0)
+            if w in names or not w[:1].isupper() or w[1:] != w[1:].lower():
+                return w
+            lw = w.lower()
+            if text[m.end():m.end() + 1] in ("'", "’"):
+                return lw if lw in ELISION_LETTERS else w
+            if any(e["p"] != "name" for e in lexicon.E.get(lw, [])):
+                return lw
+            return w
+        return self.word_re.sub(low, text)
+
+    def passage_retag(self, toks):
+        """An alphabetic token the tagger left as X gets its dictionary class
+        ("ont chanté et dansé"); right after a subject pronoun (object
+        clitics between) only a verb fits, so a lowercase PROPN/ADJ/NOUN with
+        a verb reading is handed to post_resolve as a noun, whose
+        subject-pronoun rule picks the verb ("je bois", "il court")."""
+        lexicon = self._lx
+        for t in toks:
+            if t[2] == "X" and t[0].isalpha():
+                low = t[0].lower()
+                for kpos, up in (("verb", "VERB"), ("noun", "NOUN"), ("adj", "ADJ")):
+                    c = lexicon.candidates(low, [kpos])
+                    if kpos == "verb":
+                        c = lexicon.verbs_only(c)
+                    if c:
+                        t[2] = up
+                        break
+        for i in range(1, len(toks)):
+            j = i - 1
+            while j > 0 and toks[j][0].lower() in OBJ_CLITICS:
+                j -= 1
+            if toks[i][2] in ("PROPN", "ADJ", "NOUN") and toks[i][0][:1].islower() and \
+                    toks[j][0].lower() in SUBJ_PRON and \
+                    lexicon.verbs_only(lexicon.candidates(toks[i][0].lower(), ["verb"])):
+                toks[i][2] = "NOUN"
+        return toks
+
+    def passage_post_resolve(self, toks, out):
+        """Passage repairs after post_resolve:
+        - a noun reading of a finite verb form in predicate position is the
+          verb: after a determiner + noun subject ("Le train part à dix
+          heures"), after et/ou/puis once the sentence has a verb ("reste au
+          soleil et lit un livre"), or after a closing quote ("» demande
+          Léa"); adjectives stay ("un endroit calme pour" is not se calmer);
+        - été right after en / l' / cet is the season, not être;
+        - plus read as the participle of plaire ("est le plus important")
+          is the adverb."""
+        lx = self._lx
+        out = list(out)
+        low = [t[0].lower() for t in toks]
+        n = len(toks)
+        for i in range(n):
+            r = out[i]
+            s = low[i]
+            prev = low[i - 1] if i else ""
+            if s == "été" and prev in ("en", "l'", "cet"):
+                out[i] = ("été", "NOUN")
+                continue
+            if r == ("plaire", "VERB") and s == "plus":
+                out[i] = ("plus", "ADV")
+                continue
+            if r is None or r[1] != "NOUN" or not i or toks[i][2] == "PROPN":
+                continue
+            verbs = lx.verbs_only(lx.candidates(s, ["verb"]))
+            if not verbs or self._past_participle(s):
+                continue
+            subj_np = out[i - 1] is not None and out[i - 1][1] == "NOUN" and i >= 2 and \
+                (low[i - 2] in ARTICLES or low[i - 2] in DEM_POSS_DET or toks[i - 2][2] == "DET")
+            nxt_ok = i + 1 >= n or toks[i + 1][2] in ("ADP", "ADV", "DET", "PUNCT", "PROPN") or \
+                low[i + 1] in ARTICLES or low[i + 1] in DEM_POSS_DET
+            coord = prev in ("et", "ou", "puis") and any(o is not None and o[1] == "VERB" for o in out[:i - 1])
+            incise = toks[i - 1][0] in ("»", "”", '"')
+            if nxt_ok and (subj_np or coord or incise):
+                out[i] = (lx.best_by_freq(verbs), "VERB")
+        return out
+
+    def passage_fallback_ok(self, lexicon, reading, word, en=""):
+        """A noun reading with no pack key links the pack word of the same
+        lemma under another POS unless the sentence's English names the
+        dictionary noun's own sense and none of the pack word's gloss words:
+        "à la ferme" / "on the farm" is not ferme "firm", while "le long de" /
+        "along", "au frais" / "somewhere cool", "les plus grands" / "the older
+        children" keep the adjective."""
+        lem, group = reading
+        if group != "NOUN" or word["pos"] == "noun" or not en:
+            return True
+        stop = {"to", "a", "an", "the", "of", "or", "and", "in", "on", "at", "for", "with", "one", "be"}
+        ew = set(re.findall(r"[a-z]+", en.lower()))
+        ew |= {w[:-1] for w in ew if w.endswith("s")}
+        own = set(re.findall(r"[a-z]+", word["en"].lower()))
+        for e in lexicon.usable_entries(lem, [word["pos"]]):     # all senses of the pack word's POS
+            for sn in e["s"]:
+                if sn[3] == "":
+                    own |= set(re.findall(r"[a-z]+", sn[0].lower()))
+        if (own - stop) & ew:
+            return True       # "le mieux" / "best": the adverb's own sense
+        noun = set()
+        for e in lexicon.usable_entries(lem, ["noun"]):
+            for sn in e["s"]:
+                if sn[3] == "":
+                    noun |= set(re.findall(r"[a-z]+", sn[0].lower())) - stop
+        # "farmhouse" names farm too
+        return not (noun & ew or any(w.startswith(x) for w in ew for x in noun if len(x) >= 4))
+
+    def passage_phrase_ranges(self, toks):
+        """MWES matches: (first, last, anchor) token indices, the expression's
+        parts (parce qu', est-ce qu', au lieu du, il y avait) covered by one
+        span; the euphonic -t- of "y a-t-il" is inside the range."""
+        out = [None] * len(toks)
+        done = self._mwe(toks, out)
+        low = [t[0].lower() for t in toks]
+        n = len(toks)
+        ranges = []
+        i = 0
+        while i < n:
+            hit = None
+            for parts, lemma, group, anchor in MWES:
+                k = len(parts)
+                if i + k <= n and all(low[i + j] in parts[j] for j in range(k)) and \
+                        all(i + j in done for j in range(k)) and \
+                        not any(low[i + j] in ("n'", "ne") for j in range(k)):   # il n'y a: ne keeps its link
+                    hit = (i, i + k - 1, i + anchor)
+                    break
+            if hit:
+                ranges.append(hit)
+                i = hit[1] + 1
+            else:
+                i += 1
+        return ranges
+
     # ---- QA scans -----------------------------------------------------------
     qa_closed_sets = {
         "days": " ".join(DAYS), "months": " ".join(MONTHS), "seasons": " ".join(SEASONS),

@@ -219,7 +219,7 @@ class TruecaseAfter(unittest.TestCase):
         lk = Linker(sp, {"lexicon": None, "groups": None, "truecase": (self.low, self.cap), "words": []}, {})
         lk.pretag([("Me dice «Me gusta»", "")])
         self.assertEqual(sp.seen, ["me dice «me gusta»"])
-        self.assertEqual(lk.lowered[("Me dice «Me gusta»", "")], {3})   # "me" of «Me: not the initial Me
+        self.assertEqual(lk.lowered[("Me dice «Me gusta»", "", frozenset())], {3})   # "me" of «Me: not the initial Me
 
 
 class LexSpec(LanguageSpec):

@@ -18,7 +18,8 @@ under <repo>/.cache/derived/ keyed by the builder source and pack files.
 Source format (tools/passages_src.json):
     {"rules": {"coverage": {"A1": 0.95, ...}, "budget": {"A1": ["A2", 3], ...}},
      "passages": [{"id", "lv", "title", "sentences": [[it, en], ...],
-                   "oop": {lemma: reason}, "questions": [{"q", "en", "type",
+                   "oop": {lemma: reason}, "names": [declared name, ...] (optional),
+                   "questions": [{"q", "en", "type",
                    "options" | null, "answer", "words": [lemma, ...], "sentence"}]}]}
 Coverage = in-pack tokens / counted tokens; names, numerals, punctuation and
 symbols are not counted. A lemma outside the pack must be listed in "oop"
@@ -56,6 +57,14 @@ DEFAULT_RULES = {
     "questions": [4, 5],
 }
 PHRASE_HEADS = {"rispetto": {"a"}, "fine": {"settimana"}}   # lemma -> next word that makes it part of a compound (rispetto a, fine settimana): no link
+# form_base: kaikki POS -> resolve group; inflection tags; derivation lines
+KPOS_GROUP = {"noun": "NOUN", "verb": "VERB", "adj": "ADJ", "adv": "ADV", "pron": "PRON", "det": "DET",
+              "article": "DET", "prep": "ADP", "conj": "CONJ", "num": "NUM", "intj": "INTJ", "particle": "PART",
+              "name": "PROPN"}
+INFLECTION_TAGS = {"plural", "singular", "feminine", "masculine", "participle"}
+DERIVATION_RE = re.compile(r"\b(?:diminutive|augmentative|pejorative|verbal noun|agent noun|nominali[sz]ation|"
+                           r"alternative|abbreviation|ellipsis|synonym|clipping)\b", re.I)
+FEMALE_EQ_RE = re.compile(r"\bfemale equivalent of\b", re.I)
 MANUAL_MARK = "<!-- manual section: kept across runs -->"
 WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?|\d+", re.UNICODE)
 
@@ -191,25 +200,29 @@ class Linker:
             self.homs = homograph_table([dict(w, _key=tuple(w["_key"])) for w in words], spec)
         # spec.passage_post_resolve: passage-only resolve rules, after post_resolve,
         # for classify and sentence_links alike (the build's resolve is untouched).
-        # spec.passage_mode is True for the whole call, so post_resolve may gate
-        # passage-only rules inside it (de); the corpus build never sets it
+        # passage_mode is True for the whole call, so post_resolve may gate
+        # passage-only rules inside it (de); the corpus build never sets it.
+        # The spec is the lexicon's current one (load_context rebinds it), and
+        # the flag's prior value comes back even when resolving raises
         lex = self.lexicon
         if lex is not None and not getattr(lex, "_passage_wrapped", False):
             orig = lex.resolve_sentence
 
             def resolve_sentence(toks, groups=None):
-                spec.passage_mode = True
+                sp = getattr(lex, "spec", None) or spec
+                prior = getattr(sp, "passage_mode", False)
+                sp.passage_mode = True
                 try:
-                    return spec.passage_post_resolve(toks, orig(toks, groups))
+                    return sp.passage_post_resolve(toks, orig(toks, groups))
                 finally:
-                    spec.passage_mode = False
+                    sp.passage_mode = prior
             lex.resolve_sentence = resolve_sentence
             lex._passage_wrapped = True
-        self.tagged = {}     # (text, en) -> tokens
-        self.lowered = {}    # (text, en) -> indices of tokens truecase_after lowered
+        self.tagged = {}     # (text, en, names) -> tokens
+        self.lowered = {}    # (text, en, names) -> indices of tokens truecase_after lowered
 
     def pretag(self, items):
-        """Tag (text, en) pairs in one tagger run (one model load; Stanza
+        """Tag (text, en) pairs, or (text, en, names) triples, in one tagger run (one model load; Stanza
         batches) through core.tag's shared entry point, exactly as stage_tag
         tags the corpus: truecase (passages only: spec.truecase_after, the
         first word of quoted/exclaimed speech, and spec.truecase_after_end,
@@ -217,20 +230,33 @@ class Linker:
         spec.tag_texts), fix_token, fix_sentence. A batch-dependent
         tag_texts sees only this batch: id's PROPN rescue counts lowercase
         uses across the texts it is given, so passage tagging has less
-        evidence than the corpus build (measure when id passages are built)."""
+        evidence than the corpus build (measure when id passages are built).
+        `names`: the passage's declared name words (source "names"). A
+        sentence whose first word is one is not truecased ("Pierre" never
+        becomes the noun pierre), a capitalised token spelled like one is
+        PROPN, and spec.passage_text sees them. The tag cache is keyed by
+        (text, en, names)."""
         from .core.tag import doc_tokens, tag_docs, truecase, truecase_after
         sp = self.spec
-        todo = list(dict.fromkeys(k for k in items if k not in self.tagged))
+        keys = [(k[0], k[1], frozenset(k[2]) if len(k) > 2 else frozenset()) for k in items]
+        todo = list(dict.fromkeys(k for k in keys if k not in self.tagged))
         if not todo:
             return
         known = (lambda w: bool(self.lexicon.readings(w))) if sp.truecase_after_end else None
-        base = [truecase(t, self.low, self.cap, sp.word_re) for t, _en in todo]
+        base = []
+        for t, _en, names in todo:
+            first = sp.word_re.search(t)
+            base.append(t if names and first and first.group(0) in names else
+                        truecase(t, self.low, self.cap, sp.word_re))
         after = [truecase_after(b, self.low, self.cap, sp.word_re, sp.truecase_after, sp.truecase_after_end, known)
                  for b in base]
-        texts = [sp.tag_text(a) for a in after]
+        texts = [sp.tag_text(sp.passage_text(a, names, self.lexicon) if hasattr(sp, "passage_text") else a)
+                 for a, (_t, _en, names) in zip(after, todo)]
         docs, fields = tag_docs(sp, texts, n_process=1)
-        for (t, en), doc, b, a in zip(todo, docs, base, after):
-            self.tagged[(t, en)] = toks = self.retag(doc_tokens(sp, doc, fields, ["passage", t, None, en, None, None]))
+        for (t, en, names), doc, b, a in zip(todo, docs, base, after):
+            key = (t, en, names)
+            self.tagged[key] = toks = self.retag(doc_tokens(sp, doc, fields, ["passage", t, None, en, None, None]),
+                                                 names)
             # tokens truecase_after lowered: to classify they are like a
             # sentence start (a lowered name is not a pack verb: «¡Leo, ven!»)
             moved = {j for j, (x, y) in enumerate(zip(b, a)) if x != y}
@@ -238,30 +264,37 @@ class Linker:
             if moved:
                 offs = token_offsets(a, toks, sp.span_fold, sp.span_joiners)
                 lowered = {i for i, o in enumerate(offs) if o and o[0] in moved}
-            self.lowered[(t, en)] = lowered
+            self.lowered[key] = lowered
 
-    def retag(self, toks):
+    def retag(self, toks, names=frozenset()):
         """Passage-only token rules after the shared tagging (the corpus build
         never sees them): spec.passage_retag (ru: correlative Тому, кто;
         стоит/стоять; capitalised Новый год; меньше), then the adverb rule: a
         token read with a POS in spec.passage_adverb_from (ru: ADJ, NUM) whose
         surface is spelled like a pack adverb (after spec.fold) is that adverb
-        (хорошо, лучше, тихо, странно, больше: not хороший, тихий, the numeral)."""
+        (хорошо, лучше, тихо, странно, больше: not хороший, тихий, the numeral).
+        First, a capitalised token spelled like a declared name is PROPN."""
         sp = self.spec
         own = getattr(type(sp), "passage_retag", LanguageSpec.passage_retag)
-        if own is LanguageSpec.passage_retag and not self.adverbs:
+        if own is LanguageSpec.passage_retag and not self.adverbs and not names:
             return toks         # nothing to rewrite: the tagged tokens as they are
-        toks = sp.passage_retag([list(t) for t in toks])
+        toks = [list(t) for t in toks]
         for t in toks:
+            if t[0] in names and t[0][:1].isupper():
+                t[2] = "PROPN"      # a declared name (Pierre, not la pierre)
+        if hasattr(sp, "passage_retag"):
+            toks = sp.passage_retag(toks)
+        for t in toks if self.adverbs else ():
             lem = self.adverbs.get(sp.fold(t[0].lower()))
             if lem and t[2] in sp.passage_adverb_from:
                 t[1], t[2] = lem, "ADV"
         return toks
 
-    def tag(self, text, en=""):
-        if (text, en) not in self.tagged:
-            self.pretag([(text, en)])
-        return self.tagged[(text, en)]
+    def tag(self, text, en="", names=frozenset()):
+        key = (text, en, frozenset(names))
+        if key not in self.tagged:
+            self.pretag([key])
+        return self.tagged[key]
 
     def links(self, toks, text, en, where=None):
         from .core.sentences import sentence_links
@@ -290,6 +323,10 @@ class Linker:
         _, ph_tok, _ = phrase_spans(toks, sp, self.key_to_id, en, ranges)
         tok_phrase = {i: pid for a, b, pid in ranges for i in range(a, b + 1) if i in ph_tok}
         no_link = sp.passage_no_link(toks) if hasattr(sp, "passage_no_link") else set()
+        # spec.passage_phrase_ranges (fr MWES): a part of an expression
+        # resolved on its anchor ("-ce", "qu'" of est-ce qu') reads as it
+        ranges_mwe = sp.passage_phrase_ranges(toks) if hasattr(sp, "passage_phrase_ranges") else []
+        tails = {j: anc for a, b, anc in ranges_mwe for j in range(a, b + 1) if j != anc}
         alias = getattr(sp, "passage_lemma_alias", {})
         out = []
         initial = True
@@ -304,6 +341,8 @@ class Linker:
             if any(ch.isdigit() for ch in text_t) or not any(ch.isalpha() for ch in text_t):
                 continue
             r = resolved[i]
+            if i in tails and resolved[tails[i]] is not None and tuple(resolved[tails[i]]) in self.key_to_id:
+                r = resolved[tails[i]]
             low = text_t.lower()
             if r is None and i and getattr(sp, "passage_particle_links", False):
                 # a separable particle post_resolve rejoined to its verb ("steht
@@ -335,11 +374,23 @@ class Linker:
                     wid = self.key_to_id.get(sp.drop_keys[tuple(r)])
                 if wid is None and r[1] in sp.group_kpos:
                     wid = self.epos_to_id.get((r[0], sp.group_kpos[r[1]][0]))
+            vetoed = False
             if not wid:
                 wid = self.lemma_ids.get(lem) or self.lemma_ids.get(low) or \
                     self.lemma_ids.get(alias.get(lem)) or self.art_ids.get(lem)
                 if wid and getattr(sp, "nouns_capitalised", False) and self.by_id[wid]["pos"] == "noun" and text_t[:1].islower():
                     wid = None      # de: a lowercase token never falls back to a noun (meisten is not Meister)
+                if wid and r is not None and hasattr(sp, "passage_fallback_ok") and \
+                        not sp.passage_fallback_ok(self.lexicon, tuple(r), self.shipped[wid], en or ""):
+                    wid, vetoed = None, True   # fr: la ferme (farm) is not the adjective ferme (firm)
+            if not wid and not vetoed and getattr(sp, "passage_form_base", False):
+                # the vetoed word never comes back through the surface's
+                # form-of line (sons "plural of son" is not the determiner son),
+                # and a form_base hit passes the same guard with its own reading
+                hit = self.form_base(lem, low)
+                if hit and (not hasattr(sp, "passage_fallback_ok") or
+                            sp.passage_fallback_ok(self.lexicon, hit[1:], self.shipped[hit[0]], en or "")):
+                    wid, lem = hit[0], hit[1]
             if not wid:
                 wid = tok_phrase.get(i)
             if not wid and sp.surface_reading_fallback and not \
@@ -358,7 +409,48 @@ class Linker:
             out.append((text_t, lem, wid, may_link, i))
         return out
 
-    def links_all(self, toks, text, en):
+    def form_base(self, *keys):
+        """(word id, base lemma, group) of the pack word an unresolved
+        lemma/surface is an inflected form of (spec.passage_form_base), or
+        None. Inflection lines only: a form-of sense tagged plural, singular,
+        feminine, masculine or participle ("plural of son", "past participle
+        of danser", "inflection (feminine singular) allemand"); a "female
+        equivalent of X" line or a feminine entry's g "m=X" only when the
+        form is a regular feminine of X (spec.passage_feminine_suffixes: amie
+        of ami, chanteuse of chanteur, not drôlesse of drôle). Derivations
+        (diminutive, verbal noun, ...) never. The pack key with the entry's
+        own POS wins (morte adj -> mort adj, not la mort); lemma_ids only
+        when there is none. The first key with a hit decides."""
+        sp = self.spec
+        for k in keys:
+            fallback = None
+            for e in self.lexicon.E.get(k, []):
+                group = KPOS_GROUP.get(e["p"], e["p"].upper())
+                bases = []
+                m = re.search(r"(?:^|\|)m=([^|]+)", e.get("g") or "")
+                if m and _regular_feminine(k, m.group(1), sp):
+                    bases.append(m.group(1))
+                for sn in e["s"]:
+                    if sn[3] != "form" or DERIVATION_RE.search(sn[0]):
+                        continue
+                    m = re.search(r"\b(?:of|\))\s+([^\s,;()]+)\s*$", sn[0])
+                    if not m:
+                        continue
+                    if FEMALE_EQ_RE.search(sn[0]):
+                        if _regular_feminine(k, m.group(1), sp):
+                            bases.append(m.group(1))
+                    elif INFLECTION_TAGS & set(sn[2]) or sn[0].startswith("inflection"):
+                        bases.append(m.group(1))
+                for b in bases:
+                    if (b, group) in self.key_to_id:
+                        return self.key_to_id[(b, group)], b, group
+                    if fallback is None and b in self.lemma_ids:
+                        fallback = (self.lemma_ids[b], b, group)
+            if fallback:
+                return fallback
+        return None
+
+    def links_all(self, toks, text, en, names=frozenset()):
         """sentence_links, then a lemma fallback, with one word id per token:
         - a substring phrase (a "chars" record) owns its tokens: a
           single-token link inside it is dropped, and its id too unless it is
@@ -374,7 +466,7 @@ class Linker:
         of tokens that carry a link)."""
         where = []
         ws = list(self.links(toks, text, en, where))
-        cl = self.classify(toks, en, self.lowered.get((text, en), ()))
+        cl = self.classify(toks, en, self.lowered.get((text, en, frozenset(names)), ()))
         offsets = token_offsets(text, toks, self.spec.span_fold, self.spec.span_joiners)
         # a substring phrase (Italian multiword, "chars") owns the tokens it
         # covers: their single-token links go. A token-level phrase
@@ -397,6 +489,14 @@ class Linker:
         # a compound head (fine in "fine settimana") links nothing at that token
         not_ok = {i for _, _, wid, ok, i in cl if not ok}
         recs = [r for r in recs if not (r[0] == "tok" and not_ok & set(range(r[1], r[2] + 1)))]
+        # a multiword expression resolved on its anchor token (fr parce qu',
+        # est-ce qu', au lieu du; spec.passage_phrase_ranges): one span over it
+        for a, b, anc in (self.spec.passage_phrase_ranges(toks) if hasattr(self.spec, "passage_phrase_ranges") else []):
+            hit = [r for r in recs if r[0] == "tok" and r[1] == r[2] == anc]
+            if hit:
+                recs = [r for r in recs if not (r[0] == "tok" and a <= r[1] and r[2] <= b)]
+                recs.append(("tok", a, b, hit[0][3]))
+                spanned |= set(range(a, b + 1))
         claimed = owned | spanned | {i for r in recs if r[0] == "tok" for i in range(r[1], r[2] + 1)}
         extra = []
         for _, _, wid, ok, i in cl:
@@ -494,6 +594,13 @@ def _fold_map(text, fold):
     return "".join(ftext), fmap, fend
 
 
+def _regular_feminine(fem, masc, sp):
+    """fem is masc with one of spec.passage_feminine_suffixes swapped in
+    (("", "e"): ami -> amie; ("eur", "euse"): chanteur -> chanteuse)."""
+    return any(masc.endswith(a) and fem == masc[:len(masc) - len(a)] + b
+               for a, b in getattr(sp, "passage_feminine_suffixes", (("", "e"),)))
+
+
 def utf16_index(text, i):
     """Python str index -> UTF-16 code-unit index (a JavaScript string index)."""
     return i + sum(1 for ch in text[:i] if ord(ch) > 0xFFFF)
@@ -553,8 +660,10 @@ def run(spec, check_only=False, out=sys.stdout):
     n_spans = n_ids = 0
     unplaced = []       # (passage id, sentence index, headword, id) linked but with no span
     ids = set()
-    lk.pretag([(t, en) for p in src["passages"] for t, en in p["sentences"]] +
-              [(qt, "") for p in src["passages"] for q in p["questions"] for qt in [q["q"]] + (q["options"] or [])])
+    names_of = {id(p): frozenset(w for n in p.get("names", []) for w in n.split()) for p in src["passages"]}
+    lk.pretag([(t, en, names_of[id(p)]) for p in src["passages"] for t, en in p["sentences"]] +
+              [(qt, "", names_of[id(p)]) for p in src["passages"] for q in p["questions"]
+               for qt in [q["q"]] + (q["options"] or [])])
     for p in src["passages"]:
         pid, lv = p["id"], p["lv"]
         perr = []
@@ -568,12 +677,13 @@ def run(spec, check_only=False, out=sys.stdout):
         ofold = getattr(spec, "span_fold", None) or (lambda x: x)
         oop_ok = {ofold(k): v for k, v in p.get("oop", {}).items()}
         oop_name = {ofold(k): k for k in p.get("oop", {})}
+        names = names_of[id(p)]
         sents, counted, oop, above = [], [], Counter(), {}
         linked = 0
         used_oop = set()     # declared oop lemmas met as names or in questions/options
         for t, en in p["sentences"]:
-            toks = lk.tag(t, en)
-            ws, cl, spans, linked_toks = lk.links_all(toks, t, en)
+            toks = lk.tag(t, en, names)
+            ws, cl, spans, linked_toks = lk.links_all(toks, t, en, names)
             sents.append({"t": t, "en": en, "words": ws, "spans": spans})
             placed = {sp_[2] for sp_ in spans}
             n_spans += len(spans)
@@ -596,7 +706,7 @@ def run(spec, check_only=False, out=sys.stdout):
             perr.append(f"coverage {cov:.3f} < {rules['coverage'][lv]}")
         unlisted = sorted(set(oop) - set(oop_ok))
         if unlisted:
-            perr.append(f"out-of-pack lemmas without a reason: {unlisted}")
+            perr.append(f"out-of-pack lemmas without a reason: {[oop_name.get(k, k) for k in unlisted]}")
         nw = n_words(text)
         lo, hi = rules["words_per_passage"][lv]
         if not lo <= nw <= hi:
@@ -630,7 +740,7 @@ def run(spec, check_only=False, out=sys.stdout):
             # question and options stay inside the pack (plus this passage's listed oop)
             qtexts = [q["q"]] + (q["options"] or [])
             for qt in qtexts:
-                for surf, lem, wid, _ok, _i in lk.classify(lk.tag(qt), None, lk.lowered.get((qt, ""), ())):
+                for surf, lem, wid, _ok, _i in lk.classify(lk.tag(qt, "", names), None, lk.lowered.get((qt, "", names), ())):
                     lem = ofold(lem)
                     if wid is None and lem in oop_ok:
                         used_oop.add(lem)
@@ -641,7 +751,7 @@ def run(spec, check_only=False, out=sys.stdout):
             perr += [f"q{j}: {x}" for x in qe]
             qs.append({"q": q["q"], "en": q["en"], "type": q["type"], "options": q["options"] if q["type"] == "mc" else None,
                        "answer": q["answer"], "words": wids, "sentence": si})
-        stale = sorted(set(oop_ok) - set(oop) - used_oop)
+        stale = sorted(oop_name[k] for k in set(oop_ok) - set(oop) - used_oop)
         if stale:
             perr.append(f"oop lists lemmas used nowhere: {stale}")
         # level budget over the passage, its questions and options

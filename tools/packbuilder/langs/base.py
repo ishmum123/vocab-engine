@@ -252,7 +252,9 @@ class LanguageSpec:
     passage_particle_links = False     # a token post_resolve set to None whose lowercase surface prefixes the verb it was rejoined to counts and links as that verb (de: "steht ... auf" -> aufstehen)
     passage_lemma_alias = {}    # tagger lemma -> pack lemma for the classify lemma fallback (de: vieler -> viel, chefin -> chef)
     nouns_capitalised = False   # passages: a lowercase token's lemma fallback never lands on a noun (de: meisten is not der Meister)
-    passage_adverb_from = ()    # tagger POS whose token is relinked to the pack adverb spelled exactly like it (ru: ADJ, NUM: хорошо, лучше, больше)
+    passage_form_base = False   # an unresolved counted token links the pack word it is an inflected form of (passages.Linker.form_base; fr: amie -> ami, dansé -> danser, allemande -> allemand)
+    passage_feminine_suffixes = (("", "e"),)   # form_base: (masculine ending, feminine ending) pairs that make a "female equivalent" / g "m=X" entry an inflection of X
+    passage_adverb_from = ()    # tagger POS whose token is relinked to the pack adverb its surface spells after spec.fold (ru: ADJ, NUM: хорошо, лучше, больше, ещё = еще)
 
     def copula_inflected(self, surface, adj):
         """After a copula, the surface is an inflected adjective form (it: fiera)."""
@@ -452,9 +454,33 @@ class LanguageSpec:
 
     def passage_retag(self, toks):
         """Passages only: rewrite the tagged [text, lemma, upos, morph] tokens
-        (list copies) before linking; the corpus build never calls it. ru:
-        correlative Тому, кто; стоит/стоять; capitalised Новый год; меньше."""
+        (list copies, declared names already PROPN) before linking; the corpus
+        build never calls it. ru: correlative Тому, кто; стоит/стоять;
+        capitalised Новый год; меньше. fr: X-tagged words get their dictionary
+        class; a lowercase PROPN/ADJ/NOUN with a verb reading right after a
+        subject pronoun is handed to post_resolve as a noun (je bois)."""
         return toks
+
+    def passage_text(self, text, names, lexicon):
+        """Passages only: the truecased text -> the text the tagger sees
+        (same length not required; spans align on the original text).
+        `names`: the passage's declared name words. fr: capitalised common
+        words (Madame, un Espagnol, « Les ») lowercased."""
+        return text
+
+    def passage_fallback_ok(self, lexicon, reading, word, en=""):
+        """Passages only: may a token whose reading (lemma, group) has no pack
+        key link `word` (the pack record of the same lemma under another POS)?
+        `en`: the sentence's English, "" for questions and options. fr: la
+        ferme "farm" is not ferme "firm"."""
+        return True
+
+    def passage_phrase_ranges(self, toks):
+        """Passages only: [(first, last, anchor)] token ranges of multiword
+        expressions resolved on one anchor token: the other parts read as
+        the expression and one span covers the range. fr: MWES (parce qu',
+        est-ce qu', au lieu du, d'abord, il y avait)."""
+        return []
 
     def passage_no_link(self, toks):
         """Passages only: token indices that link nothing (they stay counted

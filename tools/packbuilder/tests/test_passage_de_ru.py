@@ -188,8 +188,20 @@ class GermanPassageModeGates(unittest.TestCase):
         self.assertFalse(self.sp._attributive([T("Liebe", "ADJ", morph="Tag=ADJA"), T("!", "PUNCT")], 0))
 
     def test_build_post_resolve_never_calls_the_sense_guards(self):
-        self.sp._sense_guards = lambda toks, out: self.fail("sense guards in the build")
-        self.assertFalse(self.sp.passage_mode)
+        class Lex(FakeLex):
+            F = {}
+
+            def plural_pointer(self, w):
+                return None
+        sp = de_spec(Lex())
+        calls = []
+        sp._sense_guards = lambda toks, out: calls.append(1) or out
+        t = [T("die", "DET"), T("meisten", "ADJ", morph="Tag=PIAT")]
+        self.assertFalse(sp.passage_mode)
+        sp.post_resolve(t, [("der", "DET"), ("Meister", "NOUN")])     # the corpus build's call
+        self.assertEqual(calls, [])
+        sp.passage_post_resolve(t, [("der", "DET"), ("Meister", "NOUN")])
+        self.assertEqual(calls, [1])
         self.assertEqual(LanguageSpec.passage_mode, False)
 
 
@@ -218,6 +230,34 @@ class PassageModeScope(unittest.TestCase):
         lex.resolve_sentence([T("a")])
         self.assertEqual(seen, [("post", False), ("post", True), ("passage", True)])
         self.assertFalse(sp.passage_mode)
+
+    def test_reset_when_resolve_raises_and_prior_value_kept(self):
+        sp = LanguageSpec(TMP)
+
+        class Lex(FakeLex):
+            def resolve_sentence(self, toks, groups=None):
+                raise ValueError("tagger mismatch")
+
+        lex = Lex()
+        linker(sp, lex, [])
+        with self.assertRaises(ValueError):
+            lex.resolve_sentence([T("a")])
+        self.assertFalse(sp.passage_mode)
+        sp.passage_mode = True
+        with self.assertRaises(ValueError):
+            lex.resolve_sentence([T("a")])
+        self.assertTrue(sp.passage_mode)
+
+    def test_uses_the_lexicons_current_spec(self):
+        first, second = LanguageSpec(TMP), LanguageSpec(TMP)
+        seen = []
+        second.passage_post_resolve = lambda toks, out: seen.append(second.passage_mode) or out
+        lex = FakeLex()
+        linker(first, lex, [])
+        lex.spec = second                                   # load_context rebinds the lexicon's spec
+        lex.resolve_sentence([T("a")])
+        self.assertEqual(seen, [True])
+        self.assertFalse(first.passage_mode)
 
 
 DE_WORDS = [word("w_bitte", "bitte", "INTJ", "intj", 1), word("w_bitten", "bitten", "VERB", "verb", 2),
@@ -362,26 +402,41 @@ class OopFold(unittest.TestCase):
         out = io.StringIO()
         with mock.patch.object(passages, "load_context", lambda spec: ctx), \
                 mock.patch.object(Linker, "pretag", lambda self, items: None), \
-                mock.patch.object(Linker, "tag", lambda self, text, en="": toks), \
+                mock.patch.object(Linker, "tag", lambda self, text, en="", names=frozenset(): toks), \
                 mock.patch.object(Linker, "links", lambda self, toks, text, en, where=None: []):
             passages.run(sp, check_only=True, out=out)
         line = out.getvalue().splitlines()[0]
         self.assertIn("oop={'ёлка': 1}", line)
         self.assertNotIn("without a reason", line)
         self.assertNotIn("used nowhere", line)
+        # a stale declaration prints as declared (ёлка), not folded
+        src["passages"][0]["oop"]["ёжик"] = "not in pack"
+        (repo / "tools" / "passages_src.json").write_text(json.dumps(src, ensure_ascii=False))
+        out = io.StringIO()
+        with mock.patch.object(passages, "load_context", lambda spec: ctx), \
+                mock.patch.object(Linker, "pretag", lambda self, items: None), \
+                mock.patch.object(Linker, "tag", lambda self, text, en="", names=frozenset(): toks), \
+                mock.patch.object(Linker, "links", lambda self, toks, text, en, where=None: []):
+            passages.run(sp, check_only=True, out=out)
+        self.assertIn("used nowhere: ['ёжик']", out.getvalue())
 
 
-class OnlyGermanRussianEnable(unittest.TestCase):
+class HookOwners(unittest.TestCase):
     def test_hook_owners(self):
         codes = sorted(f.stem for f in Path(langs.__file__).parent.glob("*.py") if f.stem not in ("__init__", "base"))
+        own = lambda sp, name: getattr(sp, name) is not getattr(LanguageSpec, name)   # noqa: E731
         for m in codes:
             sp = langs.spec_class(m)
             self.assertEqual(bool(sp.passage_particle_links), m == "de", m)
             self.assertEqual(bool(sp.nouns_capitalised), m == "de", m)
             self.assertEqual(bool(sp.passage_lemma_alias), m == "de", m)
             self.assertEqual(bool(sp.passage_adverb_from), m == "ru", m)
-            self.assertEqual(sp.passage_retag is not LanguageSpec.passage_retag, m == "ru", m)
-            self.assertEqual(sp.passage_no_link is not LanguageSpec.passage_no_link, m == "ru", m)
+            self.assertEqual(own(sp, "passage_retag"), m in ("ru", "fr"), m)
+            self.assertEqual(own(sp, "passage_no_link"), m == "ru", m)
+            self.assertEqual(own(sp, "passage_post_resolve"), m in ("es", "de", "fr"), m)
+            self.assertEqual(bool(sp.passage_form_base), m == "fr", m)
+            for h in ("passage_text", "passage_fallback_ok", "passage_phrase_ranges"):
+                self.assertEqual(own(sp, h), m == "fr", (m, h))
             self.assertFalse(sp.passage_mode, m)
 
 
