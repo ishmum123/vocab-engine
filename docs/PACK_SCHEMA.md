@@ -109,7 +109,7 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 
 ```
 [{ id, lv, title, text, src?,
-   sentences: [{ t, en, words: [wordId] }],
+   sentences: [{ t, en, words: [wordId], spans?: [[start, end, wordId]] }],
    questions: [{ q, en?, type: "mc"|"tf", options: [4 strings] | null, answer, words: [wordId], sentence }] }]
 ```
 
@@ -122,7 +122,8 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 | `src` | string | Optional provenance, e.g. `"gen"` for build-time generated passages. Not shown. |
 | `sentences[].t` | string | One sentence of the passage, rendered in order. |
 | `sentences[].en` | string | English translation, shown in question feedback and results. |
-| `sentences[].words` | `[wordId]` | Linked pack words. Each is tappable for its gloss wherever its `w`, an `alt` or its bare form is visible in `t` (core.js `passageSegments`, longest match wins, so 为什么 beats 为). Linked words not visible in `t` are shown as chips under the sentence, so every linked word stays tappable. |
+| `sentences[].words` | `[wordId]` | Linked pack words. Each is tappable for its gloss: at its `spans` when it has any, otherwise wherever its `w`, an `alt` or its bare form is visible in `t` (core.js `passageSegments`, longest match wins, so 为什么 beats 为, and a surface hit never covers a span). A linked word with neither is shown as a chip under the sentence, so every linked word stays tappable. |
+| `sentences[].spans` | `[[start, end, wordId]]` | Optional. Where each linked word sits in `t`, as written by the builder from its tagger tokens (`packbuilder passages`), so inflected forms (mele, compra, va) are tappable in place. Offsets are UTF-16 code units (JavaScript string indices; equal to character indices for text without characters above U+FFFF), `end` exclusive. Spans are sorted and do not overlap, each `wordId` is in `words`, and a word may have several spans (one per occurrence). A multi-token unit the builder links as one word (per favore) is one span. `words` stays the full list: a word without a span falls back to surface matching, and packs without `spans` render exactly as before. Invalid spans are ignored by the app. |
 | `questions[].q` | string | Target-language question. |
 | `questions[].en` | string | Optional English translation of `q`, shown under it. |
 | `questions[].type` | `"mc"` or `"tf"` | Multiple choice or true/false. |
@@ -155,7 +156,7 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 - `typing.strictFromLevel` exists.
 - Script fields: `rtl` is a bool, `langTag` is a BCP-47 tag, `fontFamily` has no `;`, `{`, `}`, `<`, `>`, `\`, `/*` or `url(`, every `fonts` entry is a Google Fonts family name, and `lineHeight` is 1–4. A pack with `rtl` true and neither `fontFamily` nor `fonts` gets a warning.
 - Lesson answers are among their options.
-- `passages.json`, when present: unique ids, `lv` is a pack level, `title`/`text` non-empty, non-empty `sentences` with `t`, `en` and known `words` ids, non-empty `questions` with `q`, `type` mc or tf, mc `options` of 4 distinct strings with `answer` 0–3, tf `answer` a bool and no options, known `words` ids, and `sentence` a valid index. A sentence `t` missing from `text` and a question with empty `words` are warnings.
+- `passages.json`, when present: unique ids, `lv` is a pack level, `title`/`text` non-empty, non-empty `sentences` with `t`, `en` and known `words` ids, optional `spans` (a list of `[start, end, wordId]` with integer UTF-16 offsets, `0 <= start < end <= len(t)`, sorted, non-overlapping, not splitting a surrogate pair, `wordId` in that sentence's `words`, covering non-blank text), non-empty `questions` with `q`, `type` mc or tf, mc `options` of 4 distinct strings with `answer` 0–3, tf `answer` a bool and no options, known `words` ids, and `sentence` a valid index. A sentence `t` missing from `text` and a question with empty `words` are warnings.
 - The generated `.js` files are in sync.
 
 A word that shares its surface form with another word at the same level produces a warning.

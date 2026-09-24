@@ -30,11 +30,12 @@ HOMOGRAPH_STOP = {"to", "a", "an", "the", "of", "be", "do", "for", "in", "on", "
 EN_WORD_RE = re.compile(r"[a-z]+")
 
 
-def phrase_spans(toks, sp, key_to_id, en=None):
+def phrase_spans(toks, sp, key_to_id, en=None, ranges=None):
     """Token-level phrase matches (spec.phrase_token_spans). Contractions are
     split first (es: del = de + el). Returns (phrase ids in sentence order,
     fully consumed token indices, {token index: leftover words} for a
-    contraction only partly inside a phrase)."""
+    contraction only partly inside a phrase). `ranges`, when a list, gets one
+    (first token index, last token index, phrase id) per match."""
     seq = []
     for i, t in enumerate(toks):
         if t[2] == "PUNCT":
@@ -58,6 +59,8 @@ def phrase_spans(toks, sp, key_to_id, en=None):
             if all(seq[j + k][0] == pw[k] and j + k not in used for k in range(len(pw))):
                 used.update(range(j, j + len(pw)))
                 found.append((j, key_to_id[(phrase, "PHRASE")]))
+                if ranges is not None:
+                    ranges.append((seq[j][1], seq[j + len(pw) - 1][1], key_to_id[(phrase, "PHRASE")]))
     consumed, partial = set(), {}
     for i in {seq[j][1] for j in used}:
         rest = [w for j, (w, ti) in enumerate(seq) if ti == i and j not in used]
@@ -93,16 +96,29 @@ def homograph_table(words, sp):
 
 
 def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_of=None, epos_to_id=None,
-                   lemma_ids=None, en=None, homs=None, st=None):
-    sp = lexicon.spec
+                   lemma_ids=None, en=None, homs=None, st=None, where=None):
     """Word ids linked by (lemma, POS) in context, or None if the sentence
-    has a content lemma outside the pack/top-3000."""
+    has a content lemma outside the pack/top-3000.
+
+    `where`, when a list, records where each link comes from, one entry per
+    linking occurrence (a word linked twice is recorded twice):
+    ("tok", first token index, last token index, id) for token links and
+    token-level phrases, ("chars", start, end, id) for a spec.multiword
+    phrase matched in `text` (Python str offsets). Links are unchanged."""
+    sp = lexicon.spec
     links = []
+
+    def note(kind, a, b, wid):
+        if where is not None and wid:
+            where.append((kind, a, b, wid))
     initial = True
     resolved = lexicon.resolve_sentence(toks, groups)
     consumed, partial, phrase_ids = set(), {}, []
     if sp.phrase_token_spans:
-        phrase_ids, consumed, partial = phrase_spans(toks, sp, key_to_id, en)
+        ranges = [] if where is not None else None
+        phrase_ids, consumed, partial = phrase_spans(toks, sp, key_to_id, en, ranges)
+        for a, b, wid in ranges or ():
+            note("tok", a, b, wid)
     en_words = None
     if homs and en:
         en_words = set(EN_WORD_RE.findall(en.lower()))
@@ -119,6 +135,7 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
         if i in partial:
             for w in partial[i]:                # "a pesar del": the article part of del
                 wid = key_to_id.get((w, "DET"))
+                note("tok", i, i, wid)
                 if wid and wid not in links:
                     links.append(wid)
             continue
@@ -135,6 +152,7 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
                 # capitalised pack word the tagger took for a name
                 direct = key_to_id.get((low, "INTJ")) or lemma_ids[low]
             if direct:
+                note("tok", i, i, direct)
                 if direct not in links:
                     links.append(direct)
                 continue
@@ -188,6 +206,7 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
                     dg = "m" if "Gender=Masc" in ms else "f" if "Gender=Fem" in ms else "?"
                 if dg and dg != gender_of[wid]:
                     wid = None       # la moto is not il moto, il fine is not la fine
+        note("tok", i, i, wid)
         if wid and wid not in links:
             links.append(wid)
     if sp.phrase_token_spans:
@@ -199,6 +218,9 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
     for phrase in sp.multiword:
         if re.search(r"\b" + re.escape(phrase) + r"\b", low) and (phrase, "PHRASE") in key_to_id:
             wid = key_to_id[(phrase, "PHRASE")]
+            if where is not None:
+                for m in re.finditer(r"\b" + re.escape(phrase) + r"\b", text, re.IGNORECASE):
+                    note("chars", m.start(), m.end(), wid)
             if wid not in links:
                 links.append(wid)
             if sp.phrase_absorbs_parts:

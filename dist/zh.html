@@ -1163,30 +1163,44 @@ function passageLength(p, pack){
 }
 // Sentence text split into tappable pieces: [{text, id}] where id is the linked word
 // found there (null for plain text), plus `unplaced`, the linked ids not visible in the
-// text (inflected forms no alt matches), which the UI lists under the sentence so every
-// linked word stays tappable. Each word is searched by w, every alt and its bare form, as
-// findSurface does for the pack; overlapping hits keep the longest (per start, earliest
-// first), so 为什么 wins over 为. Joining every piece's text gives back s.t.
+// text, which the UI lists under the sentence so every linked word stays tappable.
+// Builder spans come first: s.spans = [[start, end, wordId]] (UTF-16 offsets into s.t,
+// the token each word was read from, so inflected forms like mele or va are tappable).
+// A span is used when its bounds are valid, it covers non-blank text without splitting a
+// surrogate pair, its id is in s.words and known, and it does not overlap an earlier span. Ids in s.words with no span fall back to surface matching:
+// w, every alt and its bare form, as findSurface does for the pack; overlapping hits keep
+// the longest (per start, earliest first), so 为什么 wins over 为, and never cover a span.
+// A pack without spans behaves exactly as before. Joining every piece's text gives s.t.
+// True when UTF-16 index i falls between the two halves of a surrogate pair.
+function splitsPair(t, i){ return i > 0 && i < t.length && t.codePointAt(i - 1) > 0xFFFF; }
 function passageSegments(s, wordsById, pack){
   const t = String((s && s.t) || "");
   const spaced = !pack || pack.spaced !== false;
-  const arts = packArticles(wordsById || {});
+  const by = wordsById || {};
+  const arts = packArticles(by);
   const ids = [...new Set((s && s.words) || [])];
+  const idSet = new Set(ids);
+  const keep = [], spanned = new Set();
+  ((s && Array.isArray(s.spans)) ? s.spans : [])
+    .filter(x => Array.isArray(x) && Number.isInteger(x[0]) && Number.isInteger(x[1]) && x[0] >= 0 && x[0] < x[1] && x[1] <= t.length && idSet.has(x[2]) && by[x[2]]
+      && t.slice(x[0], x[1]).trim() && !splitsPair(t, x[0]) && !splitsPair(t, x[1]))
+    .map(x => ({ start: x[0], end: x[1], id: x[2] }))
+    .sort((a,b) => a.start - b.start)
+    .forEach(h => { if(!keep.some(k => h.start < k.end && k.start < h.end)){ keep.push(h); spanned.add(h.id); } });
   const hits = [];
   ids.forEach(id => {
-    const e = (wordsById || {})[id]; if(!e) return;
+    const e = by[id]; if(!e || spanned.has(id)) return;
     const forms = [...new Set([e.w, ...(e.alt || []), bareForm(e, arts)].filter(Boolean))];
     forms.forEach(f => findSurface(t, f, spaced).forEach(m => hits.push({ start: m.start, end: m.end, id })));
   });
   hits.sort((a,b) => (b.end - b.start) - (a.end - a.start) || a.start - b.start);
-  const keep = [];
   hits.forEach(h => { if(!keep.some(k => h.start < k.end && k.start < h.end)) keep.push(h); });
   keep.sort((a,b) => a.start - b.start);
   const parts = []; let at = 0;
   keep.forEach(h => { if(h.start > at) parts.push({ text: t.slice(at, h.start), id: null }); parts.push({ text: t.slice(h.start, h.end), id: h.id }); at = h.end; });
   if(at < t.length || !parts.length) parts.push({ text: t.slice(at), id: null });
   const placed = new Set(keep.map(h => h.id));
-  return { parts, unplaced: ids.filter(id => !placed.has(id) && (wordsById || {})[id]) };
+  return { parts, unplaced: ids.filter(id => !placed.has(id) && by[id]) };
 }
 // Grades one answer: mc = option index, tf = boolean. Anything else is wrong.
 function gradeQuestion(q, answer){

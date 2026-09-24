@@ -1048,6 +1048,34 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const zs = VC.passageSegments({ t:"你为什么来？", words:["z","x","y"] }, ZB, ZP);
   check("passageSegments unspaced: 为什么 wins over the 为 inside it; 为 then listed as unplaced (not visible on its own)",
     util.isDeepStrictEqual(zs.parts.filter(p => p.id).map(p => p.id), ["z","y"]) && util.isDeepStrictEqual(zs.unplaced, ["x"]));
+  // builder spans: [[start, end, wordId]] UTF-16 offsets; ids without a span fall back to surface matching
+  const SB = { g:{ id:"g", w:"il gatto", alt:["gatto"], en:"cat" }, c:{ id:"c", w:"comprare", en:"buy" }, m:{ id:"m", w:"la mela", alt:["mela"], en:"apple" },
+               v:{ id:"v", w:"andare", en:"go" }, x:{ id:"x", w:"casa", en:"home" } };
+  const ST = "Il gatto compra le mele e va a casa.";
+  const ids = seg => seg.parts.filter(p => p.id).map(p => [p.text, p.id]);
+  const rejoins = (seg, t) => seg.parts.map(p => p.text).join("") === t;
+  const s1 = VC.passageSegments({ t:ST, words:["g","c","m","v","x"], spans:[[3,8,"g"],[9,15,"c"],[19,23,"m"],[26,28,"v"]] }, SB, RP);
+  check("passageSegments spans: inflected compra/mele/va tappable in place; span 'gatto' beats the longer surface 'Il gatto'; casa (no span) by surface; no chips",
+    rejoins(s1, ST) && util.isDeepStrictEqual(ids(s1), [["gatto","g"],["compra","c"],["mele","m"],["va","v"],["casa","x"]]) && util.isDeepStrictEqual(s1.unplaced, []));
+  const s2 = VC.passageSegments({ t:ST, words:["g","c","m","v"], spans:[[9,15,"c"]] }, SB, RP);
+  check("passageSegments mixed: span for compra; g by surface ('Il gatto'); m ('mele' matches no form) and v listed as unplaced",
+    rejoins(s2, ST) && util.isDeepStrictEqual(ids(s2), [["Il gatto","g"],["compra","c"]]) && util.isDeepStrictEqual(s2.unplaced, ["m","v"]));
+  const s3 = VC.passageSegments({ t:ST, words:["g","c"], spans:[[3,15,"c"]] }, SB, RP);
+  check("passageSegments: a surface hit overlapping a span is dropped (g listed as unplaced), pieces never overlap",
+    rejoins(s3, ST) && util.isDeepStrictEqual(ids(s3), [["gatto compra","c"]]) && util.isDeepStrictEqual(s3.unplaced, ["g"]));
+  const s4 = VC.passageSegments({ t:ST, words:["c","m","x","q"], spans:[[9,15,"c"],[12,18,"m"],[31,99,"x"],[0,2,"zz"],[16,18,"q"],"bad",[5,5,"c"]] }, SB, RP);
+  check("passageSegments ignores invalid spans (overlapping, out of bounds, id not in words, unknown id, malformed, empty) and falls back per id",
+    rejoins(s4, ST) && util.isDeepStrictEqual(ids(s4), [["compra","c"],["casa","x"]]) && util.isDeepStrictEqual(s4.unplaced, ["m"]));
+  const s6 = VC.passageSegments({ t:ST, words:["x"], spans:[[30,31,"x"]] }, SB, RP);
+  check("passageSegments ignores a whitespace-only span (casa then found by surface)", rejoins(s6, ST) && util.isDeepStrictEqual(ids(s6), [["casa","x"]]));
+  const s7 = VC.passageSegments({ t:"\u{1F642} va!", words:["v"], spans:[[1,5,"v"]] }, SB, RP);
+  check("passageSegments ignores a span splitting a surrogate pair (andare then unplaced: va matches no form)", rejoins(s7, "\u{1F642} va!") && util.isDeepStrictEqual(ids(s7), []) && util.isDeepStrictEqual(s7.unplaced, ["v"]));
+  const old = { t:ST, words:["g","c","m","v","x"] };
+  check("passageSegments: no spans and spans:[] behave exactly as the surface-only path",
+    util.isDeepStrictEqual(VC.passageSegments(old, SB, RP), VC.passageSegments({ ...old, spans:[] }, SB, RP)) &&
+    util.isDeepStrictEqual(ids(VC.passageSegments(old, SB, RP)), [["Il gatto","g"],["casa","x"]]) && util.isDeepStrictEqual(VC.passageSegments(old, SB, RP).unplaced, ["c","m","v"]));
+  const s5 = VC.passageSegments({ t:"\u{1F642} va!", words:["v"], spans:[[3,5,"v"]] }, SB, RP);
+  check("passageSegments: span offsets are UTF-16 code units (an emoji before counts 2)", rejoins(s5, "\u{1F642} va!") && util.isDeepStrictEqual(ids(s5), [["va","v"]]));
   check("passageLength: spaced = whitespace tokens; unspaced = linked words", VC.passageLength(P1, RP) === 6 && VC.passageLength({ sentences:[{ words:["a","b"] },{ words:["c"] }] }, ZP) === 3);
 
   // validate_pack.py + jsonify on a temp pack with passages
@@ -1084,8 +1112,18 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     ["unknown question type", c => { c[0].questions[0].type = "open"; }, /"mc" or "tf"/],
     ["no questions", c => { c[0].questions = []; }, /questions must be a non-empty list/],
     ["no sentences", c => { c[0].sentences = []; }, /sentences must be a non-empty list/],
+    ["spans not a list", c => { c[0].sentences[0].spans = {}; }, /spans must be a list/],
+    ["span malformed", c => { c[0].sentences[0].spans = [[0,"4","a1"]]; }, /integer offsets/],
+    ["span out of bounds", c => { c[0].sentences[0].spans = [[7,99,"a0"]]; }, /out of bounds/],
+    ["spans overlapping", c => { c[0].sentences[0].spans = [[0,4,"a1"],[2,6,"a0"]]; }, /sorted and not overlap/],
+    ["spans unsorted", c => { c[0].sentences[0].spans = [[7,11,"a0"],[0,4,"a1"]]; }, /sorted and not overlap/],
+    ["span word not in the sentence's words", c => { c[0].sentences[0].spans = [[0,4,"b0"]]; }, /not in the sentence's words/],
+    ["span over whitespace", c => { c[0].sentences[0].spans = [[4,5,"a1"]]; }, /only whitespace/],
+    ["span splitting a surrogate pair", c => { c[0].sentences[0].t = "\u{1F642} vado."; c[0].sentences[0].spans = [[1,2,"a1"]]; }, /surrogate pair/],
   ];
   bad.forEach(([name, f, re]) => { const r = runP(mut(f)); check(`validate_pack rejects passages: ${name}`, r.status === 1 && re.test(r.stdout)); });
+  const spanned = runP(mut(c => { c[0].sentences[0].spans = [[0,4,"a1"],[7,11,"a0"]]; c[0].sentences[1].spans = []; }));
+  check("passages with valid spans (and an empty spans list) validate", spanned.status === 0 && !/spans/.test(spanned.stdout));
   const warnOnly = runP(mut(c => { c[0].sentences[0].t = "Non nel testo."; c[0].questions[0].words = []; }));
   check("sentence not in text / empty question words are warnings only", warnOnly.status === 0 && /does not appear in the passage text/.test(warnOnly.stdout) && /words is empty/.test(warnOnly.stdout));
   runP(PS);

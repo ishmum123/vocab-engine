@@ -23,6 +23,13 @@ Coverage = in-pack tokens / counted tokens; names, numerals, punctuation and
 symbols are not counted. A lemma outside the pack must be listed in "oop"
 with a reason; one whose reason starts with "name" is a name and not counted. Question words are lemmas; each must be linked in the
 referenced sentence and is emitted as that sentence's word id.
+
+Each emitted sentence also carries `spans`: [[start, end, wordId], ...], the
+text of `t` each linked word was read from (token_offsets + make_spans), so
+the app can make inflected forms (mele, compra, va) tappable in place. Offsets
+are UTF-16 code units (JavaScript string indices), equal to Python indices for
+BMP-only text. A word in `words` with no span (its token could not be located
+in `t`, or a longer span covers it) falls back to surface matching in the app.
 """
 import hashlib
 import json
@@ -167,13 +174,13 @@ class Linker:
             toks.append(sp.fix_token([t.text, t.lemma_, t.pos_, ms]))
         return sp.fix_sentence(toks, ["passage", text, None, en, None, None], doc)
 
-    def links(self, toks, text, en):
+    def links(self, toks, text, en, where=None):
         from .core.sentences import sentence_links
         return sentence_links(toks, self.lexicon, self.key_to_id, Everything(), text, self.groups,
-                              self.gender_of, self.epos_to_id, self.lemma_ids, en, self.homs, None)
+                              self.gender_of, self.epos_to_id, self.lemma_ids, en, self.homs, None, where)
 
     def classify(self, toks):
-        """Per counted token: (surface, lemma, word id or None, may link).
+        """Per counted token: (surface, lemma, word id or None, may link, token index).
         Names (capitalised), numerals, punctuation and symbols are skipped
         (not counted). A lowercase token the tagger calls PROPN is counted."""
         sp = self.spec
@@ -212,24 +219,97 @@ class Linker:
             # compounds: "rispetto a/al..." is not the noun rispetto, "fine settimana" not la fine
             may_link = not (lem in PHRASE_HEADS and (nxt in PHRASE_HEADS[lem] or
                                                      sp.art_prep.get(nxt) in PHRASE_HEADS[lem]))
-            out.append((text_t, lem, wid, may_link))
+            out.append((text_t, lem, wid, may_link, i))
         return out
 
     def links_all(self, toks, text, en):
         """sentence_links, then a lemma fallback: a counted token whose lemma
         is a pack word under another POS (molto/tutto as determiners, lontano
         as an adjective, po', mezza) links that word; compound-preposition
-        heads (rispetto a) never link."""
-        ws = list(self.links(toks, text, en))
+        heads (rispetto a) never link. Returns (word ids, classify(toks),
+        spans): spans as make_spans, one per linking occurrence."""
+        where = []
+        ws = list(self.links(toks, text, en, where))
         cl = self.classify(toks)
-        drop = {wid for _, _, wid, ok in cl if wid and not ok}
-        keep = {wid for _, _, wid, ok in cl if wid and ok}
+        drop = {wid for _, _, wid, ok, _ in cl if wid and not ok}
+        keep = {wid for _, _, wid, ok, _ in cl if wid and ok}
         ws = [w for w in ws if w not in drop or w in keep]
         extra = []
-        for _, _, wid, ok in cl:
+        for _, _, wid, ok, _ in cl:
             if wid and ok and wid not in ws and wid not in extra:
                 extra.append(wid)
-        return ws + extra, cl
+        ids = ws + extra
+        # a compound head (fine in "fine settimana") links nothing at that token
+        not_ok = {i for _, _, wid, ok, i in cl if not ok}
+        recs = [r for r in where if not (r[0] == "tok" and not_ok & set(range(r[1], r[2] + 1)))]
+        seen = {i for r in recs if r[0] == "tok" for i in range(r[1], r[2] + 1)}
+        for _, _, wid, ok, i in cl:
+            if wid in extra and ok and i not in seen:
+                recs.append(("tok", i, i, wid))
+        return ids, cl, make_spans(text, token_offsets(text, toks), recs, ids)
+
+
+def token_offsets(text, toks):
+    """Per token, its (start, end) in `text` (Python str offsets), or None.
+    Tokens are found in order, case-insensitively (the tagger saw truecased
+    text). Between two located tokens only non-alphanumeric text may be
+    skipped; a token not found that way is None, and the next token may then
+    skip at most the unlocated tokens' text (a tokenizer or fix_token rewrite
+    of a surface resynchronises instead of drifting). A match that skipped
+    text never starts inside a word, and while resynchronising an alphanumeric
+    token must also end at a word end."""
+    out, at, pending = [], 0, 0
+    for tok in toks:
+        surf = tok[0]
+        m = None
+        for c in (re.compile(re.escape(surf), re.IGNORECASE).finditer(text, at) if surf else ()):
+            if sum(ch.isalnum() for ch in text[at:c.start()]) > pending:
+                break
+            if c.start() != at and text[c.start() - 1:c.start()].isalnum():
+                continue    # not after a skip: never start inside a word ("e" in mercato)
+            if pending and surf[-1:].isalnum() and text[c.end():c.end() + 1].isalnum():
+                continue    # resyncing: the token must end where a word ends
+            m = c
+            break
+        if m is None:
+            out.append(None)
+            pending += len(surf or "")
+            continue
+        out.append((m.start(), m.end()))
+        at, pending = m.end(), 0
+    return out
+
+
+def utf16_index(text, i):
+    """Python str index -> UTF-16 code-unit index (a JavaScript string index)."""
+    return i + sum(1 for ch in text[:i] if ord(ch) > 0xFFFF)
+
+
+def make_spans(text, offsets, recs, ids):
+    """Link records (sentence_links `where` entries) -> sorted, non-overlapping
+    [[start, end, wordId], ...] in UTF-16 code units. Only ids in `ids` get
+    spans; a record whose token has no offset is skipped. Overlaps keep the
+    longer span (per start, earliest first), so "per favore" beats favore."""
+    idset = set(ids)
+    cand = []
+    for kind, a, b, wid in recs:
+        if wid not in idset:
+            continue
+        if kind == "chars":
+            se = (a, b)
+        elif offsets[a] is not None and offsets[b] is not None:
+            se = (offsets[a][0], offsets[b][1])
+        else:
+            continue
+        if se[1] > se[0] and text[se[0]:se[1]].strip():
+            cand.append((se[0], se[1], wid))
+    cand.sort(key=lambda c: (-(c[1] - c[0]), c[0]))
+    keep = []
+    for c in cand:
+        if not any(c[0] < k[1] and k[0] < c[1] for k in keep):
+            keep.append(c)
+    keep.sort()
+    return [[utf16_index(text, a), utf16_index(text, b), wid] for a, b, wid in keep]
 
 
 def n_words(text):
@@ -256,6 +336,8 @@ def run(spec, check_only=False, out=sys.stdout):
     lv_rank = {lv: i for i, lv in enumerate(spec.level_ids)}
     lv_of = {wid: w["lv"] for wid, w in shipped.items()}
     passages, rows, errors = [], [], []
+    n_spans = n_ids = 0
+    unplaced = []       # (passage id, sentence index, headword, id) linked but with no span
     ids = set()
     for p in src["passages"]:
         pid, lv = p["id"], p["lv"]
@@ -271,9 +353,13 @@ def run(spec, check_only=False, out=sys.stdout):
         used_oop = set()     # declared oop lemmas met as names or in questions/options
         for t, en in p["sentences"]:
             toks = lk.tag(t, en)
-            ws, cl = lk.links_all(toks, t, en)
-            sents.append({"t": t, "en": en, "words": ws})
-            for surf, lem, wid, _ok in cl:
+            ws, cl, spans = lk.links_all(toks, t, en)
+            sents.append({"t": t, "en": en, "words": ws, "spans": spans})
+            placed = {sp_[2] for sp_ in spans}
+            n_spans += len(spans)
+            n_ids += len(ws)
+            unplaced += [(pid, len(sents) - 1, shipped[w]["w"], w) for w in ws if w not in placed]
+            for surf, lem, wid, _ok, _i in cl:
                 if wid is None and str(oop_ok.get(lem, "")).startswith("name"):
                     used_oop.add(lem)
                     continue    # a declared name the truecaser lowered ("Bruno" -> bruno)
@@ -323,7 +409,7 @@ def run(spec, check_only=False, out=sys.stdout):
             # question and options stay inside the pack (plus this passage's listed oop)
             qtexts = [q["q"]] + (q["options"] or [])
             for qt in qtexts:
-                for surf, lem, wid, _ok in lk.classify(lk.tag(qt)):
+                for surf, lem, wid, _ok, _i in lk.classify(lk.tag(qt)):
                     if wid is None and lem in oop_ok:
                         used_oop.add(lem)
                     if wid is None and lem not in oop_ok:
@@ -354,6 +440,11 @@ def run(spec, check_only=False, out=sys.stdout):
         flag = "  <-- " + "; ".join(r["err"]) if r["err"] else ""
         print(f"{r['id']} {r['lv']} w={r['words']:3d} cov={r['cov']:.3f} link={r['link']:.3f} oop={r['oop']} above={r['above']}{flag}",
               file=out)
+    n_sent = sum(len(p["sentences"]) for p in passages)
+    print(f"passages: {n_sent} sentences, {n_spans} spans; {n_ids - len(unplaced)} linked words with a span, "
+          f"{len(unplaced)} without", file=out)
+    for pid, si, w, wid in unplaced:
+        print(f"  no span: {pid} s{si} {w} ({wid})", file=out)
     if errors:
         print(f"passages: {len(errors)} errors", file=out)
     if not check_only:

@@ -313,6 +313,41 @@ def check_lessons(pack, lessons, rep):
 PASSAGE_Q_TYPES = ("mc", "tf")
 
 
+def check_spans(spans, t, words, where, rep):
+    """sentences[].spans (optional): [[start, end, wordId], ...] in UTF-16 code
+    units of t, sorted, non-overlapping, wordId in the sentence's words, and each
+    slice non-blank text that does not split a surrogate pair."""
+    if not isinstance(spans, list):
+        rep.err(f"{where}.spans must be a list of [start, end, wordId]")
+        return
+    u = t.encode("utf-16-le") if isinstance(t, str) else b""
+    n = len(u) // 2
+    ws = set(words) if isinstance(words, list) else set()
+    prev = 0
+    for k, x in enumerate(spans):
+        sw = f"{where}.spans[{k}]"
+        if not (isinstance(x, list) and len(x) == 3 and all(isinstance(v, int) and not is_bool(v) for v in x[:2])
+                and isinstance(x[2], str)):
+            rep.err(f"{sw} must be [start, end, wordId] with integer offsets")
+            continue
+        a, b, wid = x
+        if not 0 <= a < b <= n:
+            rep.err(f"{sw} [{a}, {b}] out of bounds for a {n}-unit sentence (need 0 <= start < end <= length)")
+            continue
+        if a < prev:
+            rep.err(f"{sw} starts at {a}, before the previous span's end {prev} (spans must be sorted and not overlap)")
+        prev = max(prev, b)
+        if wid not in ws:
+            rep.err(f"{sw} word {wid!r} is not in the sentence's words")
+        try:
+            piece = u[2 * a:2 * b].decode("utf-16-le")
+        except UnicodeDecodeError:
+            rep.err(f"{sw} [{a}, {b}] splits a surrogate pair")
+            continue
+        if not piece.strip():
+            rep.err(f"{sw} [{a}, {b}] covers only whitespace")
+
+
 def check_passages(passages, levels, by_id, rep):
     """passages.json (optional): docs/PACK_SCHEMA.md "passages.json"."""
     if passages is None:
@@ -361,6 +396,8 @@ def check_passages(passages, levels, by_id, rep):
                     missing = [w for w in ws if w not in by_id]
                     if missing:
                         rep.err(f"{sw}.words has unknown ids {missing}")
+                if "spans" in s:
+                    check_spans(s["spans"], s.get("t"), ws, sw, rep)
                 if is_str(s.get("t")) and text and s["t"].strip() not in text:
                     rep.warn(f"{sw}.t does not appear in the passage text")
         qs = p.get("questions")
