@@ -6,7 +6,55 @@ frozen v1 id map live in the italian repo (tools/).
 """
 import re
 
-from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO
+from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, SENSITIVE_EN, SENSITIVE_GLOSS_EN
+
+# sensitive topics kept out of A1/A2 sentences (Italian text or English
+# translation; cross-pack policy, same tiers as de/es): sexual content, suicide,
+# vulgarity, threats/violence, dying and death wishes, weapons, blood/gore,
+# drugs and abuse. Stems are spelled out where a loose \w* would hit neutral
+# words (sparare not sparire, esplodere not esplorare, droga not drogheria,
+# bomba not bombola); eroina (heroin/heroine) is left to the English side.
+SENSITIVE_RE = re.compile(
+    r"\b(sesso|sessual\w*|sexy|suicid\w*|porno\w*|nud[oaie]|nudità|prostitut\w*|puttan\w*|bordell[oi]|"
+    r"orgasm[oi]|preservativ[oi]|profilattic[oi]|"
+    r"cazz\w*|merd\w*|stronz\w*|vaffanculo|fottut\w*|fott(ere|iti|ersi)|coglion\w*|"
+    r"sexually|suicide|suicidal|rape[ds]?|raping|rapist|porn\w*|naked|nude|orgasm|condom|prostitut\w*|whore\w*|"
+    r"kill(ed|s)? (himself|herself|myself|yourself|themselves|ourselves)|"
+    # killing: uccidere, ammazzare, assassinare in every form
+    r"uccid\w*|uccis\w*|ammazz\w*|assassin\w*|omicid\w*|accoltell\w*|strangol\w*|pugnal\w*|"
+    r"spar(are|arl\w*|arg\w*|ato|ata|ati|ate|a|ano|o|i|iamo|ò|arono|ava\w*|er[òàe]\w*|ando|atoria|atorie)|"
+    # dying and death wishes: morire in every form, morto, morte
+    r"mor(ire|irà|irai|iranno|iremo|irete|irò|irei|irebbe\w*|ir(ei|es)?t[ei]|endo|ente|enti|iva\w*|ì|irono|"
+    r"isse\w*|issi\w*|to|ta|ti|te|tal[ei])|muo(io|ri|re|iono|ia|iano)|"
+    r"cadaver[ei]|"
+    # weapons, bombs, explosions
+    r"arm[ai] da fuoco|arm[ai]|pistol[ae]|fucil[ei]|rivoltell[ae]|revolver|bomb(a|e|ardament[oi]|ard\w*)|"
+    r"esplo(dere|de|dono|deva\w*|so|sa|si|se|sione|sioni|sivo|sivi|siva|sive)|"
+    # a knife only in a threat or attack (coltello e forchetta stays)
+    r"coltellat[ae]|(minacci|aggredi|ferì|feri|colpi)\w* (\w+ )?(con|col) (un|il|suo|sua|mio|mia) coltello|"
+    r"(tirò|tira|estrasse|estrae) (fuori )?(un|il|suo) coltello|"
+    r"(threaten|attack|wound)\w* (\w+ )?with a knife|(pulled|drew|pulls|draws) a knife|at knifepoint|knife to (his|her|my|your|their) throat|"
+    # blood and bleeding (pressione/esame/gruppo del sangue, blood pressure stay), poison, corpses
+    r"(?<!pressione del )(?<!esame del )(?<!analisi del )(?<!donatore di )(?<!donare il )(?<!donare )sangue|"
+    r"sanguin(a|ano|are|ava\w*|ò|ante\w*|ando|os[oaie]|ari\w*)|insanguinat\w*|"
+    r"blood(?! (pressure|type|group|test|sugar|donor|donation|bank|vessel\w*|cell\w*|sample\w*))|bloody|bleed\w*|bled|"
+    r"velen[oi]|avvelen\w*|poison\w*|corpse\w*|dead bod(y|ies)|"
+    # illicit drugs and abuse (sexual abuse is in DROP_ALL_LEVELS_RE)
+    r"drog(a|he|at[oaie]|ar\w*)|stupefacent\w*|cocaina|hashish|spacciat\w*|spaccio|maltratt\w*|"
+    r"(illicit|illegal) drugs?|drugs? (dealer|addict|abuse|traffick\w*)s?|narcotics?|cocaine|heroin|marijuana|cannabis|overdose|"
+    r"abus(e|ed|es|ing|er|ers|ive)|"
+    r"die|dies|died|dying|weapons?|guns?|pistols?|rifles?|serial killer|explod\w*|"
+    + SENSITIVE_EN + r")\b", re.I)
+
+# removed at every level: rape, sexual assault and abuse, child abuse (violento/violenta,
+# "violent", stay: only the unambiguous forms of violentare are listed)
+DROP_ALL_LEVELS_RE = re.compile(
+    r"\b(stupr\w*|violentat[oaie]|violentar\w*|violentò|violentarono|violentava\w*|violenter[àò]\w*|"
+    r"abus(o|i|at[oaie]|are|ava\w*|ò) sessual\w*|abusat[oaie] sessualmente|molesti[ae] sessual\w*|"
+    r"molestat[oaie] sessualmente|pedofil\w*|pederast\w*|incesto|"
+    r"(violenz[ae]|aggression[ei]) sessual\w*|sexual(?:ly)? assault\w*|"
+    r"rape[ds]?|raping|rapist\w*|molest(ed|ing|ers?|ation)|child abuse|sexual(?:ly)? abuse\w*|"
+    r"paedophil\w*|pedophil\w*)\b", re.I)
 
 VOWELS = "aeiouàèéìíòóùú"
 
@@ -143,6 +191,13 @@ class Italian(LanguageSpec):
     article_pool_note = "; articles il/uno kept alongside"
     marked_past_name = "Passato remoto"
     uses_historic_past_forms = True
+    sensitive_re = SENSITIVE_RE
+    drop_all_levels = DROP_ALL_LEVELS_RE
+    # vulgar/sexual senses never lead an A1/A2 gloss (shared English list)
+    sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)
+    # lower_level_gloss_re stays off: uccidere, morire, morto are neutral core
+    # vocabulary and keep their level (same call as de/es/ru); their violent
+    # sentences are held to B1 by sensitive_re.
 
     # ---- morphology hooks ------------------------------------------------
     def pronominal_base(self, lemma):
