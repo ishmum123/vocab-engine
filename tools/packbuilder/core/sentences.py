@@ -160,6 +160,8 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
                 # Wiktionary headword (come ADV "Come stai?" -> come "how",
                 # whose gloss comes from the adverb headword)
                 wid = epos_to_id.get((lem, sp.group_kpos[g][0]))
+            if wid is None:
+                wid = sp.cross_pos_link(lexicon, lem, g, key_to_id)    # default None (id: same sense)
             if wid and en_words is not None and lem in homs:
                 # several entries for this lemma: the English translation decides
                 # when it names the other entry's sense and not this one's

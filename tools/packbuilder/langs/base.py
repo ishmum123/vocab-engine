@@ -411,6 +411,13 @@ class LanguageSpec:
         homograph of a preposition/conjunction ("О нет!" is not о "about")."""
         return True
 
+    def cross_pos_link(self, lexicon, lem, group, key_to_id):
+        """Sentence linking: (lem, group) has no pack word and no same-headword
+        entry -> another pack word id for this token, or None (default: no
+        link). id: the lemma's only pack entry when the tagged reading's
+        glosses share a word with it (semua PRON -> semua DET)."""
+        return None
+
     def post_resolve(self, toks, out):
         """Resolve time, whole sentence: [(lemma, group) | None] per token,
         after the core context rules -> the final list (same length).
