@@ -36,8 +36,74 @@ MARKS_RE = re.compile("[\u064b-\u065f\u0670\u0640\u200d\u200e\u200f]")   # harak
 CHAR_MAP = str.maketrans({"ي": "ی", "ى": "ی", "ك": "ک", "ة": "ه", "ۀ": "ه", "ە": "ه", "ھ": "ه",
                           "ٱ": "ا"})
 TANWIN_KEEP_RE = re.compile("[\u064c-\u065f\u0670\u0640\u200d\u200e\u200f]")   # strips all marks but tanwin fath (لطفاً)
+# grammatical endings a lemma may carry inside a token (plural, -ی, clitics,
+# copula, comparative); anything else means the lemma is only a substring
+GRAM_SUFFIX_RE = re.compile("(ها|های|هایی|ان|ات|ین|گان)?(ی|ای|یی)?"
+                            "(ام|ات|اش|مان|تان|شان|م|ت|ش|یم|یش|ست|است|اند|ایم|اید|ند|ید|تر|ترین|مون|تون|شون)?")
+# Tatoeba sentences with errors (ungrammatical, a typo that reads as vulgar,
+# a misspelt verb, a nonsense translation): matched as substrings
+BAD_SENTENCES = ("او از من شروع کرد", "مرد درخت را تحت است", "به ذهن تام رید", "حضور داشیم", "این جعبه از جوب است")
+_DISPLAY_CHARS = str.maketrans({"\u064a": "\u06cc", "\u0649": "\u06cc", "\u0643": "\u06a9"})
+_MI_SPACE_RE = re.compile("(^|[\\s\u200c«(])(ن?می) (?=[" + LET + "])")
+
+
+DERIV_SUFFIX = [("انه", "âne"), ("ترین", "tarin"), ("ین", "in"), ("ان", "ân"), ("یی", "yi"), ("ی", "i"),
+                ("یه", "iye"), ("تا", "tâ")]
+_CLASSICAL = str.maketrans({"ā": "â", "ī": "i", "ū": "u", "ē": "i", "ō": "u", "i": "e", "u": "o"})
+_PRON_MAP = [("x", "kh"), ("š", "sh"), ("č", "ch"), ("ž", "zh"), ("ê", "e"), ("ô", "o"), ("î", "i"), ("û", "u"),
+             ("ʼ", "'"), ("’", "'")]
+
+
+def normalize_pron(p, key=""):
+    """One romanisation scheme for the whole pack (Iranian Persian, the
+    kaikki "Iranian" reading made ASCII-light): â long a; a e o short;
+    i u long; kh sh ch zh; q for ق and gh for غ (Wiktionary writes both ġ);
+    ' for ع/ء. A Classical-only romanisation (ā ī ū, short i u) is converted."""
+    if not p:
+        return p
+    p = p.strip().lower()
+    if re.search("[āīūēō]", p):
+        p = p.translate(_CLASSICAL)
+    for a, b in _PRON_MAP:
+        p = p.replace(a, b)
+    letters = [c for c in fold(key) if c in "قغ"]
+    k = [0]
+
+    def qg(m):
+        c = letters[k[0]] if k[0] < len(letters) else ("غ" if m.group(0) in ("gh", "ğ") else "ق")
+        k[0] += 1
+        return "q" if c == "ق" else "gh"
+    p = re.sub("ġ|ğ|gh|q", qg, p)
+    if fold(key)[:1] == "ع":
+        p = p.lstrip("'ʼ")        # initial ع is silent at the start: eyd, adâlat (no apostrophe)
+    return p
+
+
+def display_sentence(text):
+    """Sentence text as shown: Arabic yeh/kaf -> Persian letters, and the
+    verbal prefix می/نمی joined with ZWNJ (می روم -> می‌روم). Matching folds
+    both, so this changes display only."""
+    text = text.translate(_DISPLAY_CHARS)
+    return _MI_SPACE_RE.sub(lambda m: m.group(1) + m.group(2) + ZWNJ, text)
+
+
+KESH_PULL = {"سیگار", "نفس", "طول", "خط", "نقشه", "دراز", "انتظار", "فریاد", "درد", "زحمت", "آه", "عکس",
+             "نقاشی", "بیرون", "جیغ", "خجالت", "رنج", "سختی", "پیپ", "قلیان", "ناز", "دست", "کنار", "بالا", "پایین"}
+NUM_HEADS = {"ساعت", "سال", "روز", "ماه", "هفته", "دقیقه", "ثانیه", "قرن", "شماره", "صفحه", "طبقه", "کلاس", "درجه"}
+INDEF_OBJECT_LV = {("کار", "کردن"), ("دوست", "داشتن")}   # noun + indefinite -ی is the object here
+INDEF_DET = {"یک", "هیچ", "چند", "چنین", "همچین", "چه", "یه"}
+HOMOGRAPH_DENY = {"دعوی", "حقوق", "حقوقی", "اسرار"}
+HOMOGRAPH_EN = {"کاری": r"\bcurr(y|ies)\b", "شیر": r"\b(tap|faucet)\b"}
+HARAKAT_HOMOGRAPH = {"آخر": "آخُر"}
+SPACED_PAIRS = {("پیش", "بینی"), ("پیش", "گیری"), ("پی", "گیری")}
+SUFFIX_WORDS = {"گو", "گویی", "ریزی", "بینی", "کاری", "گیری", "آوری", "سازی", "شناسی", "گذاری", "رسانی", "نویسی", "پردازی"}
+
+# compound nouns that take a complement between them and the light verb
+# (سوار قطار شد, وارد اتاق شد, احساس خستگی کرد, علاقه‌ای به تاریخ ندارم)
+COMPLEMENT_NOUNS = {"سوار", "وارد", "احساس", "تغییر", "علاقه", "پاسخ", "جواب", "سعی", "تلاش", "خارج", "عاشق",
+                    "متوجه", "مراقب", "شروع", "عادت", "کمک", "نگاه", "نیاز", "احتیاج", "اعتماد", "ربط", "خبر", "اهمیت"}
 CLITIC_SUFFIXES = {"م", "ت", "ش", "مان", "تان", "شان", "ی", "یم", "ید", "ند", "ست", "ام", "ای", "اید", "اند",
-                   "یت", "یش", "یی", "ایم", "مون", "تون", "شون"}
+                   "یش", "یی", "ایم", "مون", "تون", "شون"}
 COLLOQ_RAFTAN = {"برم", "بری", "بره", "بریم", "برن", "میرم", "میری", "میره", "میریم", "میرید", "میرن",
                  "نمیرم", "نمیری", "نمیره", "نمیریم", "نمیرید", "نمیرن", "نرم", "نره"}
 TOKEN_PUNCT = "،؛؟!.:«»\"'()…"
@@ -45,6 +111,7 @@ PART_ADJ = {"پیچیده", "گسترده", "پخته", "سوخته", "یخزد�
 GEN_SID_BASE = 90_000_000          # corpus sids of sentences written for the pack
 
 
+FINAL_HAMZA_RE = re.compile("اء(?![\u0600-\u06ff])")
 HAMZA_FOLD = str.maketrans({"أ": "ا", "إ": "ا", "ؤ": "و"})
 
 
@@ -53,7 +120,8 @@ def fold(s):
     ZWNJ removed, hamza carriers folded (رأی = رای, مؤسسه = موسسه, پائین = پایین)."""
     if not s:
         return s
-    return MARKS_RE.sub("", s.translate(CHAR_MAP)).replace(ZWNJ, "").translate(HAMZA_FOLD).replace("ائ", "ای")
+    s = MARKS_RE.sub("", s.translate(CHAR_MAP)).replace(ZWNJ, "").translate(HAMZA_FOLD).replace("ائ", "ای")
+    return FINAL_HAMZA_RE.sub("ا", s)      # ابتداء = ابتدا, انشاء = انشا
 
 
 def display_norm(s):
@@ -81,14 +149,16 @@ CONJS = [("و", "CONJ"), ("یا", "CONJ"), ("اما", "CONJ"), ("ولی", "CONJ"
 FUNCTION = set("را که به از در با تا و یا اما".split())
 DISPLAY = {"سهشنبه": "سه\u200cشنبه", "پنجشنبه": "پنج\u200cشنبه", "قهوهای": "قهوه\u200cای", "لطفا": "لطفا\u064b",
            "آنها": "آن\u200cها", "اینها": "این\u200cها", "تخممرغ": "تخم\u200cمرغ", "کتابخانه": "کتابخانه",
-           "میتوان": "می\u200cتوان"}
-FIXED_PRON = {"لطفا": "lotfan", "متشکرم": "motešakkeram", "ببخشید": "bebaxšid", "خداحافظ": "xodâhâfez",
+           "میتوان": "می\u200cتوان", "خواهش میکنم": "خواهش می\u200cکنم", "ابتدا": "ابتدا"}
+PLEASE_PHRASE = "خواهش میکنم"      # "you're welcome / please", taught as one phrase
+FIXED_PRON = {"ابتدا": "ebtedâ", "همگی": "hamegi", "اینکه": "inke", "خواهش میکنم": "xâheš mikonam", "یعنی": "ya'ni", "ایشان": "išân", "لطفا": "lotfan", "متشکرم": "motešakkeram", "ببخشید": "bebaxšid", "خداحافظ": "xodâhâfez",
               "آنها": "ânhâ", "سهشنبه": "se-šanbe", "پنجشنبه": "panj-šanbe", "قهوهای": "qahve-i"}
 
 # ---- light-verb compounds: "noun verb|gloss"; a leading preposition is part of
 # the compound (از دست دادن "to lose" vs دست دادن "to shake hands") -------------
 LIGHT_VERBS_SRC = """
 کار کردن|to work
+دیر کردن|to be late
 صحبت کردن|to talk, to speak
 فکر کردن|to think
 حرف زدن|to talk, to speak
@@ -486,7 +556,7 @@ class Persian(LanguageSpec):
         TATOEBA_ENG[0]: TATOEBA_ENG[1],
         TATOEBA_AUDIO[0]: TATOEBA_AUDIO[1],
     }
-    versions = {"corpus": "c1", "tag": "t16", "lex": "l2"}
+    versions = {"corpus": "c1", "tag": "t25", "lex": "l3"}
 
     typing = None
     show_pron = True
@@ -517,11 +587,14 @@ class Persian(LanguageSpec):
                      [(w, "ADJ") for w in COLOURS] + [(w, "INTJ") for w in GREETINGS] +
                      [(w, "PRON") for w in PRONOUNS] + [(w, "DET") for w in DEMONSTR] + QUESTION +
                      [(w, "ADP") for w in PREPS] + CONJS +
-                     [(c, "VERB") for c in ("کار کردن", "زندگی کردن", "دوست داشتن", "صحبت کردن", "حرف زدن")])
+                     [(c, "VERB") for c in ("کار کردن", "زندگی کردن", "دوست داشتن", "صحبت کردن", "حرف زدن")] +
+                     [("یعنی", "CONJ"), ("ایشان", "PRON"), (PLEASE_PHRASE, "INTJ")])
     allowed_num = set(NUMBERS) | {"میلیون", "اول", "دوم", "سوم", "نیم"}
     fixed_gloss = {
         **{(c, "VERB"): g for c, g in LIGHT_VERBS.items()},
         ("متشکرم", "INTJ"): "thank you", ("ممنون", "INTJ"): "thanks, thank you",
+        ("یعنی", "CONJ"): "that is, I mean", ("ایشان", "PRON"): "he, she (polite); they",
+        (PLEASE_PHRASE, "INTJ"): "you're welcome; please (go ahead)",
         ("ببخشید", "INTJ"): "excuse me, sorry", ("خداحافظ", "INTJ"): "goodbye", ("سلام", "INTJ"): "hello, hi",
         ("بله", "INTJ"): "yes", ("وی", "PRON"): "he, she (formal)", ("نه", "INTJ"): "no", ("لطفا", "INTJ"): "please",
         ("نه", "NUM"): "nine", ("سی", "NUM"): "thirty", ("سه", "NUM"): "three", ("صد", "NUM"): "hundred",
@@ -566,7 +639,7 @@ class Persian(LanguageSpec):
         ("صادقانه", "ADV"): "honestly", ("ناگهانی", "ADJ"): "sudden", ("همیشگی", "ADJ"): "permanent, everlasting",
     })
     closed_surfaces = {"اینکه": ("اینکه", "CONJ"), "آنکه": ("آنکه", "CONJ"), "بله": ("بله", "INTJ"), "آره": ("بله", "INTJ"), "گاهی": ("گاهی", "ADV"), "وی": ("وی", "PRON"), "ببخشید": ("ببخشید", "INTJ"), "متشکرم": ("متشکرم", "INTJ"),
-                       "خداحافظ": ("خداحافظ", "INTJ"), "ممنونم": ("ممنون", "INTJ"), "ممنون": ("ممنون", "INTJ"),
+                       "خداحافظ": ("خداحافظ", "INTJ"), "یعنی": ("یعنی", "CONJ"), "ایشان": ("ایشان", "PRON"), "ممنونم": ("ممنون", "INTJ"), "ممنون": ("ممنون", "INTJ"),
                        "لطفا": ("لطفا", "INTJ")}
     # pronouns/conjunctions Seraji tags NOUN are still function words; در is
     # left to the tagger (its ADP majority) so the noun در "door" stays a content word
@@ -599,11 +672,11 @@ class Persian(LanguageSpec):
                  ("جستن", "VERB"): None, ("افتاده", "NOUN"): ("افتادن", "VERB"), ("دیده", "NOUN"): ("دیدن", "VERB"),
                  ("ون", "NOUN"): None, ("آدمی", "NOUN"): ("آدم", "NOUN"), ("فارغ", "ADJ"): None,
                  ("مسیح", "NOUN"): None, ("انگیختن", "VERB"): None, ("تنیدن", "VERB"): None, ("آمیختن", "VERB"): None,
-                 ("شنفتن", "VERB"): ("شنیدن", "VERB"), ("مک", "NOUN"): None, ("لی", "NOUN"): None, ("خواسته", "ADJ"): None, ("بیشترین", "ADJ"): None, ("فوق", "NOUN"): None, ("کوچولو", "NOUN"): None,
+                 ("شنفتن", "VERB"): ("شنیدن", "VERB"), ("مک", "NOUN"): None, ("لی", "NOUN"): None, ("خواسته", "ADJ"): None, ("هو", "NOUN"): None, ("وب", "NOUN"): None, ("اسباب", "NOUN"): None, ("بیشترین", "ADJ"): None, ("فوق", "NOUN"): None, ("کوچولو", "NOUN"): None,
                  ("شبه", "NOUN"): None}
     min_corpus_tokens = 3     # subtitle fragments (ال, ری), names, web-only words (زیرنویس, اوکی)
     profanity = set(PROFANE) | {"گه", "ریدن"}
-    bad_text_re = re.compile("(?<![" + LET + "])(?:" + "|".join(PROFANE) + ")", re.I)
+    bad_text_re = re.compile("(?<![" + LET + "])(?:" + "|".join(PROFANE) + ")|" + "|".join(map(re.escape, BAD_SENTENCES)), re.I)
     # removed at every level: rape, sexual abuse, child abuse
     drop_all_levels = re.compile(
         "(?<![" + LET + "a-z])(?:تجاوز\\w*|آزار\\s*جنسی|کودک\u200c?آزاری|بچه\u200c?بازی|"
@@ -617,6 +690,10 @@ class Persian(LanguageSpec):
         "die[ds]?|dying|death|weapons?|guns?|pistols?|rifles?|knife|knives|shot|bomb\\w*|serial killer|corpse|"
         "کشتن|سکس\\w*|جنسی|تجاوز\\s*جنسی|برهنه|لخت|خودکشی|قتل|قاتل|بکشمت|میکشمت|میکشیم|"
         "کشتمش|کشتمت|بکشید|بکشند|کشته\\s*شد|اعدام|تیراندازی|اسلحه|تفنگ|هفت\\s*تیر|چاقو\\s*زد|خون\\s*ریخت|"
+        # illicit drugs and abuse (A1/A2 tier)
+        "موادّ?\\s*مخدّ?ر|مخدّ?ر\\w*|هروئین|کوکائین|تریاک|ماری\u200c?جوانا|سوء\\s*استفاده|آزار\\w*|"
+        "(?:illicit|illegal) drugs?|drug (?:dealer|addict|abuse|traffick\\w*)s?|narcotics?|cocaine|heroin|"
+        "marijuana|cannabis|overdose|abus(?:e|ed|es|ing|er|ers|ive)|"
         + SENSITIVE_EN + ")(?![" + LET + "a-z])", re.I)
 
     report_title = "Persian A1-B1 pack (corpus-tagged)"
@@ -725,7 +802,7 @@ class Persian(LanguageSpec):
         from ..core.sources import kaikki_plain
         env = Env(self)
         src = kaikki_plain(env)
-        sig = hashlib.sha1(f"fainfo3|{file_sig(src)}".encode()).hexdigest()[:10]
+        sig = hashlib.sha1(f"fainfo5|{file_sig(src)}".encode()).hexdigest()[:10]
         out = env.derived / f"fa_info_{sig}.json.gz"
         if out.exists():
             with gzip.open(out, "rt", encoding="utf-8") as f:
@@ -745,6 +822,13 @@ class Persian(LanguageSpec):
                         roms.append(fm["form"])
                     if "present" in tags and "stem" in tags and fm.get("form") and prstem is None:
                         prstem = display_norm(fm["form"])
+                if not roms:
+                    # no romanization form: the head line's "(internet)", "(hiss / hess)"
+                    for h in d.get("head_templates", []):
+                        m = re.search(r"•\s*\(([^)]*)\)", h.get("expansion") or "")
+                        if m and re.fullmatch(r"[a-zâāêēīîôōūûčšžġğxʼ'\- /]+", m.group(1)):
+                            roms.append(m.group(1).split(" / ")[-1].strip())
+                            break
                 senses = d.get("senses", [])
                 is_lemma = any(not (s.get("form_of") or s.get("alt_of") or
                                     set(s.get("tags", [])) & {"form-of", "alt-of", "misspelling"})
@@ -804,6 +888,8 @@ class Persian(LanguageSpec):
             if not s.startswith(pre):
                 continue
             core = s[len(pre):]
+            if core.endswith("ه") and len(core) > 2 and core[:-1] + "ن" in infs:
+                return core[:-1] + "ن"          # past participle, also negated: نخورده -> خوردن
             for end in self.PERSON_ENDINGS:
                 if end and not core.endswith(end):
                     continue
@@ -868,7 +954,7 @@ class Persian(LanguageSpec):
         elif upos in ("NOUN", "ADJ") and ftext == flemma and not self._info().get(ftext):
             # an enclitic pronoun Stanza left on the noun (زندگیم, سرت, کمکت,
             # انجامش): the host noun, when the dictionary has it
-            for cl in ("مان", "تان", "شان", "یم", "یت", "یش", "م", "ت", "ش"):
+            for cl in ("مان", "تان", "شان", "یم", "یش", "م", "ت", "ش"):   # not -یت: فردیت is "individuality"
                 host = ftext[:-len(cl)]
                 if ftext.endswith(cl) and len(host) >= 2 and any(
                         r[1] in ("noun", "adj") and r[4] for r in self._info().get(host, [])):
@@ -915,12 +1001,58 @@ class Persian(LanguageSpec):
         units = {"سال", "ساعت", "روز", "ماه", "نفر", "دقیقه", "هفته", "بار", "کتاب", "تا"}
         for i, t in enumerate(toks):
             nxt = toks[i + 1][2] if i + 1 < len(toks) else "PUNCT"
-            if (t[0], toks[i + 1][0] if i + 1 < len(toks) else "") == ("پیش", "بینی") or \
-                    (i and (toks[i - 1][0], t[0]) == ("پیش", "بینی")):
-                t[1], t[2] = t[0], "X"          # پیش بینی = پیش‌بینی "prediction" written with a space, not "before" + "nose"
+            nxt_t = toks[i + 1][0] if i + 1 < len(toks) else ""
+            if (nxt_t in SUFFIX_WORDS and (t[2] in ("NOUN", "ADJ") or (t[0], nxt_t) in SPACED_PAIRS)) or \
+                    (i and t[0] in SUFFIX_WORDS and (toks[i - 1][2] in ("NOUN", "ADJ", "X") or (toks[i - 1][0], t[0]) in SPACED_PAIRS)):
+                # compound written with a space (برنامه ریزی, پیش بینی, روغن کاری, جمع آوری):
+                # neither half is its own word ("small", "nose", "work")
+                t[1], t[2] = t[0], "X"
+            if t[2] in ("VERB", "AUX") and t[1] in ("کشیدن", "کشتن") and "کشت" not in t[0] and "کشید" not in t[0] \
+                    and re.search("کش(م|ی|د|یم|ید|ند|ن)?$", t[0]):
+                # present-stem کش is both کشیدن "pull, smoke, last, draw" and کشتن "kill":
+                # decide from the sentence, else leave it unlinked
+                forms = {x[0] for x in toks}
+                if re.search(r"\b(kill|killed|kills|killing|murder|slay|slaughter)", en, re.I) or "قتل" in forms:
+                    t[1] = "کشتن"
+                elif forms & KESH_PULL or re.search(r"\b(smok|breath|draw|pull|last|take[sn]? \w+ (time|hours?|days?|minutes?)|stretch|wait|drag)", en, re.I):
+                    t[1] = "کشیدن"
+                else:
+                    t[2] = "X"
+            if t[2] in ("VERB", "AUX") and t[1] in ("گشتن", "گردیدن") and "گرد" in t[0] and "گردید" not in t[0] and \
+                    (t[0].startswith(("بر", "باز")) or (i and toks[i - 1][0] in ("بر", "باز"))):
+                # preverb, joined or spaced (برنگردد, بر می‌گردم): برگشتن / بازگشتن "return"
+                pv = "باز" if (t[0].startswith("باز") or (i and toks[i - 1][0] == "باز")) else "بر"
+                t[1] = pv + "گشتن"
+                if not t[0].startswith(pv):
+                    toks[i - 1][2] = "X"
+            elif t[2] in ("VERB", "AUX") and t[1] in ("گشتن", "گردیدن") and "گرد" in t[0] and "گردید" not in t[0]:
+                # present stem گرد is گشتن "turn, search, wander" and گردیدن "become"
+                # (formal passive: منتشر می‌گردد); decide from the sentence, else unlinked
+                prev = toks[i - 1] if i else None
+                if re.search(r"\b(turn|search|look(ing|s|ed)? for|wander|walk(s|ed|ing)? around|go(es|ing)? around|"
+                             r"roam|spin|circl|rotat|revolv|hunt)", en, re.I):
+                    t[1] = "گشتن"
+                elif prev is not None and (prev[2] in ("ADJ", "NOUN") or "VerbForm=Part" in prev[3]):
+                    t[1] = "گردیدن"
+                else:
+                    t[2] = "X"
+            if i + 1 < len(toks) and t[2] != "X" and toks[i + 1][2] in ("NOUN", "ADJ") and \
+                    (t[0] in ("بی", "نا", "با") or t[2] in ("NOUN", "ADJ")) and len(t[0]) >= 2 - (t[0] in ("بی", "نا", "با")) and \
+                    any(r[1] in ("noun", "adj") and r[4] for r in self._info().get(t[0] + toks[i + 1][0], [])):
+                # a compound written with a space (نا امید, بی ادب, راه آهن, تازه کار):
+                # neither half is its own word ("hope", "politeness", "iron")
+                t[2] = toks[i + 1][2] = "X"
+            for surf, en_re in HOMOGRAPH_EN.items():
+                if t[0] == surf and re.search(en_re, en, re.I):
+                    t[2] = "X"                  # کاری "curry", not کار
+            if t[0] in HARAKAT_HOMOGRAPH and HARAKAT_HOMOGRAPH[t[0]] in (row[1] if row else ""):
+                t[2] = "X"                      # آخُر "manger" (the damma says so), not آخر "end"
             if t[0] in ("سی", "دی") and ((i + 1 < len(toks) and (t[0], toks[i + 1][0]) == ("سی", "دی")) or
                                           (i and (toks[i - 1][0], t[0]) == ("سی", "دی"))):
                 t[1], t[2] = t[0], "X"          # سی دی: CD, not thirty + the month Dey
+            near = [x for x in toks[max(i - 2, 0):i + 3] if x is not t and x[2] != "PUNCT"]
+            if t[0] == "نه" and sum(1 for x in near if x[0] in NUMBERS) >= 2:
+                t[1], t[2] = "نه", "NUM"        # a list of numbers (هشت، نه، ده): nine
             if t[0] == "نه" and ((i + 1 < len(toks) and toks[i + 1][1] in units) or (i and toks[i - 1][0] == "ساعت")):
                 t[1], t[2] = "نه", "NUM"        # نه سال, ساعت نه: nine, not "no"
             if t[0] == "رو" and i and toks[i - 1][2] in ("NOUN", "PRON", "PROPN", "DET", "ADJ") and \
@@ -930,7 +1062,7 @@ class Persian(LanguageSpec):
                 t[2] = "PROPN"
         return toks
 
-    SHARED_STEM = {("کشیدن", "کشتن"), ("شدن", "شستن")}
+    SHARED_STEM = {("کشیدن", "کشتن"), ("کشتن", "کشیدن"), ("شدن", "شستن")}
 
     # ---- resolution ----------------------------------------------------------------
     def post_resolve(self, toks, out):
@@ -954,55 +1086,118 @@ class Persian(LanguageSpec):
                 out[i] = r = (sl, "VERB")
             if r[1] in ("NOUN", "ADJ") and r[0] == text and sl and sl != text and text not in KEEP_SURFACE and \
                     text.startswith(sl) and text[len(sl):] in CLITIC_SUFFIXES and \
-                    lx.usable_entries(sl, self.group_kpos[r[1]]):
+                    lx.usable_entries(sl, self.group_kpos[r[1]]) and \
+                    not (text[len(sl):] in ("یت", "ی") and upos == "ADJ" and lx.usable_entries(text, ["adj"])) and \
+                    not (text[len(sl):] == "یت" and lx.usable_entries(text, ["noun", "adj"])):
+                # (سطحی "superficial" and فردیت "individuality" are words of their own)
                 # host + clitic / indefinite -ی read as a rare headword of the same
                 # spelling (دلم "pimple", ماست "yoghurt", مردی "manhood"): the host word
                 out[i] = (sl, r[1])
             elif upos == "NOUN" and r[0] != text and not lx.usable_entries(text, ["noun"]):
                 # a function word tagged NOUN reaches a noun only through an
                 # alt-of pointer (چه -> چاه "well", طی -> تی "mop"): the function word
-                for kp, g in (("pron", "PRON"), ("det", "DET"), ("prep", "ADP"), ("conj", "CONJ"), ("adv", "ADV")):
+                for kp, g in (("pron", "PRON"), ("det", "DET"), ("prep", "ADP"), ("conj", "CONJ"), ("adv", "ADV"),
+                              ("adj", "ADJ")):
+                    # adjective only for a true alt-of pointer (کم "a little" -> شکم "belly"),
+                    # not for host + -ی (زمانی stays زمان "time")
+                    if kp == "adj" and text.startswith(r[0]):
+                        continue
                     if lx.usable_entries(text, [kp]):
                         out[i] = (text, g)
                         break
+        for i in range(len(toks) - 1):
+            if toks[i][0] == "خواهش" and toks[i + 1][0] in ("میکنم", "میکنیم") and \
+                    (i + 2 >= len(toks) or toks[i + 2][2] == "PUNCT"):
+                out[i] = out[i + 1] = (PLEASE_PHRASE, "INTJ")   # خواهش می‌کنم: the phrase, not خواهش کردن
+        for i, (t, r) in enumerate(zip(toks, out)):
+            if not r or r[1] in ("VERB", "PROPN", "INTJ") or " " in r[0]:
+                continue
+            text = t[0]
+            if r[0] == text and text.endswith("ی") and r[1] == "NOUN" and lx.usable_entries(text[:-1], ["noun"]) and \
+                    lx.zipf(text[:-1]) >= lx.zipf(text) and (
+                    (i and toks[i - 1][0] in INDEF_DET) or
+                    (i + 1 < len(toks) and out[i + 1] and out[i + 1][0] == "داشتن")):
+                # indefinite -ی (یک دوستی, هیچ دوستی, دوستی ندارد "has no friend"):
+                # the base noun, not the abstract noun دوستی "friendship"
+                out[i] = r = (text[:-1], "NOUN")
+            if r[0] != text and text == r[0] + "ی" and lx.usable_entries(text, ["adj"]) and \
+                    i + 1 < len(toks) and out[i + 1] and out[i + 1][0] in ("بودن", "شدن"):
+                out[i] = r = (text, "ADJ")      # سطحی باشم "be superficial": the -ی adjective, not سطح + -ی
+            if text in HOMOGRAPH_DENY:
+                out[i] = None       # دعوی "lawsuit" is not دعوا "quarrel"; حقوق "law, salary" is not حق
+                continue
+            if r[0] != text and text.startswith(r[0]) and not GRAM_SUFFIX_RE.fullmatch(text[len(r[0]):]):
+                # token-boundary guard: a lemma never matches inside a longer word
+                # (مهربان is not مهر, فردیت is not فرد, شرور is not شر); the word itself or nothing
+                out[i] = next(((text, g) for kp, g in (("noun", "NOUN"), ("adj", "ADJ"), ("adv", "ADV"))
+                               if lx.usable_entries(text, [kp])), None)
         for i, r in enumerate(out):
             if not r or r[1] != "VERB" or r[0] not in LV_INDEX or toks[i][2] == "AUX":
                 continue
-            nouns = LV_INDEX[r[0]]
-            seen = 0
-            for j in range(i - 1, -1, -1):
-                t = toks[j]
-                if t[2] == "AUX":
-                    continue
-                if t[2] in ("PUNCT", "PROPN") or t[0] == "را" or (out[j] and out[j][1] == "VERB"):
-                    break
-                seen += 1
-                if seen > 3:
-                    break
-                n = out[j][0] if out[j] else t[0]
-                cands = nouns.get(n) or nouns.get(t[0])
-                if cands and t[0] == n + "ی" and not n.endswith("ی") and (t[2] == "ADJ" or (n, r[0]) == ("کار", "کردن")):
-                    # -ی on an adjective (کشف بزرگی شد: "a great discovery", not بزرگ شدن)
-                    # or کاری نکرده‌ام ("haven't done a thing", not کار کردن) is a noun
-                    # phrase; nouns keep the compound with -ی (ربطی ندارد, احتیاجی ندارم)
-                    cands = None
-                if not cands or "Number=Plur" in t[3]:
-                    if t[2] == "NOUN":
-                        break       # another noun is the verb's object/complement (پیشنهادش اعتراض کنم)
-                    continue
-                prev = toks[j - 1][0] if j else ""
-                comp = next((c for pre, c in cands if pre and pre == prev), None)
+            self._merge_light_verb(toks, out, i, LV_INDEX[r[0]])
+        for i, t in enumerate(toks):
+            if t[0] in MONTHS and i and toks[i - 1][0] == "ماه":
+                out[i] = (t[0], "NOUN")
+                out[i - 1] = ("ماه", "NOUN")    # در ماه تیر: ماه is "month" even when tagged PROPN
+        return out
+
+    @staticmethod
+    def _between_kind(t, r):
+        """One-letter class of a token standing between a compound's noun and
+        its light verb: R را, A adverb, C noun/pronoun complement, P preposition."""
+        if t[0] == "را":
+            return "R"
+        if t[2] == "ADV" or (r and r[1] == "ADV"):
+            return "A"
+        if t[2] in ("NOUN", "PRON"):
+            return "C"
+        if t[2] == "ADP":
+            return "P"
+        return "X"
+
+    def _merge_light_verb(self, toks, out, i, nouns):
+        """Light verb at i: merge it with its noun/adjective into the compound
+        when (a) they are adjacent, or (b) one adverb stands between them, or
+        (c) the noun takes a complement (COMPLEMENT_NOUNS: سوار قطار شد, وارد
+        اتاق شد, علاقه‌ای به تاریخ ندارم, سعی‌ام را کردم) and only that complement,
+        a preposition phrase, را and one adverb stand between. Auxiliaries and
+        the future خواه- are skipped. Never across punctuation, a proper noun
+        or another verb; an adjective between (دوست خارجی دارم, کشف بزرگی شد)
+        blocks it, and so does a numeral/determiner before the noun (دو دوست دارم)."""
+        between = []
+        for j in range(i - 1, -1, -1):
+            t = toks[j]
+            if t[2] == "AUX" or (out[j] and out[j][0] == "خواستن" and t[0].startswith(("خواه", "نخواه"))):
+                continue
+            if t[2] in ("PUNCT", "PROPN") or (out[j] and out[j][1] == "VERB"):
+                return
+            n = out[j][0] if out[j] else t[0]
+            cands = nouns.get(n) or nouns.get(t[0])
+            if cands and t[0] == n + "ی" and not n.endswith("ی") and (t[2] == "ADJ" or (n, out[i][0]) in INDEF_OBJECT_LV):
+                cands = None    # کشف بزرگی شد / کاری نکرده‌ام / دوستی ندارد: a noun phrase, not بزرگ شدن / کار کردن / دوست داشتن
+            if cands and "Number=Plur" not in t[3]:
+                kinds = "".join(reversed(between))
+                infinitive = toks[i][0] == out[i][0]    # سخنرانی کردن inside عادت به سخنرانی کردن ندارم
+                ok = kinds in ("", "A") or (n in COMPLEMENT_NOUNS and not infinitive and re.fullmatch("C{0,2}(PC{1,2})?R?A?", kinds))
+                prev = toks[j - 1] if j else None
+                if prev is not None and prev[2] in ("NUM", "DET") and prev[0] not in ("هیچ", "چه", "چند") and \
+                        not (j >= 2 and toks[j - 2][0] in NUM_HEADS) and not any(pre for pre, _ in cands):
+                    ok = False      # دو دوست دارم "I have two friends", not دوست داشتن
+                    # (ساعت نه باز می‌شود: نه belongs to ساعت; به چه فکر می‌کنی: چه is a question word)
+                if not ok:
+                    return
+                prev_t = prev[0] if prev is not None else ""
+                comp = next((c for pre, c in cands if pre and pre == prev_t), None)
                 if comp:
                     out[j - 1] = (comp, "VERB")
                 else:
                     comp = next((c for pre, c in cands if not pre), None)
                 if comp:
                     out[i] = out[j] = (comp, "VERB")
-                    break
-        for i, t in enumerate(toks):
-            if t[0] in MONTHS and i and toks[i - 1][0] == "ماه":
-                out[i] = (t[0], "NOUN")
-        return out
+                return
+            between.append(self._between_kind(t, out[j]))
+            if len(between) > 4 or between[-1] == "X":
+                return
 
     def bind_lexicon(self, lexicon):
         """Broken/irregular plural entries ("broken plural of کتاب") are form-of
@@ -1021,6 +1216,8 @@ class Persian(LanguageSpec):
                     m = rx.match(sn[0])
                     if m and sn[3] == "":
                         sn[3] = "form"
+                        if MARKS_RE.search(m.group(1)) and lexicon.E.get(fold(m.group(1))):
+                            continue    # اسرار = plural of سِرّ "secret", not of سر "head": no pointer
                         tgt = fold(m.group(1))
                         lexicon.F.setdefault(s, [])
                         if [tgt, e["p"], "form"] not in lexicon.F[s]:
@@ -1050,7 +1247,10 @@ class Persian(LanguageSpec):
         return rows
 
     def sentence_fields(self, row):
-        return {"src": "gen"} if row[0] >= GEN_SID_BASE else {}
+        rec = {"t": display_sentence(row[1])}
+        if row[0] >= GEN_SID_BASE:
+            rec["src"] = "gen"
+        return rec
 
     def extra_attribution(self, env, sentences):
         n = sum(1 for s in sentences if s.get("src") == "gen")
@@ -1082,25 +1282,50 @@ class Persian(LanguageSpec):
                              next((x[0] for x in info.get(p, []) if ZWNJ in x[0]), p))
             return " ".join(parts)
 
-        def rom(key, pos=None):
+        def rom(key, pos=None, en=None):
             if key in FIXED_PRON:
-                return FIXED_PRON[key]
+                return normalize_pron(FIXED_PRON[key], key)
             rows = info.get(key, [])
             cands = [r for r in rows if r[2] and r[4] and (pos is None or r[1] == pos)] or \
                     [r for r in rows if r[2] and r[4]] or [r for r in rows if r[2]]
-            return cands[0][2] if cands else None
+            if en and len(cands) > 1:
+                # homographs (چک čak "slap" / ček "cheque"): the entry whose gloss shares a word with ours
+                ours = set(re.findall(r"[a-z]{3,}", en.lower()))
+                cands = sorted(cands, key=lambda r: -len(ours & set(re.findall(r"[a-z]{3,}", (r[5] or "").lower()))))
+            return normalize_pron(cands[0][2], key) if cands else None
+
+        def derive(key, shown=""):
+            """No romanisation in Wiktionary: build it from a base word plus a
+            derivational suffix (دقیقاً = daqiq + an, آخرین = âkhar + in, سختی =
+            sakht + i), or from two words (اینکه = in + ke, همینطور = hamin + towr)."""
+            key = key.replace(" ", "")
+            if shown.endswith("\u0627\u064b") and rom(key[:-1]):
+                return rom(key[:-1]).split(" ")[0] + "an"     # tanwin: دقیقاً = daqiq + an
+            for suf, sr in DERIV_SUFFIX:
+                if key.endswith(suf) and len(key) > len(suf) + 1:
+                    b = rom(key[:-len(suf)])
+                    if b:
+                        return b.split(" ")[0] + sr
+            for first in ("این", "آن", "همین", "همان", "چند", "هر", "هیچ"):
+                if key.startswith(first) and len(key) > len(first) + 1 and rom(first) and rom(key[len(first):]):
+                    return rom(first) + rom(key[len(first):])
+            return None
 
         no_pron = []
         for w in words:
             w["en"] = strip_gloss_style(w["en"])
+            # a sense list cut after a connective ("betrayal, including"): drop the dangling tail
+            w["en"] = re.sub(r"[,;]\s*(including|such as|e\.g\.|namely|like|especially|of|and|or)\s*$", "", w["en"])
             key = w["lemma"]
             w["w"] = w["lemma"] = display(key)
             pos = {"noun": "noun", "verb": "verb", "adj": "adj", "adv": "adv", "pron": "pron", "prep": "prep",
                    "conj": "conj", "num": "num", "intj": "intj", "det": "det"}.get(w["pos"])
-            p = rom(key, pos)
+            p = rom(key, pos, w["en"])
             if p is None and " " in key:
-                ps = [rom(x) for x in key.split(" ")]
+                ps = [rom(x) or derive(x) for x in key.split(" ")]
                 p = " ".join(ps) if all(ps) else None
+            if p is None:
+                p = derive(key, w["w"])
             if p:
                 w["pron"] = p
             else:

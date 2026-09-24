@@ -65,8 +65,12 @@ CLOSED = {**{w: (w, g) for w, g in FUNCTION[:3]}, "untuk": ("untuk", "ADP"), "de
 # capitalised common words (days, months, formal Anda): lowercased on every
 # matching side (fold, fix_token), shown capitalised again in finalize_words
 CAPITALISED = {w: w.capitalize() for w in DAYS + MONTHS if w != "minggu"} | {"anda": "Anda"}
+# titles and forms of address, capitalised before a name or in direct address
+# ("Pak Sasaki", "Terima kasih, Bu Ani", "Tuan Smith"): common nouns, not names
+HONORIFICS = {"pak", "bapak", "ibu", "tuan", "nyonya", "nona", "kakak", "adik", "paman", "bibi", "om", "tante",
+              "dokter"}
 # lowercased for linking when capitalised mid-sentence (Minggu "Sunday" is minggu "week")
-LOWER_SURFACES = set(CAPITALISED) | {"minggu"}
+LOWER_SURFACES = set(CAPITALISED) | {"minggu"} | HONORIFICS
 CAP_GROUP = {"anda": "PRON"}
 
 # enclitics the multi-word-token splitter separates from their host
@@ -112,11 +116,34 @@ FORM_OF = {"berikan": "beri"}
 LEXICAL_CLITIC = {"apakah", "adalah", "ialah", "akhirnya", "bagaimanapun", "sebelumnya", "sesungguhnya",
                   "sebenarnya", "sebaiknya", "seharusnya", "setidaknya", "sejujurnya", "biasanya", "sepertinya"}
 # a derived surface: ber-/ter-/ke-/pe(r)-/se- prefix or -an suffix
-DERIVED_RE = re.compile(r"^(?:ber|be|ter|ke|pe|per|pen|pem|peng|se)[a-z]{3,}$|^[a-z]{3,}an$")
+DERIVED_RE = re.compile(r"^(?:ber|be|ter|ke|pe|per|pen|pem|peng|se)[a-z]{3,}$|^[a-z]{3,}(?<!k)an$")   # not -kan verbs
 # ber- spellings that are not the ber- verb of the root (berikut "following" is not ber- + ikut)
 BER_EXCEPT = {"berikut"}
+# derived nouns (pe-, per-, ke-...-an, -an): separate lemmas, never their root
+NOMINAL_RE = re.compile(r"^(?:pe|per|pen|pem|peng|peny|ke)[a-z]{3,}an$|^(?:pen|pem|peng|peny)[a-z]{3,}$|"
+                        r"^[a-z]{3,}(?<!k)an$")
 REDUP_RE = re.compile(r"^([a-z]+)-\1$")
-FOLD_ZIPF_MARGIN = 1.5       # me- form folds into its root unless the root is this much rarer
+FOLD_ZIPF_MARGIN = 1.5       # a derived verb (memberikan, mendapatkan) folds into its root unless the root is this much rarer
+ROOT_FREE_MARGIN = 0.5       # a plain me- verb folds into its root unless the root is this much rarer (tangis, tonton, ajar)
+# di/ke/dari + a place word written as one token (disini, dimana, kemana): the place word
+LOCATIVE_RE = re.compile(r"^(?:di|ke|dari)(sini|sana|situ|mana)$")
+LOCATIVE_KEY = {"sini": ("sini", "ADV"), "sana": ("sana", "ADV"), "situ": ("situ", "PRON"), "mana": ("mana", "PRON")}
+# kaikki senses that are not translations: abbreviations, bare affixes ("sub-")
+JUNK_SENSE_RE = re.compile(r"^(?:syllabic |a )?(?:abbreviation|acronym|initialism|clipping|contraction|ellipsis) of\b|"
+                           r"^[a-z]+-$", re.I)
+# "synonym of datang (“to arrive; to come”)": a word of its own with that meaning, not a form of datang
+SYNONYM_RE = re.compile(r"^synonym of ([a-z]+(?:[ -][a-z]+)*)(?: \(“([^”]+)”\))?")
+# "shelf: a flat, rigid structure ...": the translation before the colon is the gloss
+FORM_LINE_RE = re.compile(r"^(?:[\w'-]+ ){0,5}(?:forms?|plural|spelling|synonym|variant|abbreviation|ellipsis|clipping|"
+                          r"contraction|diminutive|superlative|comparative|misspelling|nonstandard) of\b", re.I)
+COLON_RE = re.compile(r"^([^:;()]{2,40}?):\s+\S")
+# comparatives are compositional ("lebih baik" = better): never an idiom
+DEGREE_WORDS = {"lebih", "paling"}
+# sentences whose English translation says something else (asap tebal "thick smoke" / "a cloud of dust")
+BAD_TEXTS = ("Mobil itu mengeluarkan asap tebal.",)
+# pack POS label -> kaikki POS (gloss_overrides keys are "lemma|label")
+LABEL_KPOS = {"noun": "noun", "verb": "verb", "adj": "adj", "adv": "adv", "prep": "prep", "conj": "conj",
+              "part": "particle", "pron": "pron", "det": "det", "intj": "intj", "num": "num"}
 GLOSS_STOP = {"to", "a", "an", "the", "of", "be", "or", "and", "in", "on", "for", "with", "something",
               "someone", "one", "oneself", "as", "at", "by", "from", "into", "up", "out"}
 
@@ -127,7 +154,10 @@ KPOS_UPOS = [("adv", "ADV"), ("conj", "SCONJ"), ("pron", "PRON"), ("prep", "ADP"
 SENSITIVE_ID = (r"bunuh\w*|membunuh\w*|dibunuh|terbunuh|pembunuh\w*|pembunuhan|tembak\w*|menembak\w*|ditembak|"
                 r"tikam\w*|menikam|seks\w*|seksual\w*|bugil|telanjang|pelacur\w*|porno\w*|mayat|kondom|"
                 r"mati|matilah|kematian|senjata|pistol|pisau|bercinta|payudara|"
-                r"die|dies|dying|weapons?|guns?|serial killer|knife")
+                r"bom|bom-bom|pengeboman|meledak\w*|ledakan\w*|racun\w*|beracun|meracuni|darah\w*|berdarah|"
+                r"tewas|jenazah|"
+                r"die|dies|dying|weapons?|guns?|serial killer|knife|bombs?|bombing\w*|bombed|explod\w*|"
+                r"explosion\w*|explosive\w*|poison\w*|blood\w*|bleed\w*|corpses?")
 # removed at every level (cross-pack policy): rape, sexual abuse, child abuse
 DROP_ALL_ID = (r"perkosa\w*|memperkosa\w*|diperkosa|pemerkosa\w*|pelecehan seksual|cabul\w*|pencabulan|"
                r"rape[ds]?|raping|rapist\w*|molest\w*|sexual(?:ly)? abus\w*|child abuse|pedophil\w*|paedophil\w*")
@@ -150,6 +180,30 @@ def me_roots(w):
             seen.add(r)
             res.append(r)
     return res
+
+
+def me_form(w):
+    """The me- verb of an object-voice spelling (nasal rule): kenakan ->
+    mengenakan, pakai -> memakai, tulis -> menulis, sapu -> menyapu, lihat
+    -> melihat, ambil -> mengambil, beli -> membeli."""
+    if not w:
+        return w
+    c = w[0]
+    if c == "k":
+        return "meng" + w[1:]
+    if c == "p":
+        return "mem" + w[1:]
+    if c == "t":
+        return "men" + w[1:]
+    if c == "s":
+        return "meny" + w[1:]
+    if c in "aeiouhg":
+        return "meng" + w
+    if c in "bfv":
+        return "mem" + w
+    if c in "cdjz":
+        return "men" + w
+    return "me" + w
 
 
 def overlaps(a, b):
@@ -196,11 +250,12 @@ class Indonesian(LanguageSpec):
         TATOEBA_ENG[0]: TATOEBA_ENG[1],
         TATOEBA_AUDIO[0]: TATOEBA_AUDIO[1],
     }
-    versions = {"corpus": "c1", "tag": "t4", "lex": "l1"}
+    versions = {"corpus": "c1", "tag": "t5", "lex": "l1"}
 
     typing = {"caseSensitive": False, "accents": "strict", "strictFromLevel": "A1"}
     show_pron = False
     use_audio = False            # 18 permissive clips only: TTS id-ID throughout
+    propn_lowercase_rescue = 5   # seen lowercase mid-sentence 5+ times: a common word (pak, bumi, barat)
     untranslated_rows = True     # all 28k sentences tagged for frequency/lemma evidence
     extra_corpus_files = ("tools/generated_sentences.tsv",)
     corpus_rank_weight = 1.5     # the subtitle list is colloquial: Tatoeba counts weigh more
@@ -223,7 +278,7 @@ class Indonesian(LanguageSpec):
     group_kpos = dict(DEFAULT_GROUP_KPOS, **{
         "ADV": ["adv", "conj", "prep", "particle", "adj"],
         "PART": ["particle", "adv", "conj", "intj"],
-        "DET": ["det", "pron", "adj", "num"],
+        "DET": ["det", "article", "pron", "adj", "num"],
         "PRON": ["pron", "det"],
         "NOUN": ["noun", "num", "classifier"],
         "NUM": ["num", "noun", "adj"],
@@ -240,6 +295,7 @@ class Indonesian(LanguageSpec):
     no_article = set()
     multiword = {p: tuple(p.split()) if " " in p else (p.split("-")[0],) for p in PHRASES}
     fixed_gloss = {**{(p, "PHRASE"): g for p, g in PHRASES.items()}, **COLLOQ_GLOSS,
+                   ("si", "DET"): "the (before a name or nickname; familiar)",
                    ("anda", "PRON"): "you (formal, polite)",
                    ("kau", "PRON"): "you (informal; short for engkau)",
                    ("apakah", "PART"): "question word (yes/no questions); whether"}
@@ -248,22 +304,32 @@ class Indonesian(LanguageSpec):
                        "adalah", "telah", "tidak", "bukan", "jangan", "apakah", "nggak", "dong", "sih", "kok",
                        "deh", "nih", "tuh", "untuk", "kenapa", "mengapa", "kapan", "berapa", "situ", "ialah",
                        "apa", "siapa", "mana", "bagaimana"}
-    level_floor = {v: "A2" for v in COLLOQ_WORDS.values()}
+    level_floor = {**{v: "A2" for v in COLLOQ_WORDS.values()}, ("bilang", "VERB"): "A2"}   # colloquial words start at A2
     # bound roots that occur only inside derived words or compounds (alih in
     # alih-alih, tuju in tujuan, kejar noun = abbreviation), and vulgar/sexual
     # words the pack leaves out; their tokens link nothing
     drop_keys = {**{(w, g): None for w, g in (
         ("alih", "VERB"), ("tuju", "NOUN"), ("kejar", "NOUN"), ("henti", "NOUN"), ("omong", "NOUN"),
         ("kala", "NOUN"), ("lapis", "NOUN"), ("tebak", "NOUN"), ("budi", "NOUN"), ("halang", "VERB"),
-        ("sial", "NOUN"), ("seks", "NOUN"), ("payudara", "NOUN"), ("bajingan", "NOUN"), ("awak", "NOUN"), ("kemas", "ADJ"), ("pelacur", "NOUN"), ("cita", "NOUN"))}}
+        ("sial", "NOUN"), ("seks", "NOUN"), ("payudara", "NOUN"), ("bajingan", "NOUN"), ("awak", "NOUN"), ("kemas", "ADJ"), ("pelacur", "NOUN"), ("cita", "NOUN"))},
+        # one word for one meaning: the second POS reading links the entry that
+        # carries both senses (perlu "to need; necessary", pasti "certain; certainly",
+        # menarik "interesting; to pull", kasih "love; (colloquial) to give", segala
+        # "all, every; everything"). Kept apart: saat "when" / "moment", hidup "to
+        # live" / "life", baru "new" / "just", sampai "until" / "to arrive".
+        ("perlu", "ADV"): ("perlu", "VERB"), ("pasti", "ADV"): ("pasti", "ADJ"),
+        ("menarik", "VERB"): ("menarik", "ADJ"), ("kasih", "VERB"): ("kasih", "NOUN"),
+        ("segala", "DET"): ("segala", "PRON")}
 
-    bad_text_re = UNTAUGHT_SLANG_RE
+    bad_text_re = re.compile(UNTAUGHT_SLANG_RE.pattern + "|^(?:" + "|".join(re.escape(t) for t in BAD_TEXTS) + ")$",
+                             re.I)
     drop_all_levels = re.compile(r"(?<![A-Za-z])(" + DROP_ALL_ID + r")(?![A-Za-z])", re.I)
     sensitive_re = re.compile(r"(?<![A-Za-z])(" + SENSITIVE_ID + "|" + SENSITIVE_EN + r")(?![A-Za-z])", re.I)
     sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)    # vulgar senses never lead
     # kill/murder/rape glosses stay out of A1/A2 (clean ";"-segments kept, else the word moves to B1)
     lower_level_gloss_re = re.compile(r"\b(kill\w*|murder\w*|rape[ds]?|raping|rapist|shoot\w*|stab\w*|"
-                                      r"porn\w*|prostitut\w*|suicid\w*)\b", re.I)
+                                      r"porn\w*|prostitut\w*|suicid\w*|bomb\w*|explod\w*|explosi\w*|"
+                                      r"poison\w*|blood\w*|corpse\w*|dead body)\b", re.I)
 
     report_title = "Indonesian A1-B1 pack (corpus-tagged)"
     forced_description = ("days, months, numbers (0-11, belas, puluh, ratus, ribu, juta), colours, pronouns, "
@@ -286,7 +352,12 @@ class Indonesian(LanguageSpec):
         self._lx = None
         self._whole = None
         self._stemmer = None
+        self._mw = None
+        self._clf = None
+        self._idioms = None
+        self.voice_alt = {}
         self.n_derived_unlinked = 0
+        self.post_stats = Counter()
 
     # ---- orthography -------------------------------------------------------
     def fold(self, s):
@@ -304,14 +375,21 @@ class Indonesian(LanguageSpec):
 
     def _kaikki_words(self):
         """kaikki headword -> (POS set, gloss words) over its definitional
-        senses (not form-of/alt-of lines)."""
+        senses (not form-of/alt-of lines). Also collects two-word headwords
+        (self._mw: (a, b) -> glosses) and classifier glosses (self._clf)."""
         if self._whole is None:
             import gzip
-            kw = {}
+            kw, mw, clf = {}, {}, {}
             with gzip.open(self.repo / ".cache" / self.kaikki_file, "rt", encoding="utf-8") as f:
                 for line in f:
                     d = json.loads(line)
                     w = d.get("word", "")
+                    if re.fullmatch(r"[a-z]+(?:-[a-z]+)* [a-z]+(?:-[a-z]+)*", w) and d.get("pos") != "name":
+                        mw.setdefault(tuple(w.split()), []).extend(
+                            (s.get("glosses") or [""])[0] for s in d.get("senses", []))
+                        continue
+                    if d.get("pos") == "classifier" and self.lex_word_re.match(w):
+                        clf.setdefault(w, next(((s.get("glosses") or [""])[-1] for s in d.get("senses", [])), ""))
                     if not self.lex_word_re.match(w) or d.get("pos") in ("name", "suffix", "prefix", "root",
                                                                           "circumfix", "character"):
                         continue
@@ -325,7 +403,7 @@ class Indonesian(LanguageSpec):
                         e[0].add(d["pos"])
                         for g in gl:
                             e[1].update(gloss_words(g))
-            self._whole = kw
+            self._whole, self._mw, self._clf = kw, mw, clf
         return self._whole
 
     def clitic_split(self, low):
@@ -353,6 +431,9 @@ class Indonesian(LanguageSpec):
         nlp = stanza.Pipeline("id", package="gsd", processors="tokenize,mwt,pos,lemma", tokenize_no_ssplit=True,
                               verbose=False, download_method=stanza.DownloadMethod.REUSE_RESOURCES)
         kw = self._kaikki_words()
+        # words seen lowercase mid-sentence: a capitalised sentence-initial one
+        # tagged PROPN is the common word ("Ayo makan!", "Bumi itu bulat"), not a name
+        lowc = Counter(w for t in texts for w in re.findall(r"[A-Za-z]+(?:-[A-Za-z]+)*", t)[1:] if w.islower())
         out = []
         for b in range(0, len(texts), 1000):
             docs = nlp.bulk_process([stanza.Document([], text=t) for t in texts[b:b + 1000]])
@@ -382,6 +463,12 @@ class Indonesian(LanguageSpec):
                                 continue
                             feats = dict(kv.split("=", 1) for kv in (w.feats or "").split("|") if "=" in kv)
                             toks.append((w.text, w.lemma or w.text.lower(), w.upos, feats))
+                for j, tk in enumerate(toks):
+                    low = tk[0].lower()
+                    if tk[2] == "PROPN" and tk[0][:1].isupper() and low in kw and lowc[low] >= 2 and \
+                            (j == 0 or toks[j - 1][0] in (".", "!", "?", "…", '"', "“", ":")):
+                        upos = next(u for p, u in KPOS_UPOS + [(None, "X")] if p is None or p in kw[low][0])
+                        toks[j] = (tk[0], low, upos, {})
                 out.append(toks)
         return out
 
@@ -466,9 +553,37 @@ class Indonesian(LanguageSpec):
             stats[why] += 1
             self.affix_log.append(f"{w} -> {target} ({why})")
 
-        def zipf_ok(root, form):
-            return lx.zipf(root) >= lx.zipf(form) - FOLD_ZIPF_MARGIN
+        def zipf_ok(root, form, margin=FOLD_ZIPF_MARGIN):
+            return lx.zipf(root) >= lx.zipf(form) - margin
 
+        def free_margin(w):
+            """0.5 for a plain me- verb; 1.5 when w is also a preposition or
+            adjective (mengenai "about", menarik "interesting"): its frequency
+            is not the verb's, so it never outranks a free root (kena, tarik)."""
+            other = any(e["p"] != "verb" and lx.entry_usable(e) for e in E.get(w, []))
+            return FOLD_ZIPF_MARGIN if other else ROOT_FREE_MARGIN
+
+        def kan_form(r):
+            """lakukan, bayangkan: a -kan spelling built on a word (not makan, ikan)."""
+            return r.endswith("kan") and len(r) >= 6 and r[:-3] in E
+
+        # (F) a "form" line whose "of X" sits deep in a definition (perpustakaan:
+        # "an institution which holds books and/or other forms of media ...") is
+        # a definition, not a form of X; its pointers go
+        for w in sorted(E):
+            revived = set()
+            for e in E[w]:
+                for sn in e["s"]:
+                    if sn[3] == "form" and not FORM_LINE_RE.match(sn[0]) and not AFFIX_OF_RE.match(sn[0]) and \
+                            not SYNONYM_RE.match(sn[0]) and "form-of" not in sn[2] and len(sn[0].split()) > 8:
+                        sn[3] = ""
+                        revived.add(e["p"])
+                        stats["definition read as form-of line: sense again"] += 1
+            for pos in revived:
+                if not any(sn[3] in ("form", "alt") for e in E[w] if e["p"] == pos for sn in e["s"]) and w in F:
+                    F[w] = [f for f in F[w] if f[1] != pos]
+                    if not F[w]:
+                        del F[w]
         # (G) kaikki's Indonesian senses are [translation, English definition
         # of it] ("office:", "a room, set of rooms ... used for non-manual
         # work"): the short translation is the gloss; repeats collapse
@@ -480,11 +595,68 @@ class Indonesian(LanguageSpec):
                     if head and sn[3] == "" and (len(head.split()) <= 6 or sn[1].strip().endswith(":")):
                         sn[0], sn[1] = head, ""
                         stats["two-level gloss -> translation"] += 1
+                    m = COLON_RE.match(sn[0]) if sn[3] == "" else None
+                    if m and len(m.group(1).split()) <= 4 and not m.group(1).lower().startswith("used") and \
+                            m.group(1).strip().lower() != w:
+                        # "shelf: a flat, rigid structure ..." -> shelf
+                        sn[0] = m.group(1).strip()
+                        stats["definition tail cut (translation: definition)"] += 1
                     if sn[3] == "" and sn[0].lower() in seen:
                         continue
                     seen.add(sn[0].lower())
                     keep.append(sn)
                 e["s"] = keep
+        # (S) "synonym of datang (“to arrive; to come”)" is a word of its own
+        # with that meaning (tiba "to arrive"), never a form of its synonym
+        for w in sorted(E):
+            for e in E[w]:
+                conv = False
+                for sn in e["s"]:
+                    m = SYNONYM_RE.match(sn[0]) if sn[3] in ("form", "alt") else None
+                    if not m:
+                        continue
+                    tgt, g = m.group(1), m.group(2)
+                    if not g:
+                        g = next((s2[0] for e2 in E.get(tgt, []) if e2["p"] == e["p"] for s2 in e2["s"]
+                                  if s2[3] == ""), None)
+                    if not g:
+                        # target not a single headword (es teh manis): the line is neither
+                        # a sense nor a form, and its pointer (to "es") is dropped
+                        sn[3] = "junk"
+                        if w in F:
+                            F[w] = [f for f in F[w] if not (f[0] == tgt.split()[0] and f[1] == e["p"])]
+                            if not F[w]:
+                                del F[w]
+                        stats["synonym-of line without a headword target skipped"] += 1
+                        continue
+                    sn[0], sn[1], sn[3] = g, "", ""
+                    sn[2] = [t for t in sn[2] if t not in ("form-of", "alt-of", "synonym")]
+                    if w in F:
+                        F[w] = [f for f in F[w] if not (f[0] == tgt and f[1] == e["p"])]
+                        if not F[w]:
+                            del F[w]
+                    conv = True
+                    stats["synonym-of line -> own sense"] += 1
+                if conv:
+                    e["s"] = [sn for sn in e["s"] if "from-form-sense" not in sn[2]]
+        # (J) abbreviation / bare-affix senses are not translations (siap
+        # "abbreviation of sisa anggaran ...", bawah "sub-")
+        for w in sorted(E):
+            for e in E[w]:
+                for sn in e["s"]:
+                    if sn[3] == "" and JUNK_SENSE_RE.match(sn[0].strip()):
+                        sn[3] = "junk"
+                        stats["abbreviation/affix sense skipped"] += 1
+        # (A) a frequent word whose only lines are "form" lines with no target
+        # (merupakan "to take the form of, to be"): the lines are its senses
+        for w in sorted(E):
+            if w in F or lx.zipf(w) < 4.5 or any(lx.entry_usable(e) for e in E[w]):
+                continue
+            for e in E[w]:
+                for sn in e["s"]:
+                    if sn[3] == "form" and not re.search(r"\bof [a-z]+(?:-[a-z]+)*(?: \(“[^”]*”\))?\W*$", sn[0]):
+                        sn[3] = ""
+                        stats["frequent word: target-less form line read as its sense"] += 1
         # (0) kaikki data fixes: a sense tagged both formal and dialectal is
         # standard (beri "to give"); hand-listed homograph parses (berikan =
         # beri + -kan "give", not ber- + ikan "to fish")
@@ -496,6 +668,18 @@ class Indonesian(LanguageSpec):
         for w, tgt in sorted(FORM_OF.items()):
             for pos in sorted({e["p"] for e in E.get(w, [])}):
                 mark_form(w, pos, tgt, "hand-listed form")
+        # (4, before 1: a -kan spelling that is only its base's form never
+        # heads a me- verb) -kan / -i verbs that repeat their base verb's sense (berikan =
+        # beri, inginkan = ingin); dengarkan "listen" stays apart from dengar
+        for w in sorted(E):
+            m = KAN_RE.match(w)
+            if not m or not verb_senses(w) or ME_RE.match(w):
+                continue
+            base = m.group(1)
+            if base.startswith("ke") and w.endswith("i") and base[2:] in E:
+                base = base[2:]                 # ketahui -> tahu
+            if base in E and verb_senses(base) and verb_head(w) & verb_head(base) and zipf_ok(base, w):
+                mark_form(w, "verb", base, "-kan/-i verb = base")
         # (1) "active of X" / "passive of X" / "imperative of X": inflections
         for w in sorted(E):
             for e in E[w]:
@@ -510,7 +694,15 @@ class Indonesian(LanguageSpec):
                     # menggunakan"): go on to the word it points at
                     nxt = next((t for t, pos, kind in F.get(tgt, []) if pos == "verb" and verb_senses(t)), None)
                     tgt = nxt if nxt and nxt != w else tgt
-                if verb_senses(tgt) and not ME_RE.match(w) and ME_RE.match(tgt) and \
+                plain = tgt in me_roots(w)       # memakai / pakai, not memberikan / beri
+                if verb_senses(tgt) and w.startswith("me") and plain and kan_form(tgt):
+                    # melakukan "active of lakukan": the -kan spelling is the
+                    # object-voice form of the me- verb, and the me- verb is the word
+                    e["s"] = [list(sn) for _, sn in verb_senses(tgt)] + \
+                             [sn for sn in e["s"] if not (sn[3] == "" and AFFIX_OF_RE.match(sn[0]))]
+                    mark_form(tgt, "verb", w, "object-voice -kan form = me- verb")
+                    self.voice_alt.setdefault(w, set()).add(tgt)
+                elif verb_senses(tgt) and not ME_RE.match(w) and ME_RE.match(tgt) and not w.endswith("kan") and \
                         lx.zipf(w) >= lx.zipf(tgt) - 0.5:
                     # the root is the everyday word (mulai "basic form of
                     # memulai"): the root takes the affixed word's senses and
@@ -518,24 +710,67 @@ class Indonesian(LanguageSpec):
                     e["s"] = [list(sn) for _, sn in verb_senses(tgt)] + \
                              [sn for sn in e["s"] if not (sn[3] == "" and AFFIX_OF_RE.match(sn[0]))]
                     mark_form(tgt, "verb", w, "affixed verb = its root (root commoner)")
-                elif verb_senses(tgt) and (zipf_ok(tgt, w) or not ME_RE.match(w)):
+                elif verb_senses(tgt) and (zipf_ok(tgt, w, free_margin(w) if plain else FOLD_ZIPF_MARGIN) or
+                                           not w.startswith("me")):
                     mark_form(w, "verb", tgt, "affix-of gloss")
-                elif verb_senses(tgt):
-                    # the root is rare on its own (mengerti / erti): the affixed
-                    # word is the lemma and takes the root's senses
+                elif verb_senses(tgt) and not plain:
+                    # the root is far rarer than a derived verb: the derived verb
+                    # is the lemma and takes the root's senses
                     e["s"] = [list(sn) for _, sn in verb_senses(tgt)] + \
                              [sn for sn in e["s"] if not (sn[3] == "" and AFFIX_OF_RE.match(sn[0]))]
                     stats["affixed kept, root senses copied"] += 1
-                    self.affix_log.append(f"{w} kept (root {tgt} rare)")
+                elif verb_senses(tgt):
+                    # the root is rare on its own (mengerti / erti, menangis /
+                    # tangis): the me- verb is the lemma, takes the root's senses,
+                    # and the root (and its di- forms) count toward it
+                    e["s"] = [list(sn) for _, sn in verb_senses(tgt)] + \
+                             [sn for sn in e["s"] if not (sn[3] == "" and AFFIX_OF_RE.match(sn[0]))]
+                    mark_form(tgt, "verb", w, "root = its me- verb (root rarer)")
+                    self.voice_alt.setdefault(w, set()).add(tgt)
         # (2) me-/di- verbs with senses of their own that repeat a shorter
         # verb's (memakai = pakai, melakukan = lakukan, menulis = tulis)
         for w in sorted(E):
             if not ME_RE.match(w) or not verb_senses(w):
                 continue
             for root in me_roots(w):
-                if root in E and verb_senses(root) and verb_head(w) & verb_head(root) and zipf_ok(root, w):
+                if not (root in E and verb_senses(root) and verb_head(w) & verb_head(root)):
+                    continue
+                if kan_form(root) and w.startswith("me"):
+                    mark_form(root, "verb", w, "object-voice -kan form = me- verb")   # lakukan -> melakukan
+                    self.voice_alt.setdefault(w, set()).add(root)
+                    break
+                if zipf_ok(root, w, free_margin(w)):
                     mark_form(w, "verb", root, "me-/di- verb = root")
                     break
+        # (2b) one verb, two headwords: a me- verb and its object-voice spelling
+        # (menonton / tonton, membayangkan / bayangkan, menghindari / hindar)
+        # sharing a sense become one word: the -kan spelling always counts
+        # toward the me- verb; a bare root is the word only when it is about as
+        # common as the me- verb (simpan, periksa), else it counts toward it
+        for w in sorted(E):
+            if not w.startswith("me") or not ME_RE.match(w) or not verb_senses(w):
+                continue
+            cands = []
+            for r in me_roots(w):
+                cands.append((r, False))
+                if r.endswith("i") and not verb_senses(r):
+                    cands.append((r[:-1], True))   # menghindari -> hindari -> hindar
+            for r, stripped in cands:
+                if r == w or not verb_senses(r) or not overlaps(verb_words(w), verb_words(r)):
+                    continue
+                if stripped and zipf_ok(r, w, free_margin(w)):
+                    break       # mengikuti / ikut, menduduki / duduk: the -i verb is a word of its own
+                if kan_form(r) and r in me_roots(w):
+                    mark_form(r, "verb", w, "object-voice -kan form = me- verb")
+                    self.voice_alt.setdefault(w, set()).add(r)
+                elif zipf_ok(r, w, free_margin(w)):
+                    if not lx.usable_entries(r, ["verb"]):
+                        break   # amat "to observe" is literary only: mengamati stays the word
+                    mark_form(w, "verb", r, "me-/di- verb = root")
+                else:
+                    mark_form(r, "verb", w, "root = its me- verb (root rarer)")
+                    self.voice_alt.setdefault(w, set()).add(r)
+                break
         # (3) a root verb with the sense of its ber- verb folds into it when the
         # ber- verb is the usual word (main -> bermain) or the root verb is
         # colloquial only (kerja -> bekerja); never berkeinginan <- ingin
@@ -551,17 +786,6 @@ class Indonesian(LanguageSpec):
                 if (shared and lx.zipf(w) >= lx.zipf(root) - 0.5) or colloquial_only(root):
                     mark_form(root, "verb", w, "root verb = ber- verb")
                 break
-        # (4) -kan / -i verbs that repeat their base verb's sense (berikan =
-        # beri, inginkan = ingin); dengarkan "listen" stays apart from dengar
-        for w in sorted(E):
-            m = KAN_RE.match(w)
-            if not m or not verb_senses(w) or ME_RE.match(w):
-                continue
-            base = m.group(1)
-            if base.startswith("ke") and w.endswith("i") and base[2:] in E:
-                base = base[2:]                 # ketahui -> tahu
-            if base in E and verb_senses(base) and verb_head(w) & verb_head(base) and zipf_ok(base, w):
-                mark_form(w, "verb", base, "-kan/-i verb = base")
         # (5) reduplicated plurals: senses repeating the base fold into it
         for w in sorted(E):
             m = REDUP_RE.match(w)
@@ -587,31 +811,204 @@ class Indonesian(LanguageSpec):
                     fl = F.setdefault(w, [])
                     if [base, "noun", "form"] not in fl:
                         fl.append([base, "noun", "form"])
+        # (O) a hand gloss is a sense of its word: it leads the entry of that
+        # POS, and a frequent word Wiktionary has no usable entry for (ternyata,
+        # suatu, berbagai) gets one from it. A word counted as another word's
+        # form keeps no entry of its own.
+        ov = self.gloss_overrides or {}
+        for key in sorted(ov):
+            lem, _, lab = key.rpartition("|")
+            kp = LABEL_KPOS.get(lab)
+            if not kp or not lem:
+                continue
+            usable = [e for e in E.get(lem, []) if e["p"] == kp and lx.entry_usable(e)]
+            if usable:
+                if usable[0]["s"][0][0] != ov[key]:
+                    usable[0]["s"].insert(0, [ov[key], "", [], ""])
+            elif not any(f[1] == kp for f in F.get(lem, [])):
+                E.setdefault(lem, []).append({"p": kp, "s": [[ov[key], "", [], ""]], "ht": set()})
+                stats["entry from hand gloss (no usable Wiktionary entry)"] += 1
+                self.affix_log.append(f"{lem} {kp}: entry from hand gloss")
         self.affix_stats = dict(stats)
 
+    def _classifiers(self):
+        self._kaikki_words()
+        return self._clf
+
+    def _idiom_pairs(self):
+        """Two-word Wiktionary headwords whose meaning is not built from their
+        parts (sama sekali "at all", bulu babi "sea urchin", rumah sakit
+        "hospital", masuk akal "reasonable"): (a, b) -> the parts that keep a
+        link (a part whose hand gloss teaches the phrase: berterima in
+        "berterima kasih"). A pair is compositional when its gloss shares a
+        word (or stem) with a part's glosses (hari ini "today", kamar mandi
+        "bathroom", jatuh cinta "to fall in love"). Pairs with a closed word,
+        a number or a comparative (lebih baik) and the taught phrases are left
+        to the normal rules."""
+        if self._idioms is None:
+            from ..core.english import en_stem
+            kw = self._kaikki_words()
+            ov_by = {}
+            for k, v in (self.gloss_overrides or {}).items():
+                ov_by.setdefault(k.rpartition("|")[0], []).append(v)
+            closed = set(self.closed_surfaces) | {w for w, _ in self.forced_closed} | self.function_lemmas | \
+                set(NUMBERS) | set(PHRASES)
+            pointer = re.compile(r"^(?:synonym of|(?:active|passive|imperative|basic)(?: form)? of|alternative "
+                                 r"(?:form|spelling) of) ([a-z-]+ [a-z-]+)(?: \(“([^”]+)”\))?")
+
+            def glosses(pair, depth=0):
+                out = []
+                for g in self._mw.get(pair, []):
+                    m = pointer.match(g)
+                    if not m:
+                        out.append(g)
+                    elif m.group(2):
+                        out.append(m.group(2))
+                    elif depth < 2:
+                        out += glosses(tuple(m.group(1).split()), depth + 1)
+                return out
+
+            def stems(words):
+                words = {w for w in words if w not in GLOSS_STOP}
+                return words | {en_stem(w) for w in words}
+
+            res = {}
+            for pair in sorted(self._mw):
+                a, b = pair
+                if a in closed or b in closed or a in DEGREE_WORDS or " ".join(pair) in closed:
+                    continue
+                cg = stems({w for g in glosses(pair) for w in re.findall(r"[a-z]+", g.lower())})
+                if not cg:
+                    continue
+                parts = []
+                for x in pair:
+                    pw = set()
+                    for y in {x, self._lx.chase(x, None) if self._lx is not None else None} - {None}:
+                        pw |= set(kw.get(y, (set(), set()))[1])      # merokok: the glosses of rokok
+                        for g in ov_by.get(y, []):
+                            pw |= set(re.findall(r"[a-z]+", g.lower()))
+                    parts.append(stems(pw))
+                if any(overlaps(cg, pw) for pw in parts):
+                    continue
+                phrase = " ".join(pair)
+                res[pair] = {x for x in pair if any(phrase in g for g in ov_by.get(x, []))}
+            self._idioms = res
+        return self._idioms
+
     def post_resolve(self, toks, out):
-        """(1) A surface that is a word of its own keeps it, where the tagger
-        lemma or the plural rule sent it to a root: laki-laki, kupu-kupu,
-        terlambat "late" (not lambat "slow"); anak-anak -> anak and terburuk
-        -> buruk stay (their entries are only form-of lines).
-        (2) A derived surface Wiktionary does not list (persahabatan,
-        terserah, berduduk) links nothing: its tagger root is another word
-        (sahabat, serah). me-/di- surfaces are inflections and keep the root."""
+        """Context rules over the resolved tokens.
+        - The tagger's lemma is a form of another word: that word (dikirim ->
+          kirim -> mengirim).
+        - se- + classifier (seorang, seekor, sebuah) is the classifier word;
+          di/ke/dari + a place word written as one token (disini, kemana) is
+          the place word; a variant spelling of a closed word (silahkan) is it.
+        - A VERB- or NOUN-tagged word with no such reading is a predicate
+          adjective ("Saya malu", "Saya tertarik"); a word tagged content but
+          read as an interjection (siap) takes its content reading; an
+          unlisted base + -kan (biarkan) is the base verb.
+        - host + -lah on a verb is its imperative (Bagilah, hiduplah).
+        - A surface that is a word of its own keeps it, where the tagger lemma
+          or the plural rule sent it to a root: laki-laki, kupu-kupu,
+          terlambat "late" (not lambat "slow"); anak-anak -> anak and
+          terburuk -> buruk stay (their entries are only form-of lines).
+        - A derived surface Wiktionary does not list (persahabatan, terserah)
+          links nothing: its tagger root is another word (sahabat, serah).
+          me-/di- surfaces are inflections and keep the root.
+        - The parts of a non-compositional compound link nothing (sama sekali,
+          bulu babi; see _idiom_pairs)."""
         lx = self._lx
+        clf = self._classifiers()
+        idi = self._idiom_pairs()
+        st = self.post_stats
+        n = len(toks)
+        adj_kp = self.group_kpos["ADJ"]
         for i, t in enumerate(toks):
             r = out[i]
             low = t[0].lower()
             if r is None and low in self.closed_surfaces and t[2] == "X":
                 out[i] = tuple(self.closed_surfaces[low])     # banget, dong tagged X
                 continue
-            if not r or r[0] == low or r[1] not in self.group_kpos or r[1] == "PROPN":
+            m = LOCATIVE_RE.match(low)
+            if m and not lx.usable_entries(low, None):
+                out[i] = LOCATIVE_KEY[m.group(1)]
+                st["di/ke/dari + place word spelled as one"] += 1
+                continue
+            if not r or r[1] == "PROPN" or r[1] not in self.group_kpos or low in self.closed_surfaces:
+                continue
+            if low.startswith("se") and low[2:] in clf and not lx.usable_entries(low, None):
+                out[i] = (low[2:], "NOUN")
+                st["se- + classifier"] += 1
+                continue
+            alt = next((f[0] for f in lx.F.get(low, []) if f[0] in self.closed_surfaces), None)
+            if alt and not lx.usable_entries(low, None):
+                out[i] = tuple(self.closed_surfaces[alt])
+                st["variant spelling of a closed word"] += 1
+                continue
+            kp = self.group_kpos[r[1]]
+            pro = next((low[len(p):] for p in ("kau", "ku") if low.startswith(p) and len(low) > len(p) + 2), None)
+            if t[2] == "VERB" and pro and not lx.usable_entries(low, None) and lx.chase(pro, ["verb"]):
+                # ku-/kau- + object-voice verb: kulakukan "(that) I do", kaulihat
+                out[i] = (lx.chase(pro, ["verb"]), "VERB")
+                st["ku-/kau- + verb: the verb"] += 1
+                continue
+            if not lx.usable_entries(r[0], kp):
+                c = lx.chase(r[0], kp)
+                if c and c != r[0]:
+                    r = out[i] = (c, r[1])
+                    st["tagger lemma is a form: its lemma"] += 1
+            if not lx.usable_entries(r[0], None) and low.endswith("kan") and \
+                    (lx.chase(me_form(low), ["verb"]) or lx.chase(low[:-3], ["verb"])):
+                # an object-voice -kan spelling with no entry of its own: its me-
+                # verb (kenakan -> mengenakan "to wear"), else the base verb
+                # (biarkan -> biar, butuhkan -> butuh)
+                r = out[i] = (lx.chase(me_form(low), ["verb"]) or lx.chase(low[:-3], ["verb"]), "VERB")
+                st["unlisted -kan spelling: its me- or base verb"] += 1
+            if t[2] == "VERB" and low.startswith("me") and r[0] != low and lx.usable_entries(low, adj_kp):
+                # me- adjectives the tagger calls verbs: menarik "interesting",
+                # menyenangkan "pleasant", membosankan "boring" (not tarik, senang, bosan)
+                out[i] = (low, "ADJ")
+                st["me- adjective tagged VERB: the adjective"] += 1
+                continue
+            if r[0] == low and r[1] in ("VERB", "NOUN") and lx.usable_entries(low, adj_kp) and \
+                    not any(f[1] == "verb" for f in lx.F.get(low, [])) and \
+                    (t[2] == "VERB" and r[1] != "VERB" or not lx.usable_entries(low, self.group_kpos[r[1]])):
+                # "Saya malu", "Saya tertarik": a predicate adjective the tagger
+                # called a verb or noun
+                r = out[i] = (low, "ADJ")
+                st["VERB/NOUN-tagged, no such reading: adjective"] += 1
+            elif t[2] in ("VERB", "NOUN", "ADJ") and r[1] in ("INTJ", "PART") and r[0] == low:
+                g2 = next((g for g in ("ADJ", "NOUN", "VERB", "ADV")
+                           if lx.usable_entries(low, self.group_kpos[g])), None)
+                if g2:
+                    r = out[i] = (low, g2)
+                    st["content-tagged, read as interjection: content reading"] += 1
+            if i + 1 < n and toks[i + 1][2] == "X" and toks[i + 1][0].lower() == "lah" and r[1] != "VERB":
+                v = lx.chase(low, ["verb"])
+                if v:
+                    out[i] = (v, "VERB")
+                    st["host + -lah: imperative verb"] += 1
+                    continue
+            if r[0] == low:
                 continue
             if lx.usable_entries(low, self.group_kpos[r[1]]):
                 out[i] = (low, r[1])
-            elif low not in lx.E and low not in lx.F and not ME_RE.match(low) and \
-                    DERIVED_RE.match(low) and r[0] in low:
-                out[i] = None
-                self.n_derived_unlinked += 1
+            elif not lx.usable_entries(low, None) and not ME_RE.match(low) and DERIVED_RE.match(low) and \
+                    (r[0] in low or len(r[0]) > 3 and r[0][1:] in low):     # penyerangan: s- -> ny-
+                # a derived word whose tagger root is another word (penyerangan
+                # -> serang "boatswain"): its own pointer's lemma, else no link
+                c = lx.chase(low, kp) if low in lx.F and not NOMINAL_RE.match(low) else None
+                if c and c != r[0]:
+                    out[i] = (c, r[1])
+                elif not c:
+                    out[i] = None
+                    self.n_derived_unlinked += 1
+        for i in range(n - 1):
+            pair = (toks[i][0].lower(), toks[i + 1][0].lower())
+            if pair in idi:
+                for j, x in ((i, pair[0]), (i + 1, pair[1])):
+                    if x not in idi[pair] and out[j] is not None:
+                        out[j] = None
+                        st["idiom part unlinked"] += 1
         return out
 
     # ---- sentences ------------------------------------------------------------
@@ -620,8 +1017,23 @@ class Indonesian(LanguageSpec):
             return 1        # A1 examples: formal/neutral register first
         return 0
 
+    def classifier_note(self, lem):
+        """(classifier for animals) from kaikki's "Classifier used for animals."."""
+        g = self._classifiers().get(lem, "")
+        m = re.search(r"\bfor ([a-z ]+?)(?:[,.;(]|$| and | as | or | generally)", g.lower())
+        what = m.group(1).strip() if m else ""
+        if not what or len(what.split()) > 3 or what.startswith(("anything", "things that", "something")):
+            what = "things"
+        return f"(classifier for {what})"
+
     def finalize_words(self, env, ctx, words):
+        clf = self._classifiers()
         for w in words:
+            if w["lemma"] in clf and w["_key"][1] == "NOUN" and "classifier" not in w["en"]:
+                w["en"] = w["en"] + "; " + self.classifier_note(w["lemma"])
+            va = self.voice_alt.get(w["lemma"])
+            if va and w["_key"][1] == "VERB":
+                w["alt"] = sorted(set(w.get("alt") or []) | va)
             if w["lemma"] in CAPITALISED:
                 w["w"] = CAPITALISED[w["lemma"]]
             if w["_key"] == ("nggak", "PART"):
