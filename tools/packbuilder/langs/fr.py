@@ -93,6 +93,13 @@ MAJORITY_GENDER = {"tour": "m", "poste": "m"}
 # passé simple forms Wiktionary also lists as participles or nouns (dus, bus,
 # lus): marked only right after a subject. Forms shared with the present
 # (dit, vit, finit) are not listed.
+AUX_FORMS = set("""suis es est sommes êtes sont étais était étions étiez étaient serai seras sera serons serez
+    seront serais serait serions seriez seraient sois soit soyons soyez soient fus fut été ai as a avons avez ont
+    avais avait avions aviez avaient aurai auras aura aurons aurez auront aurais aurait aurions auriez auraient
+    aie aies ait ayons ayez aient eu""".split())
+# nouns in avoir/être idioms that can look like participles (avoir tort: tordre)
+AVOIR_IDIOM_NOUNS = {"besoin", "peur", "faim", "soif", "raison", "tort", "honte", "envie", "lieu", "mal",
+                     "confiance", "droit", "tendance", "horreur", "conscience", "froid", "chaud", "sommeil"}
 PRENOMINAL_ADJ = {"beau", "bon", "grand", "gros", "haut", "jeune", "joli", "long", "mauvais", "meilleur",
                   "nouveau", "petit", "vieux", "vrai", "faux", "premier", "dernier", "seul", "autre", "même",
                   "prochain", "ancien", "pauvre", "cher", "double", "pire", "moindre"}
@@ -810,6 +817,23 @@ class French(LanguageSpec):
                 if al in PRENOMINAL_ADJ:
                     out[i] = (al, "ADJ")         # "une nouvelle politique": nouveau, not la nouvelle
                     continue
+            if r[1] == "NOUN" and s not in AVOIR_IDIOM_NOUNS:
+                # a verb form read as its noun homograph: a past participle after an
+                # auxiliary ("sont partis", "l'ai prise", "es-tu revenu") or tagged
+                # Part, a verb form after ne or a reflexive clitic ("n'écoute",
+                # "se plante", "se couche"): the verb, never the noun
+                j = i - 1
+                while j >= 0 and (self.is_hyphen_clitic(low[j]) or low[j] in OBJ_CLITICS - {"ne", "n'"} or
+                                  low[j] in ("pas", "jamais", "plus", "déjà", "bien", "toujours")):
+                    j -= 1
+                prev1 = low[i - 1] if i else ""
+                part = "VerbForm=Part" in (ms or "") or self._past_participle(s)
+                if (part and j >= 0 and low[j] in AUX_FORMS) or prev1 in ("ne", "n'", "se", "s'", "me", "m'", "te", "t'") or \
+                        ("VerbForm=Part" in (ms or "")):
+                    v = self._verb_of(s)
+                    if v:
+                        out[i] = (v, "VERB")
+                        continue
             if r[1] == "NOUN":
                 j = i - 1
                 while j >= 0 and low[j] in OBJ_CLITICS:
@@ -1055,6 +1079,42 @@ class French(LanguageSpec):
             other = [t for t in forms if t not in lit and t & NON_LITERARY_FORM_TAGS]
             c = self._lp_cache[s] = bool(lit) and not other
         return c
+
+    def _past_participle(self, s):
+        """Wiktionary lists s as a past participle form of a verb."""
+        for e in self._lx.E.get(s, []):
+            if e["p"] == "verb" and any(sn[3] == "form" and "participle" in sn[2] and "present" not in sn[2]
+                                        for sn in e["s"]):
+                return True
+        return self._participle_guess(s) is not None
+
+    def _participle_guess(self, s):
+        """Verb of a regular past participle Wiktionary does not list
+        (arrivée -> arriver, finies -> finir)."""
+        lx = self._lx
+        for suf in ("es", "e", "s", ""):
+            if suf and not s.endswith(suf):
+                continue
+            b = s[: len(s) - len(suf)] if suf else s
+            for end, inf in (("é", "er"), ("i", "ir"), ("u", "re")):
+                if b.endswith(end) and lx.usable_entries(b[: -len(end)] + inf, ["verb"]):
+                    return b[: -len(end)] + inf
+        return None
+
+    def _verb_of(self, s):
+        """Verb lemma for a verb-form surface: Wiktionary forms, else a regular
+        participle, else a first-group present form (base -> baser)."""
+        lx = self._lx
+        c = lx.verbs_only(lx.candidates(s, ["verb"]))
+        if c:
+            return lx.best_by_freq(c)
+        g = self._participle_guess(s)
+        if g:
+            return g
+        for suf, add in (("ent", "er"), ("es", "er"), ("e", "er")):
+            if s.endswith(suf) and lx.usable_entries(s[: -len(suf)] + add, ["verb"]):
+                return s[: -len(suf)] + add
+        return None
 
     def marks_sentence(self, toks):
         """Passé simple the tagger missed (it tags trouvâmes as present):

@@ -143,6 +143,9 @@ Added for Russian; each defaults to a no-op, so other languages are unchanged.
 - Flags: `numeral_verb_rule` (off in ru: "три" is not тереть), `rare_zipf` (rare-reading threshold), `finite_verb_lemma` (a finite token keeps the tagger lemma over a same-spelling infinitive: ru "есть" = is).
 - `extra_wordfreq(raw)`: extra wordfreq surfaces after the main loop (ru: hyphenated words such as кто-то, which wordfreq splits at the hyphen).
 - `drop_all_levels`: regex (text or English); matching sentences are removed at every level (rape, sexual/child abuse). `check` fails if a pack sentence matches. ru sets it; `sensitive_re` stays the A1/A2 tier.
+- `audio_rank_bonus`: a sentence with native audio has its `sentence_rank` penalty lowered by this (ru: 5, audio first after the level key).
+- `bare_prefer_shared`: with `example_shows_word`, the bare-form sentence is picked with audio first, then one already chosen for another word.
+- `derived_form_tags` also takes gloss phrases (ru: "female equivalent"), and `clean_sentence_text` strips stress marks (ru).
 - `surface_link_ok(tok)`: may an unresolved token fall back to linking by surface (ru: not "О нет!" -> о "about").
 - `refill_unexampled`: words left with no example sentence (and not forced) are dropped and the next words by rank take their place (one extra words+sentences pass).
 - `caps_proper_pool`: gates the capitalisation-based proper-noun test in word selection, separately from `caps_mark_names` (ru: off, so Земля and Бог stay).

@@ -179,7 +179,7 @@ class Russian(LanguageSpec):
     # colloquial spelling of что: its tokens link to что
     # colloquial что; здравствовать only as the greeting здравствуйте (tagged VERB)
     # минуту ("jiffy") is минута's accusative; ага is an interjection tagged NOUN
-    drop_keys = {("че", "PRON"): ("что", "PRON"), ("здравствовать", "VERB"): ("здравствуйте", "INTJ"),
+    drop_keys = {("детка", "NOUN"): None, ("че", "PRON"): ("что", "PRON"), ("здравствовать", "VERB"): ("здравствуйте", "INTJ"),
                  ("минуту", "NOUN"): ("минута", "NOUN"), ("ага", "NOUN"): None}
     profane_stems = PROFANE_STEMS
     profanity = PROFANITY

@@ -160,6 +160,7 @@ class LanguageSpec:
         if p.exists():
             self.a1_core = parse_forced_file(p.read_text())
         self.forced = list(self.forced_closed) + [(w, g) for g, ws in self.a1_core.items() for w in ws]
+        self.forced = list(dict.fromkeys(self.forced))   # a word listed twice must not become two words
         return self
 
     @property

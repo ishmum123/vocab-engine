@@ -249,6 +249,13 @@ class Indonesian(LanguageSpec):
                        "deh", "nih", "tuh", "untuk", "kenapa", "mengapa", "kapan", "berapa", "situ", "ialah",
                        "apa", "siapa", "mana", "bagaimana"}
     level_floor = {v: "A2" for v in COLLOQ_WORDS.values()}
+    # bound roots that occur only inside derived words or compounds (alih in
+    # alih-alih, tuju in tujuan, kejar noun = abbreviation), and vulgar/sexual
+    # words the pack leaves out; their tokens link nothing
+    drop_keys = {**{(w, g): None for w, g in (
+        ("alih", "VERB"), ("tuju", "NOUN"), ("kejar", "NOUN"), ("henti", "NOUN"), ("omong", "NOUN"),
+        ("kala", "NOUN"), ("lapis", "NOUN"), ("tebak", "NOUN"), ("budi", "NOUN"), ("halang", "VERB"),
+        ("sial", "NOUN"), ("seks", "NOUN"), ("payudara", "NOUN"), ("bajingan", "NOUN"), ("awak", "NOUN"), ("kemas", "ADJ"), ("pelacur", "NOUN"), ("cita", "NOUN"))}}
 
     bad_text_re = UNTAUGHT_SLANG_RE
     drop_all_levels = re.compile(r"(?<![A-Za-z])(" + DROP_ALL_ID + r")(?![A-Za-z])", re.I)
@@ -569,8 +576,11 @@ class Indonesian(LanguageSpec):
             for e in E[w]:
                 plural = any(sn[3] == "form" and "plural" in sn[2] for sn in e["s"])
                 for sn in e["s"]:
-                    if sn[3] == "" and (plural or e["p"] == "noun") and gloss_words(sn[0]) and \
-                            gloss_words(sn[0]) <= bw | {"s"}:
+                    # an entry that is a plural of the base is plural throughout
+                    # (anak-anak "child", "subordinate"); a lexicalised reading is
+                    # its own entry (mata-mata "spy", hati-hati "careful")
+                    if sn[3] == "" and (plural or (e["p"] == "noun" and gloss_words(sn[0]) and
+                                                    gloss_words(sn[0]) <= bw | {"s"})):
                         sn[3] = "form"
                         stats["reduplicated sense = base"] += 1
                 if e["p"] == "noun" and plural:
@@ -591,6 +601,9 @@ class Indonesian(LanguageSpec):
         for i, t in enumerate(toks):
             r = out[i]
             low = t[0].lower()
+            if r is None and low in self.closed_surfaces and t[2] == "X":
+                out[i] = tuple(self.closed_surfaces[low])     # banget, dong tagged X
+                continue
             if not r or r[0] == low or r[1] not in self.group_kpos or r[1] == "PROPN":
                 continue
             if lx.usable_entries(low, self.group_kpos[r[1]]):

@@ -36,6 +36,12 @@ MARKS_RE = re.compile("[\u064b-\u065f\u0670\u0640\u200d\u200e\u200f]")   # harak
 CHAR_MAP = str.maketrans({"ي": "ی", "ى": "ی", "ك": "ک", "ة": "ه", "ۀ": "ه", "ە": "ه", "ھ": "ه",
                           "ٱ": "ا"})
 TANWIN_KEEP_RE = re.compile("[\u064c-\u065f\u0670\u0640\u200d\u200e\u200f]")   # strips all marks but tanwin fath (لطفاً)
+CLITIC_SUFFIXES = {"م", "ت", "ش", "مان", "تان", "شان", "ی", "یم", "ید", "ند", "ست", "ام", "ای", "اید", "اند",
+                   "یت", "یش", "یی", "ایم", "مون", "تون", "شون"}
+COLLOQ_RAFTAN = {"برم", "بری", "بره", "بریم", "برن", "میرم", "میری", "میره", "میریم", "میرید", "میرن",
+                 "نمیرم", "نمیری", "نمیره", "نمیریم", "نمیرید", "نمیرن", "نرم", "نره"}
+TOKEN_PUNCT = "،؛؟!.:«»\"'()…"
+PART_ADJ = {"پیچیده", "گسترده", "پخته", "سوخته", "یخزده"}   # participles taught as adjectives
 GEN_SID_BASE = 90_000_000          # corpus sids of sentences written for the pack
 
 
@@ -480,7 +486,7 @@ class Persian(LanguageSpec):
         TATOEBA_ENG[0]: TATOEBA_ENG[1],
         TATOEBA_AUDIO[0]: TATOEBA_AUDIO[1],
     }
-    versions = {"corpus": "c1", "tag": "t8", "lex": "l2"}
+    versions = {"corpus": "c1", "tag": "t15", "lex": "l2"}
 
     typing = None
     show_pron = True
@@ -590,7 +596,8 @@ class Persian(LanguageSpec):
                  ("جستن", "VERB"): None, ("افتاده", "NOUN"): ("افتادن", "VERB"), ("دیده", "NOUN"): ("دیدن", "VERB"),
                  ("ون", "NOUN"): None, ("آدمی", "NOUN"): ("آدم", "NOUN"), ("فارغ", "ADJ"): None,
                  ("مسیح", "NOUN"): None, ("انگیختن", "VERB"): None, ("تنیدن", "VERB"): None, ("آمیختن", "VERB"): None,
-                 ("شنفتن", "VERB"): ("شنیدن", "VERB")}
+                 ("شنفتن", "VERB"): ("شنیدن", "VERB"), ("مک", "NOUN"): None, ("لی", "NOUN"): None, ("خواسته", "ADJ"): None, ("بیشترین", "ADJ"): None, ("فوق", "NOUN"): None, ("کوچولو", "NOUN"): None,
+                 ("شبه", "NOUN"): None}
     min_corpus_tokens = 3     # subtitle fragments (ال, ری), names, web-only words (زیرنویس, اوکی)
     profanity = set(PROFANE) | {"گه", "ریدن"}
     bad_text_re = re.compile("(?<![" + LET + "])(?:" + "|".join(PROFANE) + ")", re.I)
@@ -603,7 +610,7 @@ class Persian(LanguageSpec):
     # A1/A2 tier: sexual content, threats/violence, dying/death wishes, weapons
     sensitive_re = re.compile(
         "(?<![" + LET + "a-z])(?:بمیر\\w*|می\u200c?میر\\w*|نمیر\\w*|مرده|مرگ\\w*|بکشمت|بکشیمت|بکشش|"
-        "(?:ب|می\u200c?|ن)?کشت(?:ن|ند|م|یم|ید|ه)?|چاقو\\w*|کارد|شمشیر|گلوله|بمب|زخمی|جسد|"
+        "(?:ب|می\u200c?|ن)?کشت(?:ن|ند|م|یم|ید|ه)?|چاقو\\w*|کارد|شمشیر|گلوله|بمب|سلاح\\w*|شلیک|زخمی|جسد|"
         "die[ds]?|dying|death|weapons?|guns?|pistols?|rifles?|knife|knives|shot|bomb\\w*|serial killer|corpse|"
         "کشتن|سکس\\w*|جنسی|تجاوز\\s*جنسی|برهنه|لخت|خودکشی|قتل|قاتل|بکشمت|میکشمت|میکشیم|"
         "کشتمش|کشتمت|بکشید|بکشند|کشته\\s*شد|اعدام|تیراندازی|اسلحه|تفنگ|هفت\\s*تیر|چاقو\\s*زد|خون\\s*ریخت|"
@@ -657,7 +664,7 @@ class Persian(LanguageSpec):
                    ZWNJ + "\\1", t)
         t = re.sub(f"(?<=[{LET}]ه) (ام|ای|ایم|اید|اند)(?![{LET}])", ZWNJ + "\\1", t)
         # detached derivational suffixes (بازی گر, علاقه مند, غوطه ور): one word
-        t = re.sub(f"(?<=[{LET}]) (گر|گری|گران|ور|وری|مند|مندی|مندان|مندند|مندم|مندید|وار|ناک|ستان|زار)(?![{LET}])",
+        t = re.sub(f"(?<=[{LET}]) (گر|گری|ور|وری|مند|مندی|مندان|مندند|مندم|مندید|وار|ناک|ستان|زار)(?![{LET}])",
                    ZWNJ + "\\1", t)
         return t
 
@@ -703,6 +710,7 @@ class Persian(LanguageSpec):
             tmp.replace(cache)
         for t in texts:
             # Clitic=Yes: a host + enclitic(s) token kept whole
+            # Clitic=Yes: a host + enclitic(s) token kept whole; Host= its host word's UPOS
             yield [(x[0], x[1], x[2], dict(x[3], Clitic="Yes") if x[4] else x[3]) for x in raw[t]]
 
     # ---- kaikki side info (verbs: present stems; romanisation) -------------------------
@@ -814,9 +822,9 @@ class Persian(LanguageSpec):
                 "تنها": "ADV", "فورا": "ADV", "آهسته": "ADV", "بالا": "ADV", "پایین": "ADV", "واقعا": "ADV",
                 "یکی": "PRON", "تمام": "ADJ", "پس": "ADV", "یعنی": "CONJ", "چپ": "ADJ", "کاش": "ADV",
                 "بسیاری": "DET", "تمامی": "DET", "مقداری": "DET", "هزاران": "DET", "همگی": "PRON",
-                "صادقانه": "ADV", "تعداد": "NOUN"}
+                "صادقانه": "ADV", "تعداد": "NOUN", "کنار": "ADP", "روبرو": "ADP", "اکثر": "ADJ", "حسابی": "ADJ", "کلیه": "NOUN"}
     LEMMA_FIX = {"ابتداء": "ابتدا", "پائین": "پایین", "بیش": "بیشتر", "مساله": "مسئله", "مسایل": "مسئله", "هیچی": "هیچ",
-                 "ساله": "سال", "الان": "الآن", "دیگری": "دیگر", "بالای": "بالا"}
+                 "ساله": "سال", "الان": "الآن", "دیگری": "دیگر", "بالای": "بالا", "روبروی": "روبرو"}
 
     def _formal_inf(self, w):
         """Colloquial infinitive (دونستن, موندن, تونستن) -> written form (ون -> ان).
@@ -837,6 +845,10 @@ class Persian(LanguageSpec):
     def fix_token(self, tok):
         text, lemma, upos, ms = tok
         ftext, flemma = fold(text), fold(lemma)
+        if upos != "PUNCT":
+            # Stanza keeps a clitic token whole with the punctuation after it
+            # (چیست؟ زیباست. متشکرم!): the word without the punctuation
+            ftext, flemma = ftext.strip(TOKEN_PUNCT) or ftext, flemma.strip(TOKEN_PUNCT) or flemma
         flemma = self.LEMMA_FIX.get(flemma, flemma)
         if ftext == "رو" and upos == "ADP":
             flemma = "را"                       # colloquial object marker
@@ -862,22 +874,57 @@ class Persian(LanguageSpec):
         elif upos in ("ADJ", "ADV") and flemma in ("به", "بیش", "کم") and ftext.startswith(flemma + "تر"):
             flemma = ftext[:len(flemma) + 2] + ("ین" if ftext[len(flemma) + 2:].startswith("ین") else "")
             # بهتر "better", بیشتر "more" are words of their own, not به "to" / بیش
-        if flemma == "لطفا" or ftext == "لطفا":
-            flemma, upos = "لطفا", "INTJ"
+        info = self._info()
+        is_lemma_pos = lambda w, poses: any(r[1] in poses and r[4] for r in info.get(w, []))
+        if ftext in NUMBERS and upos in ("NOUN", "ADJ", "PROPN"):
+            upos, flemma = "NUM", ftext             # ساعت هشت: the numeral
+        elif upos == "PROPN" and ftext not in NAMES and is_lemma_pos(ftext, ("noun", "adj")) and \
+                not any(r[1] == "name" for r in info.get(ftext, [])):
+            upos, flemma = "NOUN", ftext            # شمال, جهان: common nouns Seraji tags PROPN
+        elif "Clitic=Yes" in ms and upos in ("ADP", "PRON", "CCONJ", "SCONJ", "AUX") and \
+                is_lemma_pos(ftext, ("noun", "adj")):
+            upos, flemma = "NOUN", ftext            # درمان split as در + مان: the noun
+        elif upos in ("VERB", "AUX") and flemma not in self._verbs()[0] and flemma != "باید":
+            # adjective/noun + copula clitic lemmatised as a made-up verb
+            # (خوشحالیم -> خوشیدن): the adjective or noun
+            for end in ("ایم", "اید", "اند", "است", "یم", "ید", "ند", "ست", "ام", "ای", "م", "ی"):
+                host = ftext[:-len(end)]
+                if ftext.endswith(end) and len(host) >= 2 and is_lemma_pos(host, ("adj", "noun")):
+                    upos = "ADJ" if is_lemma_pos(host, ("adj",)) else "NOUN"
+                    flemma, ms = host, (ms + "|" if ms else "") + "Clitic=Yes"
+                    break
+        if upos == "VERB" and "VerbForm=Part" in ms and ftext in PART_ADJ:
+            upos, flemma = "ADJ", ftext             # پیچیده است: "is complex", not a perfect tense
+        elif upos == "ADJ" and ftext != flemma and ftext.endswith("ی") and \
+                not any(r[1] == "adj" for r in info.get(flemma, [])) and is_lemma_pos(flemma, ("noun",)):
+            upos = "NOUN"                           # بودجه‌ی مدرسه: noun + ezafe tagged ADJ
+        elif upos == "NOUN" and flemma != ftext and not info.get(flemma) and ftext.endswith("ی") and \
+                is_lemma_pos(ftext[:-1], ("noun",)):
+            flemma = ftext[:-1]                     # اژدهای -> اژد (-ها read as a plural): اژدها
+        if ftext in ("لطفا", "متشکرم") or flemma == "لطفا":
+            flemma, upos = ftext if ftext == "متشکرم" else "لطفا", "INTJ"   # greetings Stanza reads as ADJ(+copula)
         return [ftext, flemma, upos, ms]
 
     def fix_sentence(self, toks, row, doc):
         """Stock names whose spelling is also a word (جان "life", کن "do!")
         are names when the English translation has the name."""
         en = row[3] if row else ""
+        units = {"سال", "ساعت", "روز", "ماه", "نفر", "دقیقه", "هفته", "بار", "کتاب", "تا"}
         for i, t in enumerate(toks):
             nxt = toks[i + 1][2] if i + 1 < len(toks) else "PUNCT"
+            if t[0] in ("سی", "دی") and ((i + 1 < len(toks) and (t[0], toks[i + 1][0]) == ("سی", "دی")) or
+                                          (i and (toks[i - 1][0], t[0]) == ("سی", "دی"))):
+                t[1], t[2] = t[0], "X"          # سی دی: CD, not thirty + the month Dey
+            if t[0] == "نه" and ((i + 1 < len(toks) and toks[i + 1][1] in units) or (i and toks[i - 1][0] == "ساعت")):
+                t[1], t[2] = "نه", "NUM"        # نه سال, ساعت نه: nine, not "no"
             if t[0] == "رو" and i and toks[i - 1][2] in ("NOUN", "PRON", "PROPN", "DET", "ADJ") and \
                     nxt not in ("NOUN", "PROPN", "PRON"):
                 t[1], t[2] = "را", "ADP"        # colloquial object marker (کاغذها رو بردارید)
             if t[0] in NAME_EN and re.search(r"\b" + NAME_EN[t[0]] + r"\b", en):
                 t[2] = "PROPN"
         return toks
+
+    SHARED_STEM = {("کشیدن", "کشتن"), ("شدن", "شستن")}
 
     # ---- resolution ----------------------------------------------------------------
     def post_resolve(self, toks, out):
@@ -891,8 +938,17 @@ class Persian(LanguageSpec):
             text, sl, upos, ms = t
             if not r or r[1] == "PROPN":
                 continue
+            if text == "رو" and sl == "را":
+                out[i] = r = ("را", "ADP")          # colloquial object marker; Wiktionary has رو only as روی
+            elif r[1] == "VERB" and text in COLLOQ_RAFTAN:
+                out[i] = r = ("رفتن", "VERB")       # برم, میره: colloquial بروم, می‌رود (not بردن)
+            if r[1] == "VERB" and (sl, r[0]) in self.SHARED_STEM:
+                # present stem shared by two verbs (می‌کشد: pulls/smokes or kills);
+                # Wiktionary's form table lists only one, the tagger reads context
+                out[i] = r = (sl, "VERB")
             if r[1] in ("NOUN", "ADJ") and r[0] == text and sl and sl != text and text not in KEEP_SURFACE and \
-                    ("Clitic=Yes" in ms or text.startswith(sl)) and lx.usable_entries(sl, self.group_kpos[r[1]]):
+                    text.startswith(sl) and text[len(sl):] in CLITIC_SUFFIXES and \
+                    lx.usable_entries(sl, self.group_kpos[r[1]]):
                 # host + clitic / indefinite -ی read as a rare headword of the same
                 # spelling (دلم "pimple", ماست "yoghurt", مردی "manhood"): the host word
                 out[i] = (sl, r[1])
@@ -919,6 +975,9 @@ class Persian(LanguageSpec):
                     break
                 n = out[j][0] if out[j] else t[0]
                 cands = nouns.get(n) or nouns.get(t[0])
+                if cands and n == "کار" and t[0] == "کاری" and r[0] == "کردن":
+                    cands = None    # کاری نکرده‌ام "haven't done a thing": کار + -ی as an object, not کار کردن "to work"
+                    # (other nouns keep the compound with -ی: ربطی ندارد, احتیاجی ندارم)
                 if not cands or "Number=Plur" in t[3]:
                     if t[2] == "NOUN":
                         break       # another noun is the verb's object/complement (پیشنهادش اعتراض کنم)
@@ -1059,6 +1118,8 @@ class Persian(LanguageSpec):
             return f"noun {w['id']} {w['w']!r}: plural -ها form as a lemma"
         if w.get("pos") == "verb" and not (re.search("(تن|دن)$", w["w"]) or w["w"] == "باید"):
             return f"verb {w['id']} {w['w']!r}: not an infinitive"
+        if w.get("pos") == "adj" and f.endswith("ترین"):
+            return f"adj {w['id']} {w['w']!r}: superlative -ترین form as a lemma"
         if re.search("[يك\u064c-\u065f]", w["w"]):
             return f"word {w['id']} {w['w']!r}: Arabic yeh/kaf or harakat in w"
         return None
