@@ -56,3 +56,4 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 ## Cross-pack policy follow-ups (2026-09-24)
 - Gloss-level sensitive scan (vulgar/sexual/slur regex over glosses, A1/A2 must be clean) was introduced after German and Italian shipped. Re-run it on **german** and **italian** (rebuild with the flag on, republish) once the shared rule lands in packbuilder core.
 - Sentence filter scope (A1/A2): sexual content + threats/violence. Italian shipped before this rule; rebuild + republish Italian with `sensitive` enabled.
+- Gap blank on reduplicated inflections (Indonesian anak-anak, alat-alatnya, berjam-jam): the blank covers only one half. gapMatch should extend the span across a hyphen-joined repeat of the matched form (and a trailing clitic -nya) before rendering. 7/4110 Indonesian gap candidates.
