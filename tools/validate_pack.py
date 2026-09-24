@@ -3,7 +3,8 @@
 
 Checks schema (required fields, types), referential integrity (sentence.words ids
 exist, every lv is a pack level, functionWords exist, placement levels exist,
-typing.strictFromLevel exists), placement feasibility, lesson shape, and that
+typing.strictFromLevel exists), placement feasibility, lesson shape, optional
+passages.json (ids, levels, word ids, question shape and sentence indices), and that
 the generated .js consts are in sync with the .json sources.
 
 Usage: python3 tools/validate_pack.py packs/zh [--dump-strata]
@@ -309,12 +310,109 @@ def check_lessons(pack, lessons, rep):
                 rep.err(f"{where}.items[{j}] must be {{t:'mc', q, opts (distinct, >=2), a in opts}}")
 
 
+PASSAGE_Q_TYPES = ("mc", "tf")
+
+
+def check_passages(passages, levels, by_id, rep):
+    """passages.json (optional): docs/PACK_SCHEMA.md "passages.json"."""
+    if passages is None:
+        return
+    if not isinstance(passages, list):
+        rep.err("passages.json must be a list")
+        return
+    if not passages:
+        rep.warn("passages.json is empty: the Read tab will be hidden")
+    ids = set()
+    for i, p in enumerate(passages):
+        where = f"passages[{i}]"
+        if not isinstance(p, dict) or not is_str(p.get("id")):
+            rep.err(f"{where} must be an object with a non-empty id")
+            continue
+        if p["id"] in ids:
+            rep.err(f"{where}.id {p['id']} duplicated")
+        ids.add(p["id"])
+        where = f"passage {p['id']}"
+        if p.get("lv") not in levels:
+            rep.err(f"{where}.lv {p.get('lv')!r} not in pack.levels")
+        for f in ("title", "text"):
+            if not is_str(p.get(f)):
+                rep.err(f"{where}.{f} must be a non-empty string")
+        if "src" in p and not is_str(p["src"]):
+            rep.err(f"{where}.src must be a non-empty string when present")
+        sents = p.get("sentences")
+        nsent = 0
+        if not isinstance(sents, list) or not sents:
+            rep.err(f"{where}.sentences must be a non-empty list")
+        else:
+            nsent = len(sents)
+            text = p.get("text") if isinstance(p.get("text"), str) else ""
+            for j, s in enumerate(sents):
+                sw = f"{where}.sentences[{j}]"
+                if not isinstance(s, dict):
+                    rep.err(f"{sw} must be an object")
+                    continue
+                for f in ("t", "en"):
+                    if not is_str(s.get(f)):
+                        rep.err(f"{sw}.{f} must be a non-empty string")
+                ws = s.get("words")
+                if not isinstance(ws, list):
+                    rep.err(f"{sw}.words must be a list of word ids")
+                else:
+                    missing = [w for w in ws if w not in by_id]
+                    if missing:
+                        rep.err(f"{sw}.words has unknown ids {missing}")
+                if is_str(s.get("t")) and text and s["t"].strip() not in text:
+                    rep.warn(f"{sw}.t does not appear in the passage text")
+        qs = p.get("questions")
+        if not isinstance(qs, list) or not qs:
+            rep.err(f"{where}.questions must be a non-empty list")
+            continue
+        for j, q in enumerate(qs):
+            qw = f"{where}.questions[{j}]"
+            if not isinstance(q, dict):
+                rep.err(f"{qw} must be an object")
+                continue
+            if not is_str(q.get("q")):
+                rep.err(f"{qw}.q must be a non-empty string")
+            if "en" in q and not is_str(q["en"]):
+                rep.err(f"{qw}.en must be a non-empty string when present")
+            ty = q.get("type")
+            if ty not in PASSAGE_Q_TYPES:
+                rep.err(f"{qw}.type must be \"mc\" or \"tf\", got {ty!r}")
+            elif ty == "mc":
+                opts = q.get("options")
+                if not (isinstance(opts, list) and len(opts) == 4 and all(is_str(o) for o in opts)
+                        and len(set(o.strip() for o in opts)) == 4):
+                    rep.err(f"{qw}.options must be 4 distinct non-empty strings")
+                a = q.get("answer")
+                if not (isinstance(a, int) and not is_bool(a) and 0 <= a < 4):
+                    rep.err(f"{qw}.answer must be an option index 0..3")
+            else:
+                if q.get("options") is not None:
+                    rep.err(f"{qw}.options must be null or absent for a tf question")
+                if not is_bool(q.get("answer")):
+                    rep.err(f"{qw}.answer must be true or false for a tf question")
+            ws = q.get("words")
+            if not isinstance(ws, list):
+                rep.err(f"{qw}.words must be a list of word ids")
+            else:
+                missing = [w for w in ws if w not in by_id]
+                if missing:
+                    rep.err(f"{qw}.words has unknown ids {missing}")
+                elif not ws:
+                    rep.warn(f"{qw}.words is empty: a wrong answer charges no word")
+            si = q.get("sentence")
+            if not (isinstance(si, int) and not is_bool(si) and 0 <= si < nsent):
+                rep.err(f"{qw}.sentence must be an index into {where}.sentences (0..{nsent - 1})")
+
+
 def validate(packdir):
     rep = Report()
     pack = load(packdir, "pack", rep)
     words = load(packdir, "words", rep)
     sents = load(packdir, "sentences", rep)
     lessons = load(packdir, "lessons", rep, required=False)
+    passages = load(packdir, "passages", rep, required=False)
     if pack is None or words is None or sents is None:
         return rep, {}
     levels = check_pack(pack, rep)
@@ -326,13 +424,21 @@ def validate(packdir):
     check_placement(pack, words, rep)
     check_sentences(sents, levels, by_id, rep)
     check_lessons(pack, lessons, rep)
+    check_passages(passages, levels, by_id, rep)
     r = subprocess.run([sys.executable, os.path.join(HERE, "jsonify_pack.py"), packdir, "--check"],
                        capture_output=True, text=True)
     if r.returncode != 0:
         rep.err("generated .js out of sync with .json: " + r.stdout.strip().replace("\n", "; "))
     counts = {"words": len(words), "sentences": len(sents) if isinstance(sents, list) else 0,
-              "lessons": len(lessons) if isinstance(lessons, list) else 0}
+              "lessons": len(lessons) if isinstance(lessons, list) else 0,
+              "passages": len(passages) if isinstance(passages, list) else 0}
     return rep, counts
+
+
+def passages_note(counts):
+    # Only packs with passages mention them, so existing packs' output is unchanged.
+    n = counts.get("passages", 0)
+    return f", {n} passages" if n else ""
 
 
 def main(argv):
@@ -354,7 +460,7 @@ def main(argv):
         print(f"ERROR ... and {len(rep.errors) - 50} more")
     status = "FAIL" if rep.errors else "OK"
     print(f"{status} {packdir}: {counts.get('words', 0)} words, {counts.get('sentences', 0)} sentences, "
-          f"{counts.get('lessons', 0)} lessons; {len(rep.errors)} errors, {len(rep.warnings)} warnings")
+          f"{counts.get('lessons', 0)} lessons{passages_note(counts)}; {len(rep.errors)} errors, {len(rep.warnings)} warnings")
     return 1 if rep.errors else 0
 
 

@@ -953,5 +953,147 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     return !!m && m.text === "lève" && m.article === "" && VC.gapChoices(FB.lev, m, FW, F).a === "lever"; })());
 })();
 
+// ------------------------------------------------------------ [22] reading passages
+(function(){
+  console.log("\n[22] reading passages: unlock, grading, weak words, progress, validator");
+  const RP = { key:"rp", name:"RP", tts:"it-IT", levels:[{id:"A1",label:"A1"},{id:"A2",label:"A2"}], placement:[["A1",2]], typing:null, showPron:false, hasLessons:false };
+  const RW = [...Array.from({length:20}, (_,i)=>({ id:`a${i}`, w:`parola${i}`, en:`word a ${i}`, lv:"A1" })),
+              ...Array.from({length:10}, (_,i)=>({ id:`b${i}`, w:`voce${i}`, en:`word b ${i}`, lv:"A2" }))];
+  RW[0].w = "casa"; RW[1].w = "andare"; RW[1].alt = ["vado"]; RW[2].w = "il gatto"; RW[2].alt = ["gatto"]; RW[3].w = "correre";
+  const RB = {}; RW.forEach(w => { RB[w.id] = w; });
+  const q = (type, answer, words, sentence) => ({ q:"Domanda?", type, options: type === "mc" ? ["uno","due","tre","quattro"] : null, answer, words, sentence });
+  const P1 = { id:"p0001", lv:"A1", title:"La casa", text:"Vado a casa. Il gatto dorme.", src:"gen",
+    sentences:[{ t:"Vado a casa.", en:"I go home.", words:["a1","a0","a3"] }, { t:"Il gatto dorme.", en:"The cat sleeps.", words:["a2"] }],
+    questions:[q("mc", 1, ["a0"], 0), q("tf", true, ["a2"], 1), q("mc", 3, ["a1"], 0)] };
+  const P2 = { id:"p0002", lv:"A1", title:"Il gatto", text:"Il gatto dorme.", sentences:[{ t:"Il gatto dorme.", en:"The cat sleeps.", words:["a2"] }], questions:[q("tf", false, ["a2"], 0)] };
+  const P3 = { id:"p0003", lv:"A2", title:"Voce", text:"voce0 voce1.", sentences:[{ t:"voce0 voce1.", en:"x", words:["b0","b1"] }], questions:[q("tf", true, ["b0"], 0)] };
+  const PS = [P1, P2, P3];
+
+  // unlock thresholds
+  const prog = VC.normalizeProg({}, RP);
+  const lv0 = VC.readingLevels(PS, RW, RP, prog);
+  check("fresh learner: no level unlocked; A1 needs ceil(0.7*20)=14", lv0.every(l => !l.unlocked) && lv0[0].need === 14 && lv0[0].count === 2 && lv0[1].need === 7);
+  prog.sets.A1 = 1;
+  check("10/20 learned (50%) -> A1 still locked, suggestion null", !VC.readingLevels(PS, RW, RP, prog)[0].unlocked && VC.suggestPassage(PS, RW, RP, prog) === null);
+  prog.w.a10 = { r:1, w:0, s:1, d:1 }; prog.w.a11 = { r:1, w:0, s:1, d:1 }; prog.w.a12 = { r:1, w:0, s:1, d:1 };
+  check("13/20 (65%) -> locked", !VC.readingLevels(PS, RW, RP, prog)[0].met);
+  prog.w.a13 = { r:1, w:0, s:1, d:1 };
+  check("14/20 (70%) -> A1 unlocked", VC.readingLevels(PS, RW, RP, prog)[0].met);
+  check("updateReadUnlocks records A1 once (sticky in prog.read.unlocked)", util.isDeepStrictEqual(VC.updateReadUnlocks(PS, RW, RP, prog), ["A1"]) && prog.read.unlocked.A1 === 1 && VC.updateReadUnlocks(PS, RW, RP, prog).length === 0);
+  const dropped = JSON.parse(JSON.stringify(prog)); dropped.sets.A1 = 0;
+  check("stored unlock survives a drop below the threshold", VC.readingLevels(PS, RW, RP, dropped)[0].unlocked && !VC.readingLevels(PS, RW, RP, dropped)[0].met);
+  check("A2 stays locked (0 learned)", !VC.readingLevels(PS, RW, RP, prog)[1].unlocked);
+  check("suggestPassage -> first not-done passage at an unlocked level", VC.suggestPassage(PS, RW, RP, prog) === P1);
+
+  // grading
+  check("gradeQuestion mc: right index true, wrong index / string / bool false",
+    VC.gradeQuestion(P1.questions[0], 1) && !VC.gradeQuestion(P1.questions[0], 0) && !VC.gradeQuestion(P1.questions[0], "1") && !VC.gradeQuestion(P1.questions[0], true));
+  check("gradeQuestion tf: bool compare, non-bool false",
+    VC.gradeQuestion(P1.questions[1], true) && !VC.gradeQuestion(P1.questions[1], false) && !VC.gradeQuestion(P1.questions[1], 1) && VC.gradeQuestion(P2.questions[0], false));
+
+  // weak words: tapped a3 + a0; q0 wrong (a0: tapped and wrong -> 2, not 4); q1 right after reopening (a2 -> 1);
+  // q2 right (a1 not weak). Unknown ids dropped.
+  const log = { tapped:["a3","a0","zz"], answers:[{ ok:false, reopened:false }, { ok:true, reopened:true }, { ok:true, reopened:false }] };
+  const weak = VC.passageWeakWords(P1, log, RB);
+  const W = {}; weak.forEach(e => { W[e.id] = e; });
+  check("weak words = tapped ∪ wrong-question words ∪ reopened-question words", util.isDeepStrictEqual(weak.map(e => e.id), ["a3","a0","a2"]));
+  check("weights: tapped 2, tapped+wrong 2 (max, not sum), reopened only 1", W.a3.weight === 2 && W.a0.weight === 2 && W.a2.weight === 1 && util.isDeepStrictEqual(W.a0.why, ["tapped","wrong"]));
+  check("wrong + reopened on the same question -> 2", VC.passageWeakWords(P1, { tapped:[], answers:[{ ok:false, reopened:true }] }, RB)[0].weight === 2);
+  check("all right, nothing tapped or reopened -> no weak words", VC.passageWeakWords(P1, { tapped:[], answers:[{ok:true},{ok:true},{ok:true}] }, RB).length === 0);
+
+  // apply to progress: learned word (a0) and unlearned words (a2 is in set 1: learned; a3 learned) — use a19 (unlearned) too.
+  const before = JSON.parse(JSON.stringify(prog));
+  prog.w.a0 = { r:3, w:0, s:3, prov:1 };
+  VC.applyWeakWords(prog, [...weak, { id:"a19", weight:2 }, { id:"a18", weight:0 }], RW, RP);
+  check("applyWeakWords: misses += weight, streak reset, prov cleared", prog.w.a0.w === 2 && prog.w.a0.s === 0 && !prog.w.a0.prov && prog.w.a2.w === 1 && prog.w.a3.w === 2);
+  check("applyWeakWords: unlearned word flagged d (joins review pool); learned word not flagged; weight 0 ignored",
+    prog.w.a19.d === 1 && prog.w.a19.w === 2 && !prog.w.a0.d && !prog.w.a18 && before.w.a19 === undefined);
+  check("weakScore ranks applied words above untouched ones", VC.weakScore(prog.w.a0) > 0 && VC.weakScore(prog.w.a2) > 0 && VC.weakScore(prog.w.a5) <= 0);
+  const lw = VC.learnedWords(RW, RP, prog);
+  let inReview = true;
+  for(let i=0;i<30;i++){ const ids = new Set(VC.buildReviewPlan(lw, prog, RP).map(p => p.word.id)); if(!["a0","a2","a3","a19"].every(id => ids.has(id))) inReview = false; }
+  check("Today's review plan includes every applied weak word (30 draws)", inReview);
+
+  // passage done + stats
+  VC.markPassageDone(prog, "p0001", 2, 3, "2026-09-24");
+  check("markPassageDone stores {sc,n,d,x}", util.isDeepStrictEqual(prog.read.done.p0001, { sc:2, n:3, d:"2026-09-24", x:1 }));
+  check("suggestPassage moves to the next not-done passage", VC.suggestPassage(PS, RW, RP, prog) === P2);
+  VC.markPassageDone(prog, "p0002", 1, 1, "2026-09-25");
+  check("all unlocked passages done -> no suggestion", VC.suggestPassage(PS, RW, RP, prog) === null);
+  VC.markPassageDone(prog, "p0001", 3, 3, "2026-09-26");
+  const st = VC.readingStats(PS, RP, prog);
+  check("readingStats: A1 2/2 done, avg of latest scores (100%, 100%); A2 0/1, avg null", st.length === 2 && st[0].done === 2 && st[0].total === 2 && st[0].avg === 100 && st[1].done === 0 && st[1].avg === null && prog.read.done.p0001.x === 2);
+
+  // progress shape and round trip
+  const L = VC.levelIds(RP);
+  check("validateProgShape accepts prog with read state", VC.validateProgShape(JSON.parse(JSON.stringify(prog)), L).ok);
+  check("validateProgShape accepts old progress without read", VC.validateProgShape({ w:{}, sets:{A1:1} }, L).ok);
+  const badRead = [{ read:[] }, { read:{ done:[] } }, { read:{ unlocked:{ A1:"yes" } } }, { read:{ done:{ p:{ sc:"2" } } } }, { read:{ done:{ p:{ d:20260924 } } } }, { read:{ done:{ p:1 } } }];
+  check("validateProgShape rejects malformed read shapes", badRead.every(b => !VC.validateProgShape(b, L).ok));
+  const imp = VC.applyImport(VC.normalizeProg({}, RP), JSON.stringify(prog), RP);
+  check("export -> import round trip keeps read state and word records", imp.ok && util.isDeepStrictEqual(imp.prog.read, prog.read) && util.isDeepStrictEqual(imp.prog.w, prog.w));
+  const boot = VC.bootProg(JSON.stringify(prog), RP);
+  check("boot from stored progress keeps read state", boot.backupRaw === null && util.isDeepStrictEqual(boot.prog.read, prog.read));
+  const oldBoot = VC.bootProg(JSON.stringify({ v:1, w:{ a0:{r:1,w:0,s:1} }, sets:{ A1:1 } }), RP);
+  check("boot from old progress (no read keys) is fine; read state created lazily", oldBoot.backupRaw === null && oldBoot.prog.read === undefined &&
+    VC.readingLevels(PS, RW, RP, oldBoot.prog).length === 2 && VC.suggestPassage(PS, RW, RP, oldBoot.prog) === null);
+
+  // segments + length
+  const seg = VC.passageSegments(P1.sentences[0], RB, RP);
+  check("passageSegments: alt 'vado' and w 'casa' tappable; invisible 'correre' listed as unplaced; text rejoins",
+    seg.parts.map(p => p.text).join("") === P1.sentences[0].t && util.isDeepStrictEqual(seg.parts.filter(p => p.id).map(p => [p.text, p.id]), [["Vado","a1"],["casa","a0"]]) && util.isDeepStrictEqual(seg.unplaced, ["a3"]));
+  const seg2 = VC.passageSegments(P1.sentences[1], RB, RP);
+  check("passageSegments: articled w 'il gatto' spans the article (longest hit)", util.isDeepStrictEqual(seg2.parts.filter(p => p.id).map(p => p.text), ["Il gatto"]));
+  const ZP = { spaced:false }, ZB = { x:{ id:"x", w:"为", en:"for" }, y:{ id:"y", w:"为什么", en:"why" }, z:{ id:"z", w:"你", en:"you" } };
+  const zs = VC.passageSegments({ t:"你为什么来？", words:["z","x","y"] }, ZB, ZP);
+  check("passageSegments unspaced: 为什么 wins over the 为 inside it; 为 then listed as unplaced (not visible on its own)",
+    util.isDeepStrictEqual(zs.parts.filter(p => p.id).map(p => p.id), ["z","y"]) && util.isDeepStrictEqual(zs.unplaced, ["x"]));
+  check("passageLength: spaced = whitespace tokens; unspaced = linked words", VC.passageLength(P1, RP) === 6 && VC.passageLength({ sentences:[{ words:["a","b"] },{ words:["c"] }] }, ZP) === 3);
+
+  // validate_pack.py + jsonify on a temp pack with passages
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vocab_passages_"));
+  fs.writeFileSync(path.join(tmp, "pack.json"), JSON.stringify(RP));
+  fs.writeFileSync(path.join(tmp, "words.json"), JSON.stringify(RW));
+  fs.writeFileSync(path.join(tmp, "sentences.json"), "[]");
+  const runP = passages => {
+    const pf = path.join(tmp, "passages.json");
+    if(passages === null){ if(fs.existsSync(pf)) fs.unlinkSync(pf); } else fs.writeFileSync(pf, JSON.stringify(passages));
+    cp.spawnSync("python3", [path.join(ROOT, "tools", "jsonify_pack.py"), tmp]);
+    return cp.spawnSync("python3", [path.join(ROOT, "tools", "validate_pack.py"), tmp], { encoding:"utf8" });
+  };
+  const none = runP(null);
+  const sjsNone = fs.readFileSync(path.join(tmp, "sentences.js"), "utf8");
+  check("pack without passages.json validates; sentences.js has no PASSAGES", none.status === 0 && !/PASSAGES/.test(sjsNone) && !/\d+ passages/.test(none.stdout));
+  const good = runP(PS);
+  const sjs = fs.readFileSync(path.join(tmp, "sentences.js"), "utf8");
+  check("valid passages.json validates (3 passages) and is appended to sentences.js as PASSAGES", good.status === 0 && /3 passages/.test(good.stdout) &&
+    util.isDeepStrictEqual(new Function(sjs + "\nreturn PASSAGES;")(), PS) && util.isDeepStrictEqual(new Function(sjs + "\nreturn SENTENCES;")(), []));
+  const mut = f => { const c = JSON.parse(JSON.stringify(PS)); f(c); return c; };
+  const bad = [
+    ["duplicate passage id", c => { c[1].id = "p0001"; }, /duplicated/],
+    ["unknown level", c => { c[0].lv = "C2"; }, /not in pack\.levels/],
+    ["unknown sentence word id", c => { c[0].sentences[0].words.push("nope"); }, /unknown ids \['nope'\]/],
+    ["unknown question word id", c => { c[0].questions[0].words = ["nope"]; }, /questions\[0\]\.words has unknown ids/],
+    ["sentence index out of range", c => { c[0].questions[0].sentence = 2; }, /sentence must be an index/],
+    ["mc with 3 options", c => { c[0].questions[0].options.pop(); }, /4 distinct/],
+    ["mc with duplicate options", c => { c[0].questions[0].options[3] = "uno"; }, /4 distinct/],
+    ["mc answer out of range", c => { c[0].questions[0].answer = 4; }, /index 0\.\.3/],
+    ["mc answer bool", c => { c[0].questions[0].answer = true; }, /index 0\.\.3/],
+    ["tf answer not bool", c => { c[0].questions[1].answer = 1; }, /true or false/],
+    ["tf with options", c => { c[0].questions[1].options = ["a","b","c","d"]; }, /null or absent/],
+    ["unknown question type", c => { c[0].questions[0].type = "open"; }, /"mc" or "tf"/],
+    ["no questions", c => { c[0].questions = []; }, /questions must be a non-empty list/],
+    ["no sentences", c => { c[0].sentences = []; }, /sentences must be a non-empty list/],
+  ];
+  bad.forEach(([name, f, re]) => { const r = runP(mut(f)); check(`validate_pack rejects passages: ${name}`, r.status === 1 && re.test(r.stdout)); });
+  const warnOnly = runP(mut(c => { c[0].sentences[0].t = "Non nel testo."; c[0].questions[0].words = []; }));
+  check("sentence not in text / empty question words are warnings only", warnOnly.status === 0 && /does not appear in the passage text/.test(warnOnly.stdout) && /words is empty/.test(warnOnly.stdout));
+  runP(PS);
+  fs.unlinkSync(path.join(tmp, "passages.json"));
+  const stale = cp.spawnSync("python3", [path.join(ROOT, "tools", "validate_pack.py"), tmp], { encoding:"utf8" });
+  check("removing passages.json without regenerating -> stale sentences.js error", stale.status === 1 && /out of sync/.test(stale.stdout));
+  fs.rmSync(tmp, { recursive:true, force:true });
+})();
+
 console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

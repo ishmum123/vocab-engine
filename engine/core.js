@@ -695,6 +695,7 @@ function validateProgShape(data, levelIdList){
   if(data.placedOnce !== undefined && typeof data.placedOnce !== "boolean" && typeof data.placedOnce !== "number") return {ok:false, reason:"placedOnce must be a boolean or number"};
   if(data.soundsOpened !== undefined && typeof data.soundsOpened !== "boolean" && typeof data.soundsOpened !== "number") return {ok:false, reason:"soundsOpened must be a boolean or number"};
   if(data.theme !== undefined && data.theme !== null && data.theme !== "light" && data.theme !== "dark") return {ok:false, reason:"theme must be null, \"light\" or \"dark\""};
+  if(data.read !== undefined){ const e = validateReadShape(data.read); if(e) return {ok:false, reason:e}; }
   return {ok:true, data};
 }
 // Fills every missing field of validated (or stored) progress from the pack's
@@ -910,6 +911,164 @@ function audioSlot(make){
   };
 }
 
+// ------------------------------------------------------------------ reading passages
+// Optional pack data (passages.json, docs/PACK_SCHEMA.md "passages.json"). A level's
+// passages unlock once READ_UNLOCK of that level's words are learned; the unlock is
+// stored in prog.read.unlocked so it survives later changes. Reading state lives in
+// prog.read = { unlocked: {levelId: 1}, done: {passageId: {sc, n, d, x}} } and is absent
+// until the learner first meets a passage, so older stored progress needs no migration.
+const READ_UNLOCK = 0.7;
+// Weights for "Weak words from this passage": misses added to prog.w[id].w.
+const READ_WEIGHT = { tapped: 2, wrong: 2, reopened: 1 };
+function readState(prog){
+  if(!isObj(prog.read)) prog.read = {};
+  if(!isObj(prog.read.unlocked)) prog.read.unlocked = {};
+  if(!isObj(prog.read.done)) prog.read.done = {};
+  return prog.read;
+}
+// Per pack level: {lv, total, learned, need, frac, met, unlocked, count}. count = passages
+// at that level; need = learned words the threshold asks for (ceil(70% of total)).
+function readingLevels(passages, words, pack, prog){
+  const learned = learnedWords(words, pack, prog);
+  const byLv = wordsByLevel(words, pack);
+  const stored = (isObj(prog.read) && isObj(prog.read.unlocked)) ? prog.read.unlocked : {};
+  return levelIds(pack).map(lv => {
+    const total = byLv[lv].length, got = learned.filter(w => w.lv === lv).length;
+    const need = Math.ceil(total * READ_UNLOCK - 1e-9);
+    const met = total > 0 && got >= need;
+    return { lv, total, learned: got, need, frac: total ? got/total : 0, met, unlocked: met || !!stored[lv],
+      count: (passages||[]).filter(p => p.lv === lv).length };
+  });
+}
+// Records newly met thresholds in prog.read.unlocked (sticky). Only levels that have
+// passages are recorded. Returns the level ids unlocked by this call.
+function updateReadUnlocks(passages, words, pack, prog){
+  const fresh = readingLevels(passages, words, pack, prog).filter(l => l.met && l.count > 0 && !(isObj(prog.read) && isObj(prog.read.unlocked) && prog.read.unlocked[l.lv]));
+  if(fresh.length){ const st = readState(prog); fresh.forEach(l => { st.unlocked[l.lv] = 1; }); }
+  return fresh.map(l => l.lv);
+}
+// Today's suggestion: the first not-done passage in pack order at an unlocked level, or null.
+function suggestPassage(passages, words, pack, prog){
+  const open = new Set(readingLevels(passages, words, pack, prog).filter(l => l.unlocked).map(l => l.lv));
+  const done = (isObj(prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
+  return (passages||[]).find(p => open.has(p.lv) && !done[p.id]) || null;
+}
+// Length in words: whitespace tokens for spaced scripts, linked word tokens otherwise.
+function passageLength(p, pack){
+  if(!pack || pack.spaced !== false) return String((p && p.text) || "").trim().split(/\s+/).filter(Boolean).length;
+  return ((p && p.sentences) || []).reduce((n, s) => n + ((s.words || []).length), 0);
+}
+// Sentence text split into tappable pieces: [{text, id}] where id is the linked word
+// found there (null for plain text), plus `unplaced`, the linked ids not visible in the
+// text (inflected forms no alt matches), which the UI lists under the sentence so every
+// linked word stays tappable. Each word is searched by w, every alt and its bare form, as
+// findSurface does for the pack; overlapping hits keep the longest (per start, earliest
+// first), so 为什么 wins over 为. Joining every piece's text gives back s.t.
+function passageSegments(s, wordsById, pack){
+  const t = String((s && s.t) || "");
+  const spaced = !pack || pack.spaced !== false;
+  const arts = packArticles(wordsById || {});
+  const ids = [...new Set((s && s.words) || [])];
+  const hits = [];
+  ids.forEach(id => {
+    const e = (wordsById || {})[id]; if(!e) return;
+    const forms = [...new Set([e.w, ...(e.alt || []), bareForm(e, arts)].filter(Boolean))];
+    forms.forEach(f => findSurface(t, f, spaced).forEach(m => hits.push({ start: m.start, end: m.end, id })));
+  });
+  hits.sort((a,b) => (b.end - b.start) - (a.end - a.start) || a.start - b.start);
+  const keep = [];
+  hits.forEach(h => { if(!keep.some(k => h.start < k.end && k.start < h.end)) keep.push(h); });
+  keep.sort((a,b) => a.start - b.start);
+  const parts = []; let at = 0;
+  keep.forEach(h => { if(h.start > at) parts.push({ text: t.slice(at, h.start), id: null }); parts.push({ text: t.slice(h.start, h.end), id: h.id }); at = h.end; });
+  if(at < t.length || !parts.length) parts.push({ text: t.slice(at), id: null });
+  const placed = new Set(keep.map(h => h.id));
+  return { parts, unplaced: ids.filter(id => !placed.has(id) && (wordsById || {})[id]) };
+}
+// Grades one answer: mc = option index, tf = boolean. Anything else is wrong.
+function gradeQuestion(q, answer){
+  if(!q) return false;
+  if(q.type === "tf") return typeof answer === "boolean" && answer === q.answer;
+  return Number.isInteger(answer) && answer === q.answer;
+}
+// "Weak words from this passage". log = {tapped: [wordId], answers: [{ok, reopened}] by
+// question index}. Tapped words and the words of wrongly answered questions weigh
+// READ_WEIGHT.tapped / .wrong (2); the words of questions answered while the passage was
+// reopened weigh .reopened (1). A word with several reasons takes the largest weight,
+// never the sum. Order: tapped first (tap order), then question order. Returns
+// [{id, weight, why: ["tapped"|"wrong"|"reopened"]}]; ids not in wordsById are dropped.
+function passageWeakWords(passage, log, wordsById){
+  const out = new Map();
+  const add = (id, why) => {
+    if(wordsById && !wordsById[id]) return;
+    const e = out.get(id) || { id, weight: 0, why: [] };
+    if(e.why.indexOf(why) < 0) e.why.push(why);
+    e.weight = Math.max(e.weight, READ_WEIGHT[why]);
+    out.set(id, e);
+  };
+  ((log && log.tapped) || []).forEach(id => add(id, "tapped"));
+  const qs = (passage && passage.questions) || [];
+  ((log && log.answers) || []).forEach((a, i) => {
+    if(!a || !qs[i]) return;
+    if(!a.ok) (qs[i].words || []).forEach(id => add(id, "wrong"));
+    if(a.reopened) (qs[i].words || []).forEach(id => add(id, "reopened"));
+  });
+  return [...out.values()];
+}
+// Applies chosen weak words to progress in place: misses (rec.w) += weight, streak reset,
+// provisional flag cleared, as a miss in markRec does, so weakScore ranks them first in
+// the next review. A word not yet learned is flagged `d` (as a Words-tab drill ahead
+// does), so learnedWords, and with it Today's review, includes it. Side effect, accepted:
+// a `d` word counts as learned everywhere learnedWords is used, including the READ_UNLOCK
+// threshold, exactly as a Words-tab drill-ahead does.
+function applyWeakWords(prog, entries, words, pack){
+  const learned = new Set(learnedWords(words, pack, prog).map(w => w.id));
+  (entries || []).forEach(e => {
+    if(!e || !(e.weight > 0)) return;
+    const p = prog.w[e.id] || { r:0, w:0, s:0 };
+    p.w = (p.w || 0) + e.weight; p.s = 0;
+    if(p.prov) delete p.prov;
+    if(!learned.has(e.id)) p.d = 1;
+    prog.w[e.id] = p;
+  });
+  return prog;
+}
+// Records a finished passage: sc right of n questions on date d ("YYYY-MM-DD"); x counts
+// attempts. The latest attempt's score is kept.
+function markPassageDone(prog, pid, sc, n, d){
+  const st = readState(prog); const prev = st.done[pid];
+  st.done[pid] = { sc, n, d: String(d), x: ((prev && prev.x) || 0) + 1 };
+  return st.done[pid];
+}
+// Progress tab: per level with passages {lv, total, done, avg} where avg is the mean
+// latest score in percent over done passages (null when none).
+function readingStats(passages, pack, prog){
+  const done = (isObj(prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
+  return levelIds(pack).map(lv => {
+    const ps = (passages||[]).filter(p => p.lv === lv);
+    const d = ps.filter(p => done[p.id]).map(p => done[p.id]);
+    const pct = d.filter(r => r.n > 0).map(r => r.sc / r.n * 100);
+    return { lv, total: ps.length, done: d.length, avg: pct.length ? Math.round(pct.reduce((a,b)=>a+b,0) / pct.length) : null };
+  }).filter(r => r.total > 0);
+}
+function validateReadShape(r){
+  if(!isObj(r)) return "read must be an object";
+  if(r.unlocked !== undefined){
+    if(!isObj(r.unlocked)) return "read.unlocked must be an object";
+    for(const k of Object.keys(r.unlocked)) if(typeof r.unlocked[k] !== "number" && typeof r.unlocked[k] !== "boolean") return `read.unlocked.${k} must be a number or boolean`;
+  }
+  if(r.done !== undefined){
+    if(!isObj(r.done)) return "read.done must be an object";
+    for(const k of Object.keys(r.done)){
+      const p = r.done[k];
+      if(!isObj(p)) return `read.done.${k} must be an object`;
+      for(const f of ["sc","n","x"]) if(p[f] !== undefined && typeof p[f] !== "number") return `read.done.${k}.${f} must be a number`;
+      if(p.d !== undefined && typeof p.d !== "string") return `read.done.${k}.d must be a string`;
+    }
+  }
+  return null;
+}
+
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
@@ -922,7 +1081,9 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
-  PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind };
+  PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
+  READ_UNLOCK, READ_WEIGHT, readState, readingLevels, updateReadUnlocks, suggestPassage, passageLength, passageSegments,
+  gradeQuestion, passageWeakWords, applyWeakWords, markPassageDone, readingStats };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
 })(typeof window!=="undefined" ? window : (typeof globalThis!=="undefined" ? globalThis : null));

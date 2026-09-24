@@ -8,10 +8,11 @@ A pack is one directory of JSON files that holds all the language-specific data.
   words.json       required  vocabulary
   sentences.json   required  example sentences (may be [])
   lessons.json     optional  "Sounds" tab lessons; required when pack.hasLessons is true
+  passages.json    optional  "Read" tab graded passages with questions
   pack.js words.js sentences.js lessons.js   generated, never edit by hand
 ```
 
-The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. They hold the same data as `const PACK=`, `WORDS=`, `SENTENCES=` and `LESSONS=`, so the app can load them from `file://` and `build.sh` can inline them. `tools/validate_pack.py` fails when they are stale.
+The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. They hold the same data as `const PACK=`, `WORDS=`, `SENTENCES=` and `LESSONS=`, so the app can load them from `file://` and `build.sh` can inline them. `passages.json` has no file of its own: its `const PASSAGES=` is appended to `sentences.js`, so `build.sh` and the dev loader need nothing new, and a pack without passages gets exactly the `sentences.js` it had before. `tools/validate_pack.py` fails when they are stale.
 
 ## pack.json
 
@@ -102,6 +103,44 @@ Optional. The shape is unchanged from hsk's `LESSONS`.
 - An item's `say` is played when it starts. With no usable voice, an item whose `q` already contains the `say` text runs as is. An item whose `say` text contains the answer is skipped, with a notice. Any other item shows the `say` text in place of the audio. This is core.js `lessonSayMode`.
 - In `items`, `t` must be `"mc"`. It is the only item type, and the engine skips any other. `a` must be one of `opts`, and the options must be distinct. `rv` is the text revealed after answering.
 
+## passages.json
+
+Optional. When present and non-empty, the app shows a **Read** tab. Without it nothing changes.
+
+```
+[{ id, lv, title, text, src?,
+   sentences: [{ t, en, words: [wordId] }],
+   questions: [{ q, en?, type: "mc"|"tf", options: [4 strings] | null, answer, words: [wordId], sentence }] }]
+```
+
+| field | type | meaning |
+|---|---|---|
+| `id` | string, unique | Progress key (`prog.read.done`). Never renumber a published pack. Convention `p0001`…. |
+| `lv` | levelId | Must be one of `pack.levels[].id` (`"A1"`, `"A2"`, `"B1"`; zh would use `"1"`…). |
+| `title` | string | Target-language title, shown in the passage list. |
+| `text` | string | The full passage. Each `sentences[].t` should appear in it verbatim (warning otherwise). Length in the list is whitespace tokens of `text`, or the linked word count when `pack.spaced` is false. |
+| `src` | string | Optional provenance, e.g. `"gen"` for build-time generated passages. Not shown. |
+| `sentences[].t` | string | One sentence of the passage, rendered in order. |
+| `sentences[].en` | string | English translation, shown in question feedback and results. |
+| `sentences[].words` | `[wordId]` | Linked pack words. Each is tappable for its gloss wherever its `w`, an `alt` or its bare form is visible in `t` (core.js `passageSegments`, longest match wins, so 为什么 beats 为). Linked words not visible in `t` are shown as chips under the sentence, so every linked word stays tappable. |
+| `questions[].q` | string | Target-language question. |
+| `questions[].en` | string | Optional English translation of `q`, shown under it. |
+| `questions[].type` | `"mc"` or `"tf"` | Multiple choice or true/false. |
+| `questions[].options` | 4 strings or `null` | mc: exactly 4 distinct target-language options, shown shuffled. tf: `null` or absent. |
+| `questions[].answer` | int or bool | mc: index 0–3 into `options`. tf: `true` or `false`. |
+| `questions[].words` | `[wordId]` | Words the answer hinges on. A wrong answer charges them. May be empty (warning). |
+| `questions[].sentence` | int | Index into `sentences` of the source sentence, highlighted in feedback and results. |
+
+**Unlocking.** A level's passages unlock once 70% of that level's words are learned (core.js `READ_UNLOCK`, `readingLevels`). The unlock is stored in `prog.read.unlocked` and stays even if the count later drops. A locked level shows the threshold and the learned count. Today suggests "Read 1 passage" with the first not-done passage at an unlocked level (`suggestPassage`).
+
+**Flow.** Reading screen: sentence by sentence, tap-to-gloss on linked words (each tapped id is logged), optional per-sentence read-aloud when speech works or the sentence has `audio`. "Done reading" starts the questions, one at a time, with the passage hidden behind a "Show passage" toggle. Opening it before answering is logged for that question. Feedback highlights the source sentence.
+
+**Weak words.** The results screen lists the union of tapped words, the `words` of wrongly answered questions, and the `words` of questions answered after reopening the passage (`passageWeakWords`). Each has a checkbox, ticked by default. "Add to review" adds misses to `prog.w[id].w`: 2 for tapped or wrong, 1 for reopened only, the largest reason winning (`READ_WEIGHT`, `applyWeakWords`). The streak resets as for any miss, so `weakScore` ranks them first in the next review. A word not yet learned is flagged `d` (drilled ahead), which puts it in the review pool. As with a Words-tab drill-ahead, a `d` word then counts as learned everywhere, including the 70% unlock threshold. This is intended. The passage is recorded as done in `prog.read.done[id] = {sc, n, d, x}`: latest score, question count, date and attempt count.
+
+**Progress.** `prog.read` (`{unlocked: {levelId: 1}, done: {passageId: {sc, n, d, x}}}`) is created on first use, exported and imported with the rest, and checked by `validateProgShape`. Stored progress without it loads unchanged. The Progress tab shows passages done and the average latest score per level.
+
+**Script display.** Titles, passage sentences, questions, mc options and gloss words carry `lang`, `dir="rtl"` and the pack fonts, as everywhere else. English translations and True/False labels do not.
+
 ## Validation
 
 `python3 tools/validate_pack.py <packdir>` checks the following. Exit status 1 means at least one error.
@@ -116,6 +155,7 @@ Optional. The shape is unchanged from hsk's `LESSONS`.
 - `typing.strictFromLevel` exists.
 - Script fields: `rtl` is a bool, `langTag` is a BCP-47 tag, `fontFamily` has no `;`, `{`, `}`, `<`, `>`, `\`, `/*` or `url(`, every `fonts` entry is a Google Fonts family name, and `lineHeight` is 1–4. A pack with `rtl` true and neither `fontFamily` nor `fonts` gets a warning.
 - Lesson answers are among their options.
+- `passages.json`, when present: unique ids, `lv` is a pack level, `title`/`text` non-empty, non-empty `sentences` with `t`, `en` and known `words` ids, non-empty `questions` with `q`, `type` mc or tf, mc `options` of 4 distinct strings with `answer` 0–3, tf `answer` a bool and no options, known `words` ids, and `sentence` a valid index. A sentence `t` missing from `text` and a question with empty `words` are warnings.
 - The generated `.js` files are in sync.
 
 A word that shares its surface form with another word at the same level produces a warning.

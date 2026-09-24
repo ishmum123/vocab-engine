@@ -122,6 +122,27 @@
   .taplist button{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font-size:15px;min-height:48px;font-family:var(--wfont)}
   .plist button{display:flex;justify-content:space-between;width:100%;text-align:left;padding:13px 4px;border:none;border-bottom:1px solid var(--line);background:transparent;font-size:16px;color:var(--ink);min-height:48px;align-items:center}
   .plist .tick{color:var(--ok);font-size:14px}
+  /* Read tab: passage sentences with tappable linked words. */
+  .rlv{margin-bottom:14px}
+  .rlh{display:flex;justify-content:space-between;align-items:baseline;font-weight:600;font-size:16px;margin-bottom:4px}
+  .ptitle{font-size:21px;margin:0 0 4px;font-weight:600}
+  .passage{margin:4px 0 8px}
+  .passage[hidden],.gloss[hidden],[hidden].q{display:none}
+  .psent{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 8px;padding:8px 6px;border-radius:10px}
+  .psent.hi{background:var(--ok-bg)}
+  .psent .ptxt{flex:1 1 0;min-width:0;font-size:19px;line-height:1.7;overflow-wrap:anywhere}
+  .psent .psay{width:36px;height:36px;font-size:14px}
+  .pchips{flex:0 0 100%;display:flex;flex-wrap:wrap;gap:6px}
+  .pw{border-bottom:1px dotted var(--mute);cursor:pointer}
+  .pw.on{background:var(--ok-bg);border-bottom-color:var(--ok)}
+  .pchip{font-size:14px;padding:2px 8px;border:1px solid var(--line);border-radius:8px;border-bottom-style:solid}
+  .gloss{position:sticky;top:0;z-index:2;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:6px 0;font-size:15px}
+  .gloss .gw{font-size:19px;font-weight:500}
+  .gloss .gp,.gloss .ge,.wk .gp,.wk .ge{color:var(--mute)}
+  mark{background:var(--ok-bg);color:inherit;border-radius:4px;padding:0 2px}
+  .wk{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:10px 0;border-bottom:1px solid var(--line);font-size:15px;min-height:44px}
+  .wk input{width:20px;height:20px;flex:0 0 auto}
+  .wk .gw{font-size:18px}
   textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:var(--card);color:var(--ink);font-family:var(--font)}
   .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--safe-b);z-index:5}
   .tabs button{flex:1;background:transparent;border:none;padding:10px 4px 8px;font-size:12px;color:var(--mute);min-height:56px;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--font)}
@@ -157,6 +178,7 @@
 <nav class="tabs" id="tabs">
   <button data-t="today" class="on"><span class="ic">◷</span>Today</button>
   <button data-t="words"><span class="ic">Aa</span>Words</button>
+  <button data-t="read"><span class="ic">¶</span>Read</button>
   <button data-t="sounds"><span class="ic">〜</span>Sounds</button>
   <button data-t="test"><span class="ic">✓</span>Test</button>
   <button data-t="progress"><span class="ic">◔</span>Progress</button>
@@ -185,6 +207,10 @@ const escapeHtml = VC.escapeHtml;
 // LESSONS is optional: a pack without lessons.js leaves it undeclared in dev mode.
 const LESSON_LIST = (typeof LESSONS !== "undefined" && Array.isArray(LESSONS)) ? LESSONS : [];
 const HAS_LESSONS = !!PACK.hasLessons && LESSON_LIST.length > 0;
+// PASSAGES is optional too: jsonify_pack.py appends it to sentences.js only for packs
+// with passages.json. Without it the Read tab and every reading hint stay hidden.
+const PASSAGE_LIST = (typeof PASSAGES !== "undefined" && Array.isArray(PASSAGES)) ? PASSAGES : [];
+const HAS_PASSAGES = PASSAGE_LIST.length > 0;
 const LEVELS = VC.levelIds(PACK);
 const SIZE = VC.setSizeOf(PACK);
 const BY_LV = VC.wordsByLevel(WORDS, PACK);
@@ -580,17 +606,18 @@ function lessonItem(it, key, mode){
 // ===================== tabs =====================
 let tab = "today";
 if(!HAS_LESSONS) document.querySelector('#tabs button[data-t="sounds"]').hidden = true;
+if(!HAS_PASSAGES) document.querySelector('#tabs button[data-t="read"]').hidden = true;
 document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("on"));
   b.classList.add("on"); tab = b.dataset.t; D = null; drillKeyHandler = null;
-  todayStepState = null; soundsSel = null; wordsSet = null; testSel = null;
+  todayStepState = null; soundsSel = null; wordsSet = null; testSel = null; RD = null;
   render();
 });
 function render(){
   D = null; drillKeyHandler = null;
-  $("htitle").textContent = { today:"Today", sounds:"Sounds", words:"Words", test:"Test", progress:"Progress" }[tab];
+  $("htitle").textContent = { today:"Today", sounds:"Sounds", words:"Words", read:"Read", test:"Test", progress:"Progress" }[tab];
   setScore(0,0);
-  ({ today: todayRender, sounds: soundsRender, words: wordsRender, test: testRender, progress: progressRender })[tab]();
+  ({ today: todayRender, sounds: soundsRender, words: wordsRender, read: readRender, test: testRender, progress: progressRender })[tab]();
 }
 function switchToTab(t, title){
   tab = t;
@@ -619,14 +646,18 @@ function todayRender(){
   ];
   const showPlaceHint = !prog.placedOnce;
   const showSoundsHint = HAS_LESSONS && !prog.soundsOpened;
+  refreshReadUnlocks();
+  const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
   P.innerHTML = `<div class="drill-body top">${pathStrip()}
     ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
+    ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${tw(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
     </div><div class="actions"><button class="next" id="go">Start today</button></div>`;
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
+  if(readHint) $("hintRead").onclick = () => { switchToTab("read", "Read"); RD = null; startPassage(readHint); };
   $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
 }
 function enterPlacementFromToday(){ switchToTab("test", "Test"); testSel = "placement"; startPlacement(); }
@@ -818,6 +849,166 @@ function renderWordBody(){
   if(canReview) $("rev").onclick = () => drill(VC.buildReviewPlan(learnedWords(), prog, PACK).map(itemFromPlan), wordsRender, missSummary);
 }
 
+// ===================== Read (passages) =====================
+// Only packs with passages.json (PASSAGES, appended to sentences.js) show this tab.
+// RD is the passage in progress: {p, tapped: [wordId], answers: [{ok, reopened, given}],
+// qi, shown, resultsDone}. Tapped ids and per-question reopen flags feed
+// VC.passageWeakWords on the results screen.
+let RD = null;
+const readLevelsNow = () => VC.readingLevels(PASSAGE_LIST, WORDS, PACK, prog);
+function refreshReadUnlocks(){ if(HAS_PASSAGES && VC.updateReadUnlocks(PASSAGE_LIST, WORDS, PACK, prog).length) store.save(); }
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const passageDone = p => (prog.read && prog.read.done && prog.read.done[p.id]) || null;
+function readRender(){
+  setScore(0,0);
+  if(RD){ RD.resultsDone ? readResults() : (RD.qi == null ? readPassageScreen() : readQuestionScreen()); return; }
+  refreshReadUnlocks();
+  const P = $("panel");
+  const pct = Math.round(VC.READ_UNLOCK * 100);
+  const levels = readLevelsNow().filter(l => l.count > 0);
+  P.innerHTML = `<p class="q">Short passages built from this course's words. Tap any underlined word for its meaning, then answer a few questions.</p>
+    ${levels.map(l => {
+      const L = escapeHtml(levelLabel(l.lv));
+      if(!l.unlocked) return `<div class="rlv"><div class="rlh">${L}<span class="q" style="margin:0">locked</span></div>
+        <div class="stmt" data-locked="${escapeHtml(l.lv)}">Unlocks at ${pct}% of ${L} words learned: ${l.learned} / ${l.total} so far, ${l.need} needed.</div></div>`;
+      const ps = PASSAGE_LIST.filter(p => p.lv === l.lv);
+      return `<div class="rlv"><div class="rlh">${L}<span class="q" style="margin:0">${ps.filter(passageDone).length} / ${ps.length} done</span></div>
+        <div class="plist">${ps.map(p => { const d = passageDone(p);
+          return `<button data-pid="${escapeHtml(p.id)}"><span>${tw(p.title)}<span class="q" style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick">✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
+    }).join("")}`;
+  P.querySelectorAll("[data-pid]").forEach(b => b.onclick = () => startPassage(PASSAGE_LIST.find(p => p.id === b.dataset.pid)));
+}
+function startPassage(p){
+  if(!p) return;
+  RD = { p, tapped: [], answers: [], qi: null, shown: false, resultsDone: false };
+  readPassageScreen();
+}
+// One passage sentence: linked words as tappable spans (data-pw), words not visible in
+// the text as chips below, and a read-aloud button when speech works (or it has audio).
+function passageSentenceHTML(s, si, hi){
+  const seg = VC.passageSegments(s, WORDS_BY_ID, PACK);
+  const txt = seg.parts.map(x => x.id ? `<span class="pw" data-pw="${escapeHtml(x.id)}" role="button" tabindex="0">${escapeHtml(x.text)}</span>` : escapeHtml(x.text)).join("");
+  const chips = seg.unplaced.length ? `<div class="pchips">${seg.unplaced.map(id => `<span class="pw pchip" data-pw="${escapeHtml(id)}" role="button" tabindex="0"${TA}>${escapeHtml(WORDS_BY_ID[id].w)}</span>`).join("")}</div>` : "";
+  const aloud = canHearSentence(s) ? `<button class="replay psay" data-say="${si}" aria-label="Read sentence aloud">${TEACH_PLAY_SVG}</button>` : "";
+  return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt"${TA}>${txt}</div>${aloud}${chips}</div>`;
+}
+function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
+function glossHTML(id){
+  const w = WORDS_BY_ID[id]; if(!w) return "";
+  const p = pronOf(w);
+  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp">${escapeHtml(p)}</span>` : ""} <span class="ge">${escapeHtml(VC.gloss(w))}</span>`;
+}
+// Wires tap-to-gloss and read-aloud on a freshly rendered passage container (its
+// innerHTML is replaced on every render, so listeners never accumulate).
+function wirePassage(box, glossEl){
+  const tap = t => {
+    const id = t.dataset.pw;
+    if(RD && RD.tapped.indexOf(id) < 0) RD.tapped.push(id);
+    box.querySelectorAll(".pw.on").forEach(x => x.classList.remove("on"));
+    t.classList.add("on");
+    if(glossEl){ glossEl.innerHTML = glossHTML(id); glossEl.hidden = false; }
+    announce(glossHTML(id));
+  };
+  box.addEventListener("click", e => {
+    const w = e.target.closest("[data-pw]"); if(w){ tap(w); return; }
+    const b = e.target.closest("[data-say]"); if(b){ const s = RD && RD.p.sentences[+b.dataset.say]; if(s) saySentence(s, b); }
+  });
+  box.addEventListener("keydown", e => { const w = e.target.closest && e.target.closest("[data-pw]"); if(w && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); tap(w); } });
+}
+function readPassageScreen(){
+  setScore(0,0);
+  const p = RD.p, P = $("panel");
+  P.innerHTML = `<div class="row"><button id="rback">‹ passages</button></div>
+    <h2 class="ptitle"${TA}>${escapeHtml(p.title)}</h2>
+    <p class="q">${escapeHtml(levelLabel(p.lv))} · ${VC.passageLength(p, PACK)} words. Tap a word to see its meaning.</p>
+    <div class="gloss" id="gloss" hidden></div>
+    <div class="passage" id="pbox">${passageHTML(-1)}</div>
+    <div class="actions"><button class="next" id="rdone">Done reading</button></div>`;
+  wirePassage($("pbox"), $("gloss"));
+  $("rback").onclick = () => { RD = null; readRender(); };
+  $("rdone").onclick = () => { RD.qi = 0; RD.shown = false; readQuestionScreen(); };
+}
+function readQuestionScreen(){
+  const p = RD.p, P = $("panel"), qi = RD.qi, q = p.questions[qi];
+  if(!RD.answers[qi]) RD.answers[qi] = { ok: null, reopened: false, given: null };
+  const rec = RD.answers[qi];
+  // Each question starts with the passage hidden, so "reopened" is logged per question.
+  RD.shown = false;
+  setScore(qi, p.questions.length);
+  const tf = q.type === "tf";
+  const order = tf ? [true, false] : shuffle([0,1,2,3]);
+  P.innerHTML = `<div class="drill-body top"><p class="q">Question ${qi+1} / ${p.questions.length}</p>
+    <div class="med wd"${TA}>${escapeHtml(q.q)}</div>${q.en ? `<div class="q">${escapeHtml(q.en)}</div>` : ""}
+    <div class="opts ${tf ? "" : "opts-w"}" id="o"></div>
+    <div class="reveal" id="rv"></div>
+    <button class="ghost" id="ptoggle" aria-expanded="${RD.shown}" style="margin-top:12px">${RD.shown ? "Hide passage" : "Show passage"}</button>
+    <div class="gloss" id="gloss" hidden></div>
+    <div class="passage" id="pbox"${RD.shown ? "" : " hidden"}>${passageHTML(-1)}</div>
+    </div><div class="actions"><button class="next" id="nx" style="display:none">${qi+1 < p.questions.length ? "Next" : "See results"}</button></div>`;
+  wirePassage($("pbox"), $("gloss"));
+  $("ptoggle").onclick = () => {
+    RD.shown = !RD.shown;
+    if(RD.shown && rec.ok === null) rec.reopened = true; // logged: looked back before answering
+    $("pbox").hidden = !RD.shown;
+    $("ptoggle").textContent = RD.shown ? "Hide passage" : "Show passage";
+    $("ptoggle").setAttribute("aria-expanded", String(RD.shown));
+  };
+  const box = $("o");
+  order.forEach((v, i) => {
+    const b = document.createElement("button");
+    b.innerHTML = `<b class="num">${i+1}</b>${tf ? (v ? "True" : "False") : tw(q.options[v])}`;
+    if(!tf && SCRIPT.rtl) b.dir = "rtl";
+    b.dataset.v = String(v);
+    b.onclick = () => {
+      if(rec.ok !== null) return;
+      rec.given = v; rec.ok = VC.gradeQuestion(q, v);
+      [...box.children].forEach(x => { x.disabled = true; if(x.dataset.v === String(q.answer)) x.classList.add("ok"); });
+      if(!rec.ok) b.classList.add("bad");
+      const s = p.sentences[q.sentence];
+      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"><div${TA}><mark>${escapeHtml(s.t)}</mark></div><div class="q" style="margin:4px 0 0">${escapeHtml(s.en)}</div></div>`);
+      const hs = $("pbox").querySelector(`[data-si="${q.sentence}"]`); if(hs) hs.classList.add("hi");
+      $("nx").style.display = "block"; setScore(qi+1, p.questions.length);
+    };
+    box.appendChild(b);
+  });
+  $("nx").onclick = () => {
+    if(qi+1 < p.questions.length){ RD.qi = qi+1; RD.shown = false; readQuestionScreen(); }
+    else { RD.resultsDone = true; markPassageFinished(); readResults(); }
+  };
+  drillKeyHandler = e => {
+    if(e.target && e.target.closest && e.target.closest("[data-pw]")) return;
+    if(e.key >= "1" && e.key <= String(order.length) && rec.ok === null) box.children[+e.key-1].click();
+    else if(e.key === "Enter" && $("nx").style.display !== "none") $("nx").click();
+  };
+}
+function markPassageFinished(){
+  const sc = RD.answers.filter(a => a && a.ok).length;
+  VC.markPassageDone(prog, RD.p.id, sc, RD.p.questions.length, todayISO());
+  store.save();
+}
+const WHY_LABEL = { tapped: "tapped while reading", wrong: "missed question", reopened: "looked back" };
+function readResults(){
+  drillKeyHandler = null; setScore(0,0);
+  const p = RD.p, P = $("panel");
+  const sc = RD.answers.filter(a => a && a.ok).length;
+  const weak = VC.passageWeakWords(p, { tapped: RD.tapped, answers: RD.answers }, WORDS_BY_ID);
+  P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
+    <p class="q"${TA} style="margin-bottom:8px">${escapeHtml(p.title)}</p>
+    ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
+      return `<div class="stmt"><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${escapeHtml(q.q)}</div><div style="margin-top:6px"${TA}><mark>${escapeHtml(s.t)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
+    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id)} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
+      <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
+    <div id="addmsg" class="q" hidden></div>
+    <button class="ghost" id="rlist" style="margin-top:10px">Back to passages</button></div>`;
+  if(weak.length) $("addrev").onclick = () => {
+    const chosen = [...P.querySelectorAll("[data-wi]")].filter(x => x.checked).map(x => weak[+x.dataset.wi]);
+    VC.applyWeakWords(prog, chosen, WORDS, PACK); store.save();
+    $("addrev").disabled = true; P.querySelectorAll("[data-wi]").forEach(x => { x.disabled = true; });
+    const m = $("addmsg"); m.hidden = false; m.textContent = chosen.length ? `Added ${chosen.length} word${chosen.length > 1 ? "s" : ""} to your next review.` : "Nothing added.";
+  };
+  $("rlist").onclick = () => { RD = null; readRender(); };
+}
+
 // ===================== Test (placement + free tests) =====================
 let testSel = null, PL = null;
 function testRender(){
@@ -920,6 +1111,7 @@ function progressRender(){
   const weak = weakFirst(lwAll.filter(w=>VC.weakScore(prog.w[w.id])>0), 10);
   P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
     <table class="stats">${rows}
+      ${HAS_PASSAGES ? VC.readingStats(PASSAGE_LIST, PACK, prog).map(r => `<tr><td>${escapeHtml(levelLabel(r.lv))} reading</td><td>${r.done} / ${r.total} passages${r.avg != null ? ` · avg ${r.avg}%` : ""}</td></tr>`).join("") : ""}
       ${HAS_LESSONS ? `<tr><td>Sounds</td><td>${LESSON_LIST.filter(l=>prog.lessons[l.id]).length} / ${LESSON_LIST.length} lessons done</td></tr>` : ""}
       <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
     ${PACK.showPron !== false ? `<div class="row" style="margin-top:14px"><button class="chip ${showPron()?'on':''}" id="togglePron" aria-pressed="${showPron()}">Show pronunciation</button></div>` : ""}
