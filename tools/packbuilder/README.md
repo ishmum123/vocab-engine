@@ -191,6 +191,19 @@ Added for Spanish; each defaults to off or a no-op, so Italian stays byte-identi
 - `phrase_en_cues`: a phrase links only when the translation contains one of its cue words (es "de nada": welcome).
 - `sensitive_re`: sentences matching it (text or English) are kept to the top level, except as examples of a word that itself matches (and then levelled at the top). Cross-pack policy: sexual content and threats/violence stay out of A1/A2. `langs/base.py` `SENSITIVE_EN` is the shared English half; each spec adds its own-language terms (es: matar, asesinar, disparar, "estás muerto").
 
+## Passage hooks
+
+Used only by `passages` (never by `build`); each defaults to off, so other languages' passages stay byte-identical.
+
+- `passage_post_resolve(toks, out)`: resolve rules after `post_resolve`, applied only in passages (the Linker wraps the lexicon's `resolve_sentence`, so classify and `sentence_links` both see them); the corpus build never runs them. es: fue/fui are ser in a cleft "lo que aprendí fue a confiar", "fui una de", "fue muy agradable"; "fuera de", "por fuera", clause-final fuera are the adverb. Moving such a rule into `post_resolve` changes sentence links and needs that language's rebuild and QA.
+- `truecase_after`: characters after which a capitalised word opens quoted or exclaimed speech and is truecased like a sentence start (`core/tag.truecase_after`). es: `«¡¿` ("dice: «Me gusta»", "gritaron: «¡Feliz...!»"); names stay capitalised by the corpus counts.
+- `truecase_after_end`: characters after which (plus whitespace, mid-text) a capitalised word is truecased the same way, but only when the lexicon has a lowercase reading of it. es: `!?` ("—¡Perfecto! Compro las entradas").
+- `surface_reading_fallback`: a counted token whose reading is out of the pack links the most frequent other dictionary reading of the same surface that is a pack word (es: lowercase "leo"/"vuelve" tagged PROPN -> leer/volver, "escucha" as a noun -> escuchar, "contenta" as contentar -> contento). A sentence-initial PROPN is skipped: a name the truecaser lowered ("Lucía" is not lucir) is declared in the passage's `oop`. Candidate for other languages after their own passage QA.
+
+Always on (all languages): a counted token with no pack id inside a matched pack phrase links that phrase ("favor" in "por favor", "embargo" in "sin embargo").
+
+The link context is pickled with the spec attributes the fresh build set (`bind_lexicon` handles such as es `_lex`, fr/id `_lx`, derived sets such as de `pluralia_tantum`); a cached run restores them instead of re-running `bind_lexicon`, whose lexicon edits are already in the pickle. A cached run gives the same output as a fresh one.
+
 ## Determinism
 
 The build has no randomness. Every iteration over sets and dicts that affects output is sorted, and gzip caches are written with `mtime=0`. Two runs with different `PYTHONHASHSEED` values give byte-identical `pack/*.json` and `REPORT.md`. Recheck this after adding a language.

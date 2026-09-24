@@ -77,6 +77,8 @@ class FakeSpec:
     word_re = re.compile(r"\w+")
     morph_keep = ("Number",)
     spacy_n_process = 4
+    truecase_after = ""
+    truecase_after_end = ""
 
     def __init__(self, tagger, spacy_model=None):
         self.tagger, self.spacy_model = tagger, spacy_model

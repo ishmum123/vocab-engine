@@ -242,6 +242,11 @@ class LanguageSpec:
     revert_dedupe_gloss = False     # a reverted -rsi/-se verb with the same head gloss shows it once
     lemma_tiebreak_corpus = False   # tie-break lemmas by their use in the tagged corpus, not wordfreq
 
+    # passages only (passages.py), not the corpus build:
+    truecase_after = ""         # a capitalised word right after one of these characters is truecased like a sentence start (es: «¡¿)
+    truecase_after_end = ""     # ... and a capitalised word after one of these plus a space mid-text, if the lexicon reads it lowercase (es: !? in "¡Perfecto! Compro")
+    surface_reading_fallback = False   # a counted token whose reading is out of pack links the most frequent other dictionary reading of its surface that is a pack word (es: leo -> leer, negra -> negro)
+
     def copula_inflected(self, surface, adj):
         """After a copula, the surface is an inflected adjective form (it: fiera)."""
         return adj != surface
@@ -429,6 +434,13 @@ class LanguageSpec:
         """Resolve time, whole sentence: [(lemma, group) | None] per token,
         after the core context rules -> the final list (same length).
         de: rejoin separable verbs, formal Sie."""
+        return out
+
+    def passage_post_resolve(self, toks, out):
+        """Like post_resolve, after it, but only in passages (passages.Linker
+        wraps the lexicon's resolve_sentence); the corpus build never calls
+        it, so a rule can be tried on passages before it changes sentence
+        links. es: fue/fui/fuera."""
         return out
 
     def sentence_rank(self, toks, lv):

@@ -45,9 +45,48 @@ def truecase(text, low, cap, word_re):
     lw = w.lower()
     if w != w[0] + w[1:].lower():  # all-caps / camel: leave
         return text
-    if low[lw] >= cap[lw] and (low[lw] > 0 or cap[lw] == 0):
+    if _mostly_lower(lw, low, cap):
         return text[:m.start()] + lw[0] + text[m.start() + 1:]
     return text
+
+
+def _mostly_lower(lw, low, cap):
+    """The corpus writes lw lowercase mid-sentence at least as often as
+    capitalised (or never saw it capitalised): not a proper noun."""
+    return low[lw] >= cap[lw] and (low[lw] > 0 or cap[lw] == 0)
+
+
+def truecase_after(text, low, cap, word_re, openers, enders="", known=None):
+    """The truecase rule for a word right after one of `openers` (es: « ¡ ¿):
+    quoted or exclaimed speech inside a sentence (dice: «Me gusta...»,
+    gritaron: «¡Feliz...!») starts with a capital that is not a name. With
+    `enders` (es: ! ?), also a word after an ender and whitespace inside the
+    text ("—¡Perfecto! Compro dos."), when known(lowercase word) is true (a
+    dictionary reading: a name stays a name). Title-case words only; same
+    length as text. Used by passages (spec.truecase_after /
+    truecase_after_end), not by the corpus build."""
+    if not openers and not enders:
+        return text
+    out = list(text)
+    for m in word_re.finditer(text):
+        j = m.start()
+        if j == 0:
+            continue
+        w = m.group(0)
+        lw = w.lower()
+        if not w[0].isupper() or w != w[0] + w[1:].lower() or len(lw) != len(w):
+            continue
+        if text[j - 1] in openers:
+            pass
+        elif enders and text[j - 1].isspace():
+            before = text[:j].rstrip()
+            if not before or before[-1] not in enders or known is None or not known(lw):
+                continue
+        else:
+            continue
+        if _mostly_lower(lw, low, cap):
+            out[j] = lw[0]
+    return "".join(out)
 
 
 def tagged_path(env, corpus_file):

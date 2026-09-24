@@ -151,7 +151,7 @@ class OneIdPerToken(unittest.TestCase):
             w.extend(where)
             return list(dict.fromkeys(r[3] for r in where))
         lk.links = links
-        lk.classify = lambda toks: cl
+        lk.classify = lambda toks, *a: cl
         return lk
 
     def test_fallback_does_not_relink_a_linked_token(self):
@@ -220,7 +220,7 @@ class OneIdPerToken(unittest.TestCase):
                 tok("mal", "mal", "ADJ"), tok("tiempo", "tiempo", "NOUN"), tok(".", ".", "PUNCT")]
         primary = lk.links(toks, text, "")
         self.assertEqual(sorted(primary), ["EL", "M", "PH", "T"])
-        lk.classify = lambda toks: [("pesar", "pesar", "PESAR", True, 1), ("mal", "mal", "M", True, 3),
+        lk.classify = lambda toks, *a: [("pesar", "pesar", "PESAR", True, 1), ("mal", "mal", "M", True, 3),
                                     ("tiempo", "tiempo", "T", True, 4)]
         ids, _cl, spans, linked = lk.links_all(toks, text, "")
         self.assertEqual(sorted(ids), ["EL", "M", "PH", "T"])      # no fallback PESAR inside the phrase

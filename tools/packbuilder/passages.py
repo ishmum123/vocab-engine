@@ -45,7 +45,7 @@ from .core.lexicon import SKIP_UPOS
 from .core.util import write_json
 
 HERE = Path(__file__).resolve().parent
-CTX_VERSION = "p1"
+CTX_VERSION = "p3"      # p3: the pickle carries the spec state and the English vocabulary
 DEFAULT_RULES = {
     "coverage": {"A1": 0.95, "A2": 0.95, "B1": 0.93},
     # level -> [the one higher level allowed, max distinct lemmas from it];
@@ -94,6 +94,14 @@ def load_context(spec):
         with open(cache, "rb") as f:
             c = pickle.load(f)
         c["lexicon"].spec = spec
+        # the fresh path's spec went through bind_lexicon (and the build); an
+        # unpickled lexicon does not rebind, and re-running bind_lexicon would
+        # repeat its in-place lexicon edits (de/fa/fr/id/ru). Restore the spec
+        # state instead (es _lex/_voseo, fr/id _lx, de pluralia_tantum, id
+        # voice_alt), and the English vocabulary prepare() filled (en_stem:
+        # id post_resolve, cross-POS links), so a cached run equals a fresh one
+        spec.__dict__.update(c.pop("spec_state"))
+        _set_english(*c.pop("english"))
         return c
     from .core.pipeline import finish_words, prepare
     from .core.words import build_words
@@ -118,11 +126,26 @@ def load_context(spec):
                          f"{bad[:5]}); rebuild the pack first")
     c = {"lexicon": ctx["lexicon"], "groups": ctx["lemma_groups"], "truecase": ctx["truecase"],
          "words": slim}
+    # the whole spec state after the build (bind_lexicon handles, derived sets,
+    # attributes edited in place), pickled with the lexicon it points to; the
+    # repo path is the caller's
+    from .core.english import _STEM, EN_VOCAB
+    state = {k: v for k, v in spec.__dict__.items() if k != "repo"}
+    english = (set(EN_VOCAB), dict(_STEM))
     for old in env.derived.glob("passages_ctx_*.pkl"):
         old.unlink()
     with open(cache, "wb") as f:
-        pickle.dump(c, f, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(dict(c, spec_state=state, english=english), f, protocol=pickle.HIGHEST_PROTOCOL)
     return c
+
+
+def _set_english(vocab, stems):
+    """Restore core.english's corpus vocabulary and en_stem memo in place."""
+    from .core.english import _STEM, EN_VOCAB
+    EN_VOCAB.clear()
+    EN_VOCAB.update(vocab)
+    _STEM.clear()
+    _STEM.update(stems)
 
 
 class Linker:
@@ -159,25 +182,50 @@ class Linker:
         if spec.homograph_by_translation:
             from .core.sentences import homograph_table
             self.homs = homograph_table([dict(w, _key=tuple(w["_key"])) for w in words], spec)
+        # spec.passage_post_resolve: passage-only resolve rules, after post_resolve,
+        # for classify and sentence_links alike (the build's resolve is untouched)
+        lex = self.lexicon
+        if lex is not None and not getattr(lex, "_passage_wrapped", False):
+            orig = lex.resolve_sentence
+
+            def resolve_sentence(toks, groups=None):
+                return spec.passage_post_resolve(toks, orig(toks, groups))
+            lex.resolve_sentence = resolve_sentence
+            lex._passage_wrapped = True
         self.tagged = {}     # (text, en) -> tokens
+        self.lowered = {}    # (text, en) -> indices of tokens truecase_after lowered
 
     def pretag(self, items):
         """Tag (text, en) pairs in one tagger run (one model load; Stanza
         batches) through core.tag's shared entry point, exactly as stage_tag
-        tags the corpus: truecase, spec.tag_text, the spec's tagger (spaCy or
+        tags the corpus: truecase (passages only: spec.truecase_after, the
+        first word of quoted/exclaimed speech, and spec.truecase_after_end,
+        after a mid-text ! ?), spec.tag_text, the spec's tagger (spaCy or
         spec.tag_texts), fix_token, fix_sentence. A batch-dependent
         tag_texts sees only this batch: id's PROPN rescue counts lowercase
         uses across the texts it is given, so passage tagging has less
         evidence than the corpus build (measure when id passages are built)."""
-        from .core.tag import doc_tokens, tag_docs, truecase
+        from .core.tag import doc_tokens, tag_docs, truecase, truecase_after
         sp = self.spec
         todo = list(dict.fromkeys(k for k in items if k not in self.tagged))
         if not todo:
             return
-        texts = [sp.tag_text(truecase(t, self.low, self.cap, sp.word_re)) for t, _en in todo]
+        known = (lambda w: bool(self.lexicon.readings(w))) if sp.truecase_after_end else None
+        base = [truecase(t, self.low, self.cap, sp.word_re) for t, _en in todo]
+        after = [truecase_after(b, self.low, self.cap, sp.word_re, sp.truecase_after, sp.truecase_after_end, known)
+                 for b in base]
+        texts = [sp.tag_text(a) for a in after]
         docs, fields = tag_docs(sp, texts, n_process=1)
-        for (t, en), doc in zip(todo, docs):
-            self.tagged[(t, en)] = doc_tokens(sp, doc, fields, ["passage", t, None, en, None, None])
+        for (t, en), doc, b, a in zip(todo, docs, base, after):
+            self.tagged[(t, en)] = toks = doc_tokens(sp, doc, fields, ["passage", t, None, en, None, None])
+            # tokens truecase_after lowered: to classify they are like a
+            # sentence start (a lowered name is not a pack verb: «¡Leo, ven!»)
+            moved = {j for j, (x, y) in enumerate(zip(b, a)) if x != y}
+            lowered = set()
+            if moved:
+                offs = token_offsets(a, toks, sp.span_fold, sp.span_joiners)
+                lowered = {i for i, o in enumerate(offs) if o and o[0] in moved}
+            self.lowered[(t, en)] = lowered
 
     def tag(self, text, en=""):
         if (text, en) not in self.tagged:
@@ -189,12 +237,27 @@ class Linker:
         return sentence_links(toks, self.lexicon, self.key_to_id, Everything(), text, self.groups,
                               self.gender_of, self.epos_to_id, self.lemma_ids, en, self.homs, None, where)
 
-    def classify(self, toks):
+    def classify(self, toks, en=None, lowered=()):
         """Per counted token: (surface, lemma, word id or None, may link, token index).
         Names (capitalised), numerals, punctuation and symbols are skipped
-        (not counted). A lowercase token the tagger calls PROPN is counted."""
+        (not counted). A lowercase token the tagger calls PROPN is counted.
+        A token with no pack id by its reading falls back to:
+        - the pack phrase it sits in ("favor" of "por favor", "embargo" of
+          "sin embargo"): that phrase's id;
+        - spec.surface_reading_fallback: the most frequent other dictionary
+          reading of the same surface that is a pack word (lowercase "leo"/
+          "vuelve" tagged PROPN, "escucha" as a noun, "contenta" as
+          contentar: leer, volver, escuchar, contento). Not for a
+          sentence-initial PROPN: a name the truecaser lowered ("Lucía" is
+          not lucir), nor a PROPN truecase_after lowered (`lowered`); such a
+        name is declared in oop. `en` gates cue phrases as sentence_links
+        does ("de nada" is a phrase only when the English says welcome)."""
+        from .core.sentences import phrase_spans
         sp = self.spec
         resolved = self.lexicon.resolve_sentence(toks, self.groups)
+        ranges = []
+        _, ph_tok, _ = phrase_spans(toks, sp, self.key_to_id, en, ranges)
+        tok_phrase = {i: pid for a, b, pid in ranges for i in range(a, b + 1) if i in ph_tok}
         out = []
         initial = True
         for i, (text_t, sl, upos, ms) in enumerate(toks):
@@ -225,6 +288,16 @@ class Linker:
                     wid = self.epos_to_id.get((r[0], sp.group_kpos[r[1]][0]))
             if not wid:
                 wid = self.lemma_ids.get(lem) or self.lemma_ids.get(low)
+            if not wid:
+                wid = tok_phrase.get(i)
+            if not wid and sp.surface_reading_fallback and not \
+                    ((was_initial or i in lowered) and r is not None and r[1] == "PROPN"):
+                alts = [(self.lexicon.zipf(l), l, g) for l, g in self.lexicon.readings(low)
+                        if self.key_to_id.get((l, g)) or self.lemma_ids.get(l)]
+                if alts:
+                    _, l, g = max(alts)
+                    wid = self.key_to_id.get((l, g)) or self.lemma_ids.get(l)
+                    lem = l
             nxt = toks[i + 1][0].lower() if i + 1 < len(toks) else ""
             # compounds: "rispetto a/al..." is not the noun rispetto, "fine settimana" not la fine
             may_link = not (lem in PHRASE_HEADS and (nxt in PHRASE_HEADS[lem] or
@@ -248,7 +321,7 @@ class Linker:
         of tokens that carry a link)."""
         where = []
         ws = list(self.links(toks, text, en, where))
-        cl = self.classify(toks)
+        cl = self.classify(toks, en, self.lowered.get((text, en), ()))
         offsets = token_offsets(text, toks, self.spec.span_fold, self.spec.span_joiners)
         # a substring phrase (Italian multiword, "chars") owns the tokens it
         # covers: their single-token links go. A token-level phrase
@@ -499,7 +572,7 @@ def run(spec, check_only=False, out=sys.stdout):
             # question and options stay inside the pack (plus this passage's listed oop)
             qtexts = [q["q"]] + (q["options"] or [])
             for qt in qtexts:
-                for surf, lem, wid, _ok, _i in lk.classify(lk.tag(qt)):
+                for surf, lem, wid, _ok, _i in lk.classify(lk.tag(qt), None, lk.lowered.get((qt, ""), ())):
                     if wid is None and lem in oop_ok:
                         used_oop.add(lem)
                     if wid is None and lem not in oop_ok:

@@ -91,6 +91,48 @@ REGIONAL = {"Rioplatense", "Argentina", "Uruguay", "Paraguay", "Chile", "Bolivia
             "Galicia", "Asturias", "Navarre", "Leon", "Extremadura", "Cantabria", "Basque-Country"}
 
 
+# before fuera, a subordinator or subject pronoun makes it the subjunctive of
+# ser/ir ("si yo fuera", "aunque fuera de noche", "cuando tú fueras"), not the adverb
+FUERA_SUBJ_BEFORE = {"si", "que", "como", "ojalá", "aunque", "cuando", "mientras", "porque",
+                     "yo", "tú", "él", "ella", "usted"}
+
+
+def _fue_fuera(toks, i, lex):
+    """ser/ir/fuera at a fue/fui/fuera token, or None to leave it. "fuera
+    de", "de fuera", "por fuera" are the adverb fuera (not ser); a cleft
+    "lo (más) que aprendí fue a confiar" is ser (not ir, despite fue + a);
+    "fui una de ellas", "fue muy/más + adj", "fue elegido" are ser."""
+    low = toks[i][0].lower()
+    prv = toks[i - 1][0].lower() if i else ""
+    nxt = toks[i + 1] if i + 1 < len(toks) else None
+    nlow = nxt[0].lower() if nxt else ""
+    if low == "fuera":
+        if lex is not None and "fuera" not in lex.candidates("fuera", ["adv"]):
+            return None
+        if prv in ("de", "desde", "por", "hacia", "para", "allí", "ahí", "aquí", "allá") or \
+                prv not in FUERA_SUBJ_BEFORE and (nlow in ("de", "del") or nxt is None or nxt[2] == "PUNCT"):
+            return ("fuera", "ADV")
+        return None
+    if low not in IR_SER_PRETERITE:
+        return None
+    if nlow in ("a", "al"):
+        # cleft: "lo que <finite verb> fue a ...", "lo más importante que ... fue a"
+        for j in range(i - 1, 0, -1):
+            if toks[j][0].lower() == "que" and any(toks[k][0].lower() == "lo" for k in range(max(0, j - 3), j)):
+                if any(t[2] in ("VERB", "AUX") and "VerbForm=Fin" in t[3] for t in toks[j + 1:i]):
+                    return ("ser", "VERB")
+                break
+        return None
+    nn = toks[i + 2] if i + 2 < len(toks) else None
+    if nlow in ("uno", "una", "unos", "unas") and nn is not None and nn[0].lower() == "de":
+        return ("ser", "VERB")          # "fui una de ellas"
+    if nxt is not None and (nxt[2] == "ADJ" or "VerbForm=Part" in nxt[3] or
+                            (nlow in ("muy", "tan", "mucho", "más", "bastante", "demasiado") and nn is not None
+                             and nn[2] in ("ADJ", "ADV"))):
+        return ("ser", "VERB")          # "fue muy agradable", "fue elegido"
+    return None
+
+
 def _strip_acute(s):
     return s.translate(str.maketrans("áéíóú", "aeiou"))
 
@@ -164,6 +206,9 @@ class Spanish(LanguageSpec):
     fem_of_re = re.compile(r"(?:female equivalent|(?:singular )?feminine(?: singular)?) of ([a-záéíóúüñ]+)")
 
     sentence_openers = "¿¡"
+    truecase_after = "«¡¿"          # passages: dice: «Me gusta», gritaron: «¡Feliz...!»
+    truecase_after_end = "!?"       # passages: "—¡Perfecto! Compro dos."
+    surface_reading_fallback = True  # passages: leo -> leer, vuelve -> volver, negra -> negro
     strict_selection = True
     phrase_token_spans = True
     phrase_en_cues = {"de nada": ("welcome", "mention", "problem", "worries")}
@@ -487,6 +532,17 @@ class Spanish(LanguageSpec):
             if r == ("ser", "VERB") and toks[i][0].lower() in IR_SER_PRETERITE and i + 1 < len(toks) and \
                     toks[i + 1][0].lower() in ("a", "al", "hacia"):
                 out[i] = ("ir", "VERB")
+        return out
+
+    def passage_post_resolve(self, toks, out):
+        """Passages only (not yet in the corpus build): _fue_fuera. A cleft
+        "lo que aprendí fue a confiar", "fui una de", "fue muy agradable" are
+        ser; "fuera de", "por fuera", clause-final fuera the adverb."""
+        lex = getattr(self, "_lex", None)
+        for i in range(len(out)):
+            fue = _fue_fuera(toks, i, lex)
+            if fue:
+                out[i] = fue
         return out
 
     def numeral_may_be_verb(self, lexicon, surface):
