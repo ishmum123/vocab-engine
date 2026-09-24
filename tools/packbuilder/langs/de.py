@@ -21,7 +21,7 @@ The A1 core list and gloss overrides live in the german repo's tools/.
 """
 import re
 
-from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_AUDIO
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO
 from ..core.lexicon import GROUP_OF
 
 DAYS = "Montag Dienstag Mittwoch Donnerstag Freitag Samstag Sonntag".split()
@@ -38,7 +38,11 @@ QUESTION_PRON = "wer was".split()
 PREPOSITIONS = "in an auf mit von zu für bei nach aus".split()
 
 # (display, parts): phrases linked by substring (keys are the lowercase text)
-# sexual/suicide content is kept out of A1/A2 sentences (German text or English)
+# sensitive topics kept out of A1/A2 sentences (German text or English
+# translation; cross-pack policy): sexual content, suicide, threats/violence,
+# dying and death wishes, weapons, drugs and abuse. The regex also runs on the
+# German text, so English words that are German words (die, dies, gift) are
+# left out: their German side (sterben, Gift -> poison) is caught instead.
 SENSITIVE_RE = re.compile(
     r"\b(sex\w*|sexuell\w*|selbstmord\w*|suizid\w*|vergewaltig\w*|porno\w*|nackt\w*|kondom\w*|orgasmus|"
     r"prostituiert\w*|nutte\w*|hure\w*|bordell\w*|"
@@ -49,7 +53,32 @@ SENSITIVE_RE = re.compile(
     r"(ge)?töte\w*|töten|tötet|umbring\w*|umgebracht|umbrachte\w*|bring\w* \w+ um|brachte\w* \w+ um|"
     r"erschie(ß|ss)\w*|erschoss\w*|ermord\w*|mord\w*|mörder\w*|erstech\w*|erstoch\w*|erwürg\w*|"
     r"tot|tote[mnrs]?|sterben lass\w*|lass\w* \w+ sterben|"
-    r"kill\w*|murder\w*|dead|shoot (you|him|her|them|me)|stab(bed)?)\b", re.I)
+    r"kill\w*|murder\w*|dead|shoot (you|him|her|them|me)|stab(bed)?|"
+    # dying and death wishes: sterben in every form (aussterben is not matched), "stirb!"
+    r"sterb(e|en|end\w*|est|et|t)|stirb\w*|starb\w*|stürbe\w*|gestorben\w*|"
+    # weapons, bombs, explosions
+    r"waffe\w*|pistole\w*|gewehr\w*|revolver\w*|bomb\w*|explodier\w*|explosion\w*|"
+    # a knife only in a threat or attack (Messer und Gabel stays)
+    r"(mit (einem|dem|seinem|ihrem|meinem) )?messer (bedroh\w*|angegriffen|angreif\w*|erstoch\w*|verletzt|abgestochen)|"
+    r"(zog|zieht|zückte|zückt) (ein|das|sein|ihr) messer|messer an (die|der|seine|ihre|meine|deine) kehle|"
+    r"(bedroh|angegriff|attackier|verletz)\w* (\w+ )?mit (einem|dem|seinem|ihrem|meinem) messer|"
+    r"(threaten|attack|wound)\w* (\w+ )?with a knife|(pulled|drew|pulls|draws) a knife|at knifepoint|knife to (his|her|my|your|their) throat|"
+    # blood and bleeding (Blutdruck, blood pressure stay), poison, corpses
+    r"blut(e|es|s)?|blutig\w*|blute(n|t|te\w*)|geblutet|blutüberströmt|blutverschmiert|"
+    r"blood(?! (pressure|type|group|test|sugar|donor|donation|bank|vessel\w*|cell\w*|sample\w*))|bloody|bleed\w*|bled|"
+    r"vergift\w*|giftig\w*|poison\w*|leiche\w*|corpse\w*|dead bod(y|ies)|"
+    # illicit drugs and abuse (sexual abuse is in DROP_ALL_LEVELS_RE)
+    r"drogen\w*|droge|rauschgift\w*|kokain|heroin|haschisch|missbrauch\w*|missbraucht\w*|misshandel\w*|misshandl\w*|"
+    r"(illicit|illegal) drugs?|drugs? (dealer|addict|abuse|traffick\w*)s?|narcotics?|cocaine|marijuana|cannabis|overdose|"
+    r"abus(e|ed|es|ing|er|ers|ive)|"
+    r"died|dying|weapons?|guns?|pistols?|rifles?|serial killer|explod\w*|"
+    + SENSITIVE_EN + r")\b", re.I)
+
+# removed at every level: rape, sexual abuse, child abuse
+DROP_ALL_LEVELS_RE = re.compile(
+    r"\b(vergewaltig\w*|sexuell(e[nmrs]?)? missbrauch\w*|sexuell missbraucht\w*|kindesmissbrauch\w*|"
+    r"kinderschänder\w*|pädophil\w*|paedophil\w*|pedophil\w*|"
+    r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*)\b", re.I)
 
 PHRASES = {"auf Wiedersehen": "goodbye", "guten Morgen": "good morning", "guten Tag": "hello, good day",
            "guten Abend": "good evening", "gute Nacht": "good night"}
@@ -231,6 +260,12 @@ class German(LanguageSpec):
     multiword = {p.lower(): tuple(p.lower().split()) for p in PHRASES}
     phrase_token_spans = True     # "Auf Wiedersehen" links the phrase only, never auf + wiedersehen
     sensitive_re = SENSITIVE_RE
+    drop_all_levels = DROP_ALL_LEVELS_RE
+    # vulgar/sexual senses never lead an A1/A2 gloss (shared English list)
+    sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)
+    # lower_level_gloss_re stays off: töten, sterben, Tod are neutral core
+    # vocabulary and keep their level (same call as es matar/morir, ru убить);
+    # their violent sentences are held to B1 by sensitive_re.
     refill_unexampled = True      # a word no sentence can show is replaced by the next-ranked word
     example_shows_word = True     # one example shows Haus itself, not only Häuser
     # residuals no rule reaches: "weißen" (whiten; inflected weiß in the lists),
