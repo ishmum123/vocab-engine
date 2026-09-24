@@ -748,6 +748,13 @@ class Persian(LanguageSpec):
                    ZWNJ + "\\1", t)
         return t
 
+    span_joiners = " "          # tag_text joins "می روم", "کتاب ها" with ZWNJ; fold drops it
+
+    def span_fold(self, s):
+        """Passages span alignment: fix_token's surfaces are fold()ed (applied
+        per word, so پائین = پایین and final ابتداء = ابتدا)."""
+        return fold(s)
+
     def _stanza_dir(self):
         return str(self.repo / ".cache" / "stanza")
 

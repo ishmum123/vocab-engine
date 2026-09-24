@@ -131,5 +131,104 @@ class SentenceLinksWhere(unittest.TestCase):
         self.assertEqual(ids, ["p_a pesar de"])
 
 
+
+class OneIdPerToken(unittest.TestCase):
+    """passages.Linker.links_all: a token carries one word id. A phrase owns
+    its tokens, and the lemma fallback never adds a second id to a token the
+    primary pass (sentence_links) already linked."""
+
+    def linker(self, where, cl):
+        from collections import Counter
+        from packbuilder.passages import Linker
+
+        class Spec:
+            homograph_by_translation = False
+            span_fold, span_joiners = None, ""
+        lk = Linker(Spec(), {"lexicon": None, "groups": None, "truecase": (Counter(), Counter()),
+                             "words": []}, {})
+
+        def links(toks, text, en, w):
+            w.extend(where)
+            return list(dict.fromkeys(r[3] for r in where))
+        lk.links = links
+        lk.classify = lambda toks: cl
+        return lk
+
+    def test_fallback_does_not_relink_a_linked_token(self):
+        # "Come stai?": come read as "how" (w2012); classify says come "as" (w2017)
+        toks = [tok("Come"), tok("stai"), tok("?", upos="PUNCT")]
+        lk = self.linker([("tok", 0, 0, "HOW"), ("tok", 1, 1, "STARE")],
+                         [("Come", "come", "AS", True, 0), ("stai", "stare", "STARE", True, 1)])
+        ids, _cl, spans, linked = lk.links_all(toks, "Come stai?", "")
+        self.assertEqual(ids, ["HOW", "STARE"])
+        self.assertEqual(spans, [[0, 4, "HOW"], [5, 9, "STARE"]])
+        self.assertEqual(linked, {0, 1})
+
+    def test_phrase_owns_its_tokens(self):
+        text = "Sei mele, per favore."
+        toks = [tok("Sei"), tok("mele"), tok(",", upos="PUNCT"), tok("per"), tok("favore"), tok(".", upos="PUNCT")]
+        lk = self.linker([("tok", 1, 1, "MELA"), ("tok", 3, 3, "PER"), ("tok", 4, 4, "FAVORE"),
+                          ("chars", 10, 20, "PERFAVORE")],
+                         [("mele", "mela", "MELA", True, 1), ("per", "per", "PER", True, 3),
+                          ("favore", "favore", "FAVORE", True, 4)])
+        ids, _cl, spans, linked = lk.links_all(toks, text, "")
+        self.assertEqual(ids, ["MELA", "PERFAVORE"])
+        self.assertEqual(spans, [[4, 8, "MELA"], [10, 20, "PERFAVORE"]])
+        self.assertEqual(linked, {1, 3, 4})
+
+    def test_part_linked_outside_the_phrase_stays(self):
+        text = "Per te, per favore."
+        toks = [tok("Per"), tok("te"), tok(",", upos="PUNCT"), tok("per"), tok("favore"), tok(".", upos="PUNCT")]
+        lk = self.linker([("tok", 0, 0, "PER"), ("tok", 3, 3, "PER"), ("tok", 4, 4, "FAVORE"),
+                          ("chars", 8, 18, "PERFAVORE")],
+                         [("Per", "per", "PER", True, 0), ("per", "per", "PER", True, 3),
+                          ("favore", "favore", "FAVORE", True, 4)])
+        ids, _cl, spans, _ = lk.links_all(toks, text, "")
+        self.assertEqual(ids, ["PER", "PERFAVORE"])
+        self.assertEqual(spans, [[0, 3, "PER"], [8, 18, "PERFAVORE"]])
+
+    def test_unclaimed_token_still_gets_the_fallback(self):
+        # "molto" read as a determiner: no primary link, the fallback links it
+        toks = [tok("molto"), tok("bene")]
+        lk = self.linker([("tok", 1, 1, "BENE")],
+                         [("molto", "molto", "MOLTO", True, 0), ("bene", "bene", "BENE", True, 1)])
+        ids, _cl, spans, _ = lk.links_all(toks, "molto bene", "")
+        self.assertEqual(ids, ["BENE", "MOLTO"])
+        self.assertEqual(spans, [[0, 5, "MOLTO"], [6, 10, "BENE"]])
+
+    def test_compound_head_links_nothing(self):
+        toks = [tok("rispetto"), tok("a"), tok("te")]
+        lk = self.linker([("tok", 0, 0, "RISPETTO"), ("tok", 1, 1, "A")],
+                         [("rispetto", "rispetto", "RISPETTO", False, 0), ("a", "a", "A", True, 1)])
+        ids, _cl, spans, _ = lk.links_all(toks, "rispetto a te", "")
+        self.assertEqual(ids, ["A"])
+        self.assertEqual(spans, [[9, 10, "A"]])
+
+
+    def test_contraction_leftover_article_stays(self):
+        # es phrase_token_spans: "a pesar del" = phrase + el (the article part
+        # of del); links_all must keep el (review regression)
+        from collections import Counter
+        from packbuilder.passages import Linker
+        sp = get_spec("es", tempfile.mkdtemp())
+        k2i = {("a pesar de", "PHRASE"): "PH", ("el", "DET"): "EL", ("mal", "ADJ"): "M", ("tiempo", "NOUN"): "T"}
+        lk = Linker(sp, {"lexicon": None, "groups": None, "truecase": (Counter(), Counter()), "words": []}, {})
+        lk.lexicon = FakeLexicon(sp, {"mal": ("mal", "ADJ"), "tiempo": ("tiempo", "NOUN")})
+        lk.key_to_id, lk.gender_of, lk.epos_to_id, lk.lemma_ids = k2i, {}, {}, {}
+        text = "A pesar del mal tiempo."
+        toks = [tok("A", "a", "ADP"), tok("pesar", "pesar", "NOUN"), tok("del", "del", "ADP"),
+                tok("mal", "mal", "ADJ"), tok("tiempo", "tiempo", "NOUN"), tok(".", ".", "PUNCT")]
+        primary = lk.links(toks, text, "")
+        self.assertEqual(sorted(primary), ["EL", "M", "PH", "T"])
+        lk.classify = lambda toks: [("pesar", "pesar", "PESAR", True, 1), ("mal", "mal", "M", True, 3),
+                                    ("tiempo", "tiempo", "T", True, 4)]
+        ids, _cl, spans, linked = lk.links_all(toks, text, "")
+        self.assertEqual(sorted(ids), ["EL", "M", "PH", "T"])      # no fallback PESAR inside the phrase
+        # el lives inside the phrase span "A pesar del": the longer span wins, el has no span of its own
+        self.assertEqual([(text[a:b], w) for a, b, w in spans],
+                         [("A pesar del", "PH"), ("mal", "M"), ("tiempo", "T")])
+        self.assertEqual(linked, {0, 1, 2, 3, 4})
+
+
 if __name__ == "__main__":
     unittest.main()

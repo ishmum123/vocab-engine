@@ -99,6 +99,27 @@ def prepare(env, ctx):
     ctx["blended"] = stage_freq(env, surf, raw_upos)
 
 
+def finish_words(env, ctx, words, records, top3000):
+    """build_words output -> the shipped word list: sentences, the
+    refill_unexampled second pass (de/id/ru), then spec.finalize_words (fa
+    display lemmas, id adjective POS). Shared by run and passages.load_context
+    so both see the same words. Returns (words, records, top3000, sentences,
+    users, primary)."""
+    sp = env.spec
+    sentences, users, primary = build_sentences(env, ctx, words, top3000)
+    if sp.refill_unexampled:
+        # words no sentence could illustrate give their slot to the next-ranked word (once)
+        used = {wid for s in sentences for wid in s["words"]}
+        drop = sorted(w["_key"] for w in words if w["id"] not in used and not records[w["_key"]]["forced"])
+        if drop:
+            stat("refilled_unexampled", [k[0] for k in drop])
+            sp.drop_keys = {**sp.drop_keys, **{k: None for k in drop}}
+            words, records, top3000 = build_words(env, ctx)
+            sentences, users, primary = build_sentences(env, ctx, words, top3000)
+    sp.finalize_words(env, ctx, words)
+    return words, records, top3000, sentences, users, primary
+
+
 def run(env, stage="all", check_remote=False):
     sp = env.spec
     t0 = time.time()
@@ -130,17 +151,7 @@ def run(env, stage="all", check_remote=False):
     write_json(env.pack / "words.json", out_words)
     if stage == "words":
         return
-    sentences, users, primary = build_sentences(env, ctx, words, top3000)
-    if sp.refill_unexampled:
-        # words no sentence could illustrate give their slot to the next-ranked word (once)
-        used = {wid for s in sentences for wid in s["words"]}
-        drop = sorted(w["_key"] for w in words if w["id"] not in used and not records[w["_key"]]["forced"])
-        if drop:
-            stat("refilled_unexampled", [k[0] for k in drop])
-            sp.drop_keys = {**sp.drop_keys, **{k: None for k in drop}}
-            words, records, top3000 = build_words(env, ctx)
-            sentences, users, primary = build_sentences(env, ctx, words, top3000)
-    sp.finalize_words(env, ctx, words)
+    words, records, top3000, sentences, users, primary = finish_words(env, ctx, words, records, top3000)
     out_words = [{k: w[k] for k in WORD_FIELDS if k in w} for w in words]
     write_json(env.pack / "words.json", out_words)     # -rsi gate may revert entries
     write_json(env.pack / "sentences.json", sentences)

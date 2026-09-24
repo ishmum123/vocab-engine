@@ -2,7 +2,8 @@
 
 The source is hand-authored: per passage an id, level, title, sentences
 (Italian text + English) and questions whose `words` name the pack lemmas the
-answer hinges on. This module tags each sentence with the language's tagger,
+answer hinges on. This module tags each sentence with the language's tagger
+(core.tag.tag_docs/doc_tokens: spaCy, or the spec's Stanza tag_texts),
 links word ids exactly as the sentence stage does for Tatoeba text
 (core.sentences.sentence_links over core.lexicon.resolve_sentence), measures
 in-pack coverage and level budgets, validates the questions and writes
@@ -94,12 +95,15 @@ def load_context(spec):
             c = pickle.load(f)
         c["lexicon"].spec = spec
         return c
-    from .core.pipeline import prepare
+    from .core.pipeline import finish_words, prepare
     from .core.words import build_words
     log("passages: rebuilding link context from the cached corpus (~1 min)")
     ctx = {}
     prepare(env, ctx)
-    words, _records, _top = build_words(env, ctx)
+    words, records, top = build_words(env, ctx)
+    # the build's full word pass: refill_unexampled (de/id/ru) and finalize_words
+    # (fa display lemmas, id adjective POS) change ids, lemmas and POS
+    words = finish_words(env, ctx, words, records, top)[0]
     keep = ("id", "w", "lemma", "pos", "en", "lv", "rank", "_key", "_gender", "_epos", "_sidx", "_base")
     slim = [{k: w[k] for k in keep if k in w} for w in words]
     shipped = {w["id"]: w for w in json.loads((repo / "pack" / "words.json").read_text())}
@@ -155,24 +159,30 @@ class Linker:
         if spec.homograph_by_translation:
             from .core.sentences import homograph_table
             self.homs = homograph_table([dict(w, _key=tuple(w["_key"])) for w in words], spec)
-        import spacy
-        self.nlp = spacy.load(spec.spacy_model, exclude=["parser", "ner"])
-        spec.setup_nlp(self.nlp)
+        self.tagged = {}     # (text, en) -> tokens
+
+    def pretag(self, items):
+        """Tag (text, en) pairs in one tagger run (one model load; Stanza
+        batches) through core.tag's shared entry point, exactly as stage_tag
+        tags the corpus: truecase, spec.tag_text, the spec's tagger (spaCy or
+        spec.tag_texts), fix_token, fix_sentence. A batch-dependent
+        tag_texts sees only this batch: id's PROPN rescue counts lowercase
+        uses across the texts it is given, so passage tagging has less
+        evidence than the corpus build (measure when id passages are built)."""
+        from .core.tag import doc_tokens, tag_docs, truecase
+        sp = self.spec
+        todo = list(dict.fromkeys(k for k in items if k not in self.tagged))
+        if not todo:
+            return
+        texts = [sp.tag_text(truecase(t, self.low, self.cap, sp.word_re)) for t, _en in todo]
+        docs, fields = tag_docs(sp, texts, n_process=1)
+        for (t, en), doc in zip(todo, docs):
+            self.tagged[(t, en)] = doc_tokens(sp, doc, fields, ["passage", t, None, en, None, None])
 
     def tag(self, text, en=""):
-        from .core.tag import MORPH_KEEP, truecase
-        sp = self.spec
-        tc = truecase(text, self.low, self.cap, sp.word_re)
-        doc = self.nlp(sp.tag_text(tc))
-        keep = sp.morph_keep or MORPH_KEEP
-        toks = []
-        for t in doc:
-            if t.is_space:
-                continue
-            md = t.morph.to_dict()
-            ms = "|".join(f"{k}={md[k]}" for k in keep if k in md)
-            toks.append(sp.fix_token([t.text, t.lemma_, t.pos_, ms]))
-        return sp.fix_sentence(toks, ["passage", text, None, en, None, None], doc)
+        if (text, en) not in self.tagged:
+            self.pretag([(text, en)])
+        return self.tagged[(text, en)]
 
     def links(self, toks, text, en, where=None):
         from .core.sentences import sentence_links
@@ -223,61 +233,139 @@ class Linker:
         return out
 
     def links_all(self, toks, text, en):
-        """sentence_links, then a lemma fallback: a counted token whose lemma
-        is a pack word under another POS (molto/tutto as determiners, lontano
-        as an adjective, po', mezza) links that word; compound-preposition
-        heads (rispetto a) never link. Returns (word ids, classify(toks),
-        spans): spans as make_spans, one per linking occurrence."""
+        """sentence_links, then a lemma fallback, with one word id per token:
+        - a substring phrase (a "chars" record) owns its tokens: a
+          single-token link inside it is dropped, and its id too unless it is
+          linked elsewhere in the sentence (per favore is the phrase, not
+          per + il favore). A token-level phrase keeps sentence_links'
+          records (the leftover article of "a pesar del" stays);
+        - the fallback: a counted token whose lemma is a pack word under
+          another POS (molto/tutto as determiners, lontano as an adjective,
+          po', mezza) links that word, but only a token no earlier link
+          claimed (come already read as "how" is not also "as");
+        - compound-preposition heads (rispetto a) never link.
+        Returns (word ids, classify(toks), spans as make_spans, the indices
+        of tokens that carry a link)."""
         where = []
         ws = list(self.links(toks, text, en, where))
         cl = self.classify(toks)
+        offsets = token_offsets(text, toks, self.spec.span_fold, self.spec.span_joiners)
+        # a substring phrase (Italian multiword, "chars") owns the tokens it
+        # covers: their single-token links go. A token-level phrase
+        # (phrase_token_spans: es, de, id) already consumed its tokens in
+        # sentence_links; a single-token record left there is the leftover
+        # article of a contraction ("a pesar del": el) and stays. Both kinds
+        # keep the fallback off their tokens.
+        owned, spanned = set(), set()
+        for kind, a, b, _wid in where:
+            if kind == "chars":
+                owned |= {i for i, o in enumerate(offsets) if o and a <= o[0] and o[1] <= b}
+            elif b > a:
+                spanned |= set(range(a, b + 1))
+        recs = [r for r in where if not (r[0] == "tok" and r[1] == r[2] and r[1] in owned)]
+        gone = {r[3] for r in where} - {r[3] for r in recs}
+        ws = [w for w in ws if w not in gone]
         drop = {wid for _, _, wid, ok, _ in cl if wid and not ok}
         keep = {wid for _, _, wid, ok, _ in cl if wid and ok}
         ws = [w for w in ws if w not in drop or w in keep]
-        extra = []
-        for _, _, wid, ok, _ in cl:
-            if wid and ok and wid not in ws and wid not in extra:
-                extra.append(wid)
-        ids = ws + extra
         # a compound head (fine in "fine settimana") links nothing at that token
         not_ok = {i for _, _, wid, ok, i in cl if not ok}
-        recs = [r for r in where if not (r[0] == "tok" and not_ok & set(range(r[1], r[2] + 1)))]
-        seen = {i for r in recs if r[0] == "tok" for i in range(r[1], r[2] + 1)}
+        recs = [r for r in recs if not (r[0] == "tok" and not_ok & set(range(r[1], r[2] + 1)))]
+        claimed = owned | spanned | {i for r in recs if r[0] == "tok" for i in range(r[1], r[2] + 1)}
+        extra = []
         for _, _, wid, ok, i in cl:
-            if wid in extra and ok and i not in seen:
+            if wid and ok and i not in claimed:
+                claimed.add(i)
                 recs.append(("tok", i, i, wid))
-        return ids, cl, make_spans(text, token_offsets(text, toks), recs, ids)
+                if wid not in ws and wid not in extra:
+                    extra.append(wid)
+        ids = ws + extra
+        return ids, cl, make_spans(text, offsets, recs, ids), claimed
 
 
-def token_offsets(text, toks):
+def token_offsets(text, toks, fold=None, joiners=""):
     """Per token, its (start, end) in `text` (Python str offsets), or None.
     Tokens are found in order, case-insensitively (the tagger saw truecased
     text). Between two located tokens only non-alphanumeric text may be
     skipped; a token not found that way is None, and the next token may then
     skip at most the unlocated tokens' text (a tokenizer or fix_token rewrite
-    of a surface resynchronises instead of drifting). A match that skipped
-    text never starts inside a word, and while resynchronising an alphanumeric
-    token must also end at a word end."""
+    of a surface resynchronises instead of drifting). A word token found after
+    skipped text never starts inside a word, and while resynchronising an
+    alphanumeric token must also end at a word end.
+
+    fold (spec.span_fold): string normaliser applied to text and surfaces
+    before matching, to the text one alphanumeric run (a word) or one other
+    character at a time, so multi-character rules inside a word apply (fa:
+    پائین = پایین, ابتداء = ابتدا). Offsets map back to `text`; a match
+    ending where a folded word ends ends where the original word ends.
+    joiners (spec.span_joiners): characters of the text that may sit between
+    two characters of a surface (the tagger input rewrite removed them: fa
+    "می روم" -> token میروم); at most one per token."""
+    if fold is None:
+        ftext, fmap, fend = text, None, None
+    else:
+        ftext, fmap, fend = _fold_map(text, fold)
     out, at, pending = [], 0, 0
     for tok in toks:
-        surf = tok[0]
+        surf = tok[0] or ""
+        if fold is not None:
+            surf = fold(surf)
         m = None
-        for c in (re.compile(re.escape(surf), re.IGNORECASE).finditer(text, at) if surf else ()):
-            if sum(ch.isalnum() for ch in text[at:c.start()]) > pending:
+        if surf:
+            if joiners:
+                j = "[" + re.escape(joiners) + "]?"
+                pat = j.join(re.escape(ch) for ch in surf)
+            else:
+                pat = re.escape(surf)
+            for c in re.compile(pat, re.IGNORECASE).finditer(ftext, at):
+                if sum(ch.isalnum() for ch in ftext[at:c.start()]) > pending:
+                    break
+                if joiners and sum(ch in joiners for ch in c.group(0)) > 1:
+                    continue
+                if c.start() != at and surf[:1].isalnum() and ftext[c.start() - 1:c.start()].isalnum():
+                    continue    # not after a skip: never start inside a word ("e" in mercato)
+                if pending and surf[-1:].isalnum() and ftext[c.end():c.end() + 1].isalnum():
+                    continue    # resyncing: the token must end where a word ends
+                m = c
                 break
-            if c.start() != at and text[c.start() - 1:c.start()].isalnum():
-                continue    # not after a skip: never start inside a word ("e" in mercato)
-            if pending and surf[-1:].isalnum() and text[c.end():c.end() + 1].isalnum():
-                continue    # resyncing: the token must end where a word ends
-            m = c
-            break
         if m is None:
             out.append(None)
-            pending += len(surf or "")
+            pending += len(surf)
             continue
-        out.append((m.start(), m.end()))
         at, pending = m.end(), 0
+        if fmap is None:
+            out.append((m.start(), m.end()))
+        else:
+            out.append((fmap[m.start()], fend.get(m.end(), fmap[m.end() - 1] + 1)))
     return out
+
+
+def _fold_map(text, fold):
+    """fold applied per alphanumeric run and per other character. Returns
+    (folded text, folded index -> text index, {folded end of a run: text end
+    of the run})."""
+    ftext, fmap, fend = [], [], {}
+    i = 0
+    while i < len(text):
+        j = i + 1
+        if text[i].isalnum():
+            while j < len(text) and text[j].isalnum():
+                j += 1
+        run = text[i:j]
+        fr = fold(run)
+        if j - i == 1:
+            fmap += [i] * len(fr)
+        else:
+            done = 0            # folded chars of the run mapped so far
+            for k in range(1, len(run) + 1):
+                n = min(len(fold(run[:k])), len(fr)) if k < len(run) else len(fr)
+                fmap += [i + k - 1] * max(0, n - done)
+                done = max(done, n)
+        ftext.append(fr)
+        if fr and j - i > 1:
+            fend[len(fmap)] = j
+        i = j
+    return "".join(ftext), fmap, fend
 
 
 def utf16_index(text, i):
@@ -339,6 +427,8 @@ def run(spec, check_only=False, out=sys.stdout):
     n_spans = n_ids = 0
     unplaced = []       # (passage id, sentence index, headword, id) linked but with no span
     ids = set()
+    lk.pretag([(t, en) for p in src["passages"] for t, en in p["sentences"]] +
+              [(qt, "") for p in src["passages"] for q in p["questions"] for qt in [q["q"]] + (q["options"] or [])])
     for p in src["passages"]:
         pid, lv = p["id"], p["lv"]
         perr = []
@@ -353,18 +443,18 @@ def run(spec, check_only=False, out=sys.stdout):
         used_oop = set()     # declared oop lemmas met as names or in questions/options
         for t, en in p["sentences"]:
             toks = lk.tag(t, en)
-            ws, cl, spans = lk.links_all(toks, t, en)
+            ws, cl, spans, linked_toks = lk.links_all(toks, t, en)
             sents.append({"t": t, "en": en, "words": ws, "spans": spans})
             placed = {sp_[2] for sp_ in spans}
             n_spans += len(spans)
             n_ids += len(ws)
             unplaced += [(pid, len(sents) - 1, shipped[w]["w"], w) for w in ws if w not in placed]
-            for surf, lem, wid, _ok, _i in cl:
+            for surf, lem, wid, _ok, i in cl:
                 if wid is None and str(oop_ok.get(lem, "")).startswith("name"):
                     used_oop.add(lem)
                     continue    # a declared name the truecaser lowered ("Bruno" -> bruno)
                 counted.append(wid is not None)
-                linked += wid is not None and wid in ws
+                linked += wid is not None and i in linked_toks
                 if wid is None:
                     oop[lem] += 1
                 elif lv_rank[lv_of[wid]] > lv_rank[lv]:

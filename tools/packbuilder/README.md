@@ -15,10 +15,10 @@ The Italian pack (`key: "it"`) was the first language. The shared builder reprod
 
 ```
 packbuilder/
-  cli.py              python3 -m packbuilder {build,check,scan,sample} --lang <code> --repo <path>
+  cli.py              python3 -m packbuilder {build,check,scan,sample} --lang <code> --repo <path>; passages <repo>
   core/               language-agnostic stages
     sources.py        downloads into <repo>/.cache, the Tatoeba corpus stage, audio recorders
-    tag.py            truecasing and spaCy tagging (cached)
+    tag.py            truecasing and tagging (cached): tag_docs/doc_tokens run spaCy or spec.tag_texts (fa, id: Stanza)
     lex.py            kaikki -> compact lexicon + form map (cached)
     lexicon.py        token -> (lemma, POS) resolution with context rules
     freq.py           corpus usage pass, frequency blend
@@ -27,7 +27,8 @@ packbuilder/
     words.py          pool, entry/sense choice, second-POS entries, levels (assign_levels), ids (assign_ids)
     sentences.py      in-context links, sentence choice, -rsi gate
     report.py         REPORT.md (keeps the manual section)
-    pipeline.py       stage driver, pack.json, attribution.json
+    pipeline.py       stage driver (finish_words: sentences, refill, finalize_words), pack.json, attribution.json
+  passages.py         reading passages: tools/passages_src.json -> pack/passages.json
   langs/base.py       LanguageSpec: the interface and its defaults
   langs/it.py         Italian
   langs/ru.py         Russian (ё/е folding, pron = stressed form, aspect/gender gloss suffixes)
@@ -64,8 +65,13 @@ python3 -m packbuilder build  --lang it --repo .           # [--stage corpus|tag
 python3 -m packbuilder check  --lang it --repo .           # exit 1 on failure
 python3 -m packbuilder scan   --lang it --repo . [--only 1|2|3]
 python3 -m packbuilder sample --lang it --repo . --seed 303
+python3 -m packbuilder passages . [--lang it] [--check]    # reading passages, see below
 python3 -m unittest discover -s engine/tools/packbuilder/tests -t engine/tools
 ```
+
+### Reading passages
+
+`passages` tags `tools/passages_src.json` with the language's own tagger through the same entry point as the tag stage (`core/tag.py` `tag_docs` / `doc_tokens`: spaCy, or the spec's `tag_texts` for Stanza languages), in one batch. spaCy is not imported for a Stanza language, so run fa/id with the repo's own `.venv` (it has Stanza). The link context is rebuilt from the cached corpus with the build's full word pass (`pipeline.finish_words`: refill_unexampled and `finalize_words`) and must match `pack/words.json`. Span alignment (`token_offsets`) matches tagger surfaces in the text. `span_fold` (a per-character fold of text and surfaces, fa: Arabic yeh/kaf, ZWNJ, harakat) and `span_joiners` (text characters a `tag_text` rewrite removed inside a token, fa: the space of "می روم") let it align folded surfaces. Both default to exact matching. Indonesian `tag_texts` is batch-dependent: its PROPN rescue counts lowercase uses across the texts it is given. Passage tagging gives it only the passage texts, so a capitalised common word may stay a name where the corpus build would rescue it. Check this when id passages are built. Run `tools/jsonify_pack.py` after writing so the generated `.js` stays in sync.
 
 To work on packbuilder itself against a language repo, point the shim at your checkout with `PACKBUILDER_PATH=../vocab-engine/tools python3 tools/build_pack.py`.
 

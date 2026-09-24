@@ -1,4 +1,6 @@
-"""Stage tag: spaCy over the corpus, truecasing the sentence-initial token."""
+"""Stage tag: the spec's tagger (spaCy, or spec.tag_texts: Stanza for fa/id)
+over the corpus, truecasing the sentence-initial token. tag_docs/doc_tokens
+are the shared tagging entry point (also used by passages)."""
 import gzip
 import hashlib
 import json
@@ -62,6 +64,35 @@ def tagged_path(env, corpus_file):
     return env.derived / f"tagged_{ver}_{sig}.jsonl.gz", f"spaCy {spacy.__version__}, {sp.spacy_model} {model}"
 
 
+def tag_docs(sp, texts, n_process=None):
+    """Run the spec's tagger over tagger-ready texts (truecased, spec.tag_text
+    applied). Returns (docs, fields): docs in text order, and fields(doc) ->
+    (text, lemma, upos, {feature: value}) per token. spaCy for a spec with
+    tagger "spacy" and a spacy_model (n_process defaults to
+    spec.spacy_n_process); otherwise spec.tag_texts (fa, id: Stanza), which
+    already yields such tuples. spaCy is imported only on the spaCy branch."""
+    if sp.tagger != "spacy" or sp.spacy_model is None:
+        return sp.tag_texts(texts), lambda doc: doc
+    import spacy
+    nlp = spacy.load(sp.spacy_model, exclude=["parser", "ner"])
+    sp.setup_nlp(nlp)
+    docs = nlp.pipe(texts, batch_size=2000, n_process=sp.spacy_n_process if n_process is None else n_process)
+    return docs, lambda doc: ((t.text, t.lemma_, t.pos_, t.morph.to_dict()) for t in doc if not t.is_space)
+
+
+def doc_tokens(sp, doc, fields, row):
+    """One tagged doc -> the sentence's [text, lemma, upos, morph] tokens:
+    morph string over spec.morph_keep, spec.fix_token per token, then
+    spec.fix_sentence(toks, row, doc). row is the corpus row
+    [sid, text, user, english, audio, licence] the doc was tagged from."""
+    keep = sp.morph_keep or MORPH_KEEP
+    toks = []
+    for text, lemma, pos, md in fields(doc):
+        ms = "|".join(f"{k}={md[k]}" for k in keep if k in md)
+        toks.append(sp.fix_token([text, lemma, pos, ms]))
+    return sp.fix_sentence(toks, row, doc)
+
+
 def stage_tag(env, corpus):
     sp = env.spec
     out, desc = tagged_path(env, corpus_path(env))
@@ -76,25 +107,12 @@ def stage_tag(env, corpus):
     texts = [truecase(r[1], low, cap, sp.word_re) for r in rows]
     n_lowered = sum(1 for r, t in zip(rows, texts) if r[1] != t)
     texts = [sp.tag_text(t) for t in texts]
-    if sp.tagger != "spacy" or sp.spacy_model is None:
-        docs = sp.tag_texts(texts)      # per text: [(text, lemma, upos, {feat: value})]
-        tok_fields = lambda doc: doc
-    else:
-        import spacy
-        nlp = spacy.load(sp.spacy_model, exclude=["parser", "ner"])
-        sp.setup_nlp(nlp)
-        docs = nlp.pipe(texts, batch_size=2000, n_process=sp.spacy_n_process)
-        tok_fields = lambda doc: ((t.text, t.lemma_, t.pos_, t.morph.to_dict()) for t in doc if not t.is_space)
-    keep = sp.morph_keep or MORPH_KEEP
+    docs, fields = tag_docs(sp, texts)
     tmp = out.with_suffix(".part")
     n_tok = 0
     with gzip.GzipFile(tmp, "wb", mtime=0) as g:
         for r, doc in zip(rows, docs):
-            toks = []
-            for text, lemma, pos, md in tok_fields(doc):
-                ms = "|".join(f"{k}={md[k]}" for k in keep if k in md)
-                toks.append(sp.fix_token([text, lemma, pos, ms]))
-            toks = sp.fix_sentence(toks, r, doc)
+            toks = doc_tokens(sp, doc, fields, r)
             n_tok += len(toks)
             g.write((json.dumps([r[0], toks], ensure_ascii=False) + "\n").encode("utf-8"))
     tmp.replace(out)
