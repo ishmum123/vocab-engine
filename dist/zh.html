@@ -1717,6 +1717,7 @@ function wordListInto(wl, list){
 }
 function renderWordBody(){
   const body = $("wbody");
+  if(!body) return; // debounced search render may fire after the Words tab was left
   const q = wordsQuery.trim();
   if(q){
     const matches = VC.searchWords(WORDS, q); // w, alt, pron, gloss; case/accent-folded
