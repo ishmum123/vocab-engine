@@ -66,3 +66,6 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 
 ## Licensing (user decision)
 - vocab-engine has no LICENSE file (GitHub shows none). Pack READMEs list data/model licences but make no claim about the engine. Pick a licence (MIT suggested; note it_core_news_sm CC BY-NC-SA constrains the Italian *build*, not the engine) and add LICENSE here and a one-line pointer in each pack README.
+
+## Generated audio for languages without browser voices (user 2026-09-24: keep in TODO, revisit later)
+- Persian has no TTS on Apple/Windows/Google TTS and no Tatoeba clips, so the speaker is hidden for most users; Indonesian has no voice on Apple devices; Urdu will be the same. Option: render words + sentences offline with Piper (fa_IR voices, permissive licence) to Opus (~50–80 MB per pack) and serve from each repo's Pages site. Pack already carries per-sentence `audio`; word audio needs a small engine addition. Also: show a one-line "no voice for this language" note instead of silently hiding the speaker.
