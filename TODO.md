@@ -37,7 +37,7 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 - Chrome 139+ has on-device mode (`processLocally`); default is server-based and needs network.
 
 ## Script support (added 2026-09-23)
-- **Browser verification pending** for `rtl`, `fontFamily`, `fonts` and `lineHeight`: check Nastaliq line height, RTL option buttons, the cloze blank position in RTL, and the typed input on a phone. So far only Node tests and a jsdom DOM probe of a synthetic Persian-like build have been run.
+- RTL verified in a real browser on the Persian pack (2026-09-24): Vazirmatn loads, dir/lang on all target nodes, cloze blank at the correct RTL position, ZWNJ forms joined, no overflow at 360/390. Still unverified: Nastaliq (Urdu) line height. Minor: speaker icons and the "Tap a word to hear it" hint still show when no TTS voice exists for the pack language (engine already converts Listen items to read items) — hide them in that case; Words-list pron column ragged for long headwords.
 - validate_pack.py checks the script fields (`rtl`, `langTag`, `fontFamily`, `fonts`, `lineHeight`) with the same patterns as core.js, and warns when `rtl` is set without a font.
 - Word-option distractors (recall and cloze) keep the answer's word class: a content-word answer never gets a `functionWords` distractor (fixed 2026-09-23).
 - There is no per-word reading (furigana) alignment. A Japanese pack gives `sentence.pron` as one kana line, shown under the sentence.
