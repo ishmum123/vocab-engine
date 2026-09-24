@@ -486,7 +486,7 @@ class Persian(LanguageSpec):
         TATOEBA_ENG[0]: TATOEBA_ENG[1],
         TATOEBA_AUDIO[0]: TATOEBA_AUDIO[1],
     }
-    versions = {"corpus": "c1", "tag": "t15", "lex": "l2"}
+    versions = {"corpus": "c1", "tag": "t16", "lex": "l2"}
 
     typing = None
     show_pron = True
@@ -568,7 +568,10 @@ class Persian(LanguageSpec):
     closed_surfaces = {"اینکه": ("اینکه", "CONJ"), "آنکه": ("آنکه", "CONJ"), "بله": ("بله", "INTJ"), "آره": ("بله", "INTJ"), "گاهی": ("گاهی", "ADV"), "وی": ("وی", "PRON"), "ببخشید": ("ببخشید", "INTJ"), "متشکرم": ("متشکرم", "INTJ"),
                        "خداحافظ": ("خداحافظ", "INTJ"), "ممنونم": ("ممنون", "INTJ"), "ممنون": ("ممنون", "INTJ"),
                        "لطفا": ("لطفا", "INTJ")}
-    function_lemmas = FUNCTION
+    # pronouns/conjunctions Seraji tags NOUN are still function words; در is
+    # left to the tagger (its ADP majority) so the noun در "door" stays a content word
+    function_lemmas = (set(FUNCTION) - {"در"}) | {"همه", "چیزی", "اینکه", "وقتی", "کسی", "انگار", "مگر", "هیچکس",
+                                                 "آنچه", "متعلق", "هرکس", "آنکه", "هیچکدام"}
     # (lemma, group) keys that are not learner words, or link elsewhere:
     # subtitle fragments split off at a ZWNJ (تر, اس, دار, ساز, پی, تی), a
     # colloquial pronoun (توش), variant spellings/forms of a pack word
@@ -912,6 +915,9 @@ class Persian(LanguageSpec):
         units = {"سال", "ساعت", "روز", "ماه", "نفر", "دقیقه", "هفته", "بار", "کتاب", "تا"}
         for i, t in enumerate(toks):
             nxt = toks[i + 1][2] if i + 1 < len(toks) else "PUNCT"
+            if (t[0], toks[i + 1][0] if i + 1 < len(toks) else "") == ("پیش", "بینی") or \
+                    (i and (toks[i - 1][0], t[0]) == ("پیش", "بینی")):
+                t[1], t[2] = t[0], "X"          # پیش بینی = پیش‌بینی "prediction" written with a space, not "before" + "nose"
             if t[0] in ("سی", "دی") and ((i + 1 < len(toks) and (t[0], toks[i + 1][0]) == ("سی", "دی")) or
                                           (i and (toks[i - 1][0], t[0]) == ("سی", "دی"))):
                 t[1], t[2] = t[0], "X"          # سی دی: CD, not thirty + the month Dey
@@ -975,9 +981,11 @@ class Persian(LanguageSpec):
                     break
                 n = out[j][0] if out[j] else t[0]
                 cands = nouns.get(n) or nouns.get(t[0])
-                if cands and n == "کار" and t[0] == "کاری" and r[0] == "کردن":
-                    cands = None    # کاری نکرده‌ام "haven't done a thing": کار + -ی as an object, not کار کردن "to work"
-                    # (other nouns keep the compound with -ی: ربطی ندارد, احتیاجی ندارم)
+                if cands and t[0] == n + "ی" and not n.endswith("ی") and (t[2] == "ADJ" or (n, r[0]) == ("کار", "کردن")):
+                    # -ی on an adjective (کشف بزرگی شد: "a great discovery", not بزرگ شدن)
+                    # or کاری نکرده‌ام ("haven't done a thing", not کار کردن) is a noun
+                    # phrase; nouns keep the compound with -ی (ربطی ندارد, احتیاجی ندارم)
+                    cands = None
                 if not cands or "Number=Plur" in t[3]:
                     if t[2] == "NOUN":
                         break       # another noun is the verb's object/complement (پیشنهادش اعتراض کنم)
@@ -1025,6 +1033,10 @@ class Persian(LanguageSpec):
                 del lexicon.E[s]
 
     # ---- sentences written for the pack ----------------------------------------------
+    def pack_json_extra(self):
+        return {"spaced": True, "rtl": True, "langTag": "fa", "fontFamily": "Vazirmatn, \"Noto Naskh Arabic\", sans-serif",
+                "fonts": ["Vazirmatn:wght@400;700"], "lineHeight": 1.9}
+
     def extra_corpus_rows(self, env):
         p = env.repo / "tools" / "generated_sentences.tsv"
         rows = []

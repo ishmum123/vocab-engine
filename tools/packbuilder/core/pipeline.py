@@ -45,6 +45,7 @@ def build_pack_json(env, words, raw_upos):
         "typing": sp.typing,
         "showPron": sp.show_pron,
         "hasLessons": sp.has_lessons,
+        **sp.pack_json_extra(),     # script display fields (fa: rtl, langTag, fontFamily, fonts, lineHeight)
     }
 
 

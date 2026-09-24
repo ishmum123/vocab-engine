@@ -354,6 +354,11 @@ class LanguageSpec:
         """Extra fields for the sentences.json record of a corpus row (fa: src)."""
         return {}
 
+    def pack_json_extra(self):
+        """Extra top-level keys for pack.json (script display: rtl, langTag,
+        fontFamily, fonts, lineHeight, spaced; see docs/PACK_SCHEMA.md)."""
+        return {}
+
     def extra_attribution(self, env, sentences):
         """Extra top-level keys for attribution.json."""
         return {}
