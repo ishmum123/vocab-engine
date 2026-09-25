@@ -36,6 +36,27 @@ class DayCounts(unittest.TestCase):
         self.assertIsNone(Japanese._kanji_int("二三"))
 
 
+class Minutes(unittest.TestCase):
+    def line(self, pieces):
+        sp = spec()
+        from collections import Counter
+        sp.stats = Counter()
+        sp._minute_counts(pieces)
+        return "".join(sp._kana_digits(b, r) for b, r in pieces)
+
+    def test_minutes(self):
+        self.assertEqual([Japanese._minute_reading(n) for n in (1, 2, 10, 45)],
+                         ["いっぷん", "にふん", "じゅっぷん", "よんじゅうごふん"])
+        self.assertEqual(self.line([["１１", None], ["時", ["じ"]], ["４５", None], ["分", ["ぶん"]], ["の", None]]),
+                         "１１じ４５ふんの")
+
+    def test_fraction_and_enough(self):
+        self.assertEqual(self.line([["４", None], ["分", ["ぶん"]], ["の", None], ["３", None]]), "４ぶんの３")
+        self.assertEqual(self.line([["一", ["いち"]], ["分", ["ぶん"]], ["の", None], ["六十", ["ろくじゅう"]],
+                                    ["分", ["ぶん"]], ["の", None], ["一", ["いち"]]]), "いっぷんのろくじゅうぶんのいち")
+        self.assertEqual(self.line([["十分", ["じゅうぶん"]], ["な", None]]), "じゅうぶんな")
+
+
 class OtherKana(unittest.TestCase):
     def test_person_count_in_compound(self):
         sp = spec()

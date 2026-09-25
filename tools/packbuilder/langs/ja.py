@@ -152,7 +152,8 @@ COUNTERS = {"〜人": "(counter for people)", "〜時": "o'clock", "〜分": "mi
             "〜ら": "(plural suffix)", "〜冊": "(counter for books)", "〜匹": "(counter for small animals)",
             "〜台": "(counter for machines, vehicles)", "〜杯": "(counter for cups, glasses)",
             "〜目": "(ordinal suffix) -th", "〜中": "during; throughout", "〜君": "(after a boy's name)",
-            "〜ちゃん": "(affectionate, after a name)", "〜様": "Mr., Ms. (polite)", "〜ヶ月": "month(s)"}
+            "〜ちゃん": "(affectionate, after a name)", "〜様": "Mr., Ms. (polite)", "〜ヶ月": "month(s)",
+            "〜分（ぶん）": "part, portion, share"}
 # counter readings: the base form a dictionary gives (〜杯 はい; after a number
 # it sounds ぱい/ばい), taught with the counter
 COUNTER_READ = {"〜人": "にん", "〜時": "じ", "〜分": "ふん", "〜円": "えん", "〜歳": "さい", "〜つ": "つ",
@@ -160,7 +161,8 @@ COUNTER_READ = {"〜人": "にん", "〜時": "じ", "〜分": "ふん", "〜円
                 "〜個": "こ", "〜階": "かい", "〜さん": "さん", "〜たち": "たち", "〜か月": "かげつ",
                 "〜ヶ月": "かげつ", "〜週間": "しゅうかん", "〜度": "ど", "〜番": "ばん", "〜ら": "ら",
                 "〜冊": "さつ", "〜匹": "ひき", "〜台": "だい", "〜杯": "はい", "〜目": "め", "〜中": "ちゅう",
-                "〜君": "くん", "〜ちゃん": "ちゃん", "〜様": "さま"}
+                "〜君": "くん", "〜ちゃん": "ちゃん", "〜様": "さま",
+                "〜分（ぶん）": "ぶん"}
 # the counters an A1 course teaches for counting things and people (つ 個 枚 本
 # 台 杯 冊 匹 人), plus time, money and age
 FORCED_COUNTERS = "〜人 〜時 〜分 〜円 〜歳 〜つ 〜さん 〜個 〜匹 〜枚 〜本 〜台 〜杯 〜冊".split()
@@ -225,6 +227,9 @@ SUFFIX_WORDS = {"さん", "様", "さま", "ちゃん", "君", "くん", "たち
 # tomorrow", 先日君が会った人, みんな君に任せる)
 SUFFIX_BAD_PREV = ("助詞", "助動詞", "補助記号", "動詞", "形容詞", "感動詞", "空白", "接頭辞")
 HONORIFIC_AFTER_NAME = {"君", "くん"}
+# a noun after the honorific prefix 貴 is one word with it (貴職 "you", 貴社
+# "your company"): the noun alone (職 "job") is not linked
+WORD_PREFIXES = {"貴"}
 # fused expressions Sudachi splits into words they do not mean: the listed
 # surfaces inside them link nothing (None: every content token inside).
 # 何もかも "everything" is not 何 "what"; かどうか "whether" is not どう "how";
@@ -1089,8 +1094,10 @@ class Japanese(LanguageSpec):
         en_words = self._en_words(en)
         out = []
         drop_nai = False
+        off_next = 0
         for i, tok in enumerate(toks):
             surf, lemma, upos, ms = tok
+            off, off_next = off_next, off_next + len(surf)
             nxt = toks[i + 1][0] if i + 1 < len(toks) else ""
             prev = toks[i - 1][0] if i else ""
             if i in fused and lemma:
@@ -1107,6 +1114,22 @@ class Japanese(LanguageSpec):
                 lemma = self._homophone(surf, lemma, upos, ms, en_words)
             if lemma and KANJI_RE.search(surf):
                 lemma = self._other_spelling(surf, lemma, ms)
+            pms = toks[i - 1][3] if i else ""
+            if lemma and prev in WORD_PREFIXES and "Pos=接頭辞" in pms:
+                lemma = ""              # 貴職ら: 貴職 "you", not 職 "job"
+                self.stats["context: noun after the prefix 貴 left unlinked (貴職)"] += 1
+            elif lemma == "者" and HIRA_ONLY_RE.match(surf) and \
+                    nxt in ("です", "だ", "でし", "でしょ", "だっ", "だろ", "じゃ", "で", "な"):
+                lemma = ""              # 寒がるものです: the ものだ pattern, not 者 "person"
+                self.stats["context: ものです / ものだ left unlinked (not 者)"] += 1
+            elif lemma == "もと" and surf == "下" and self._ruby_at(row[0], off) == "した":
+                lemma = "下"            # 太陽の下で read した in the kana line: the word 下
+            elif lemma in ("〜分", "〜分（ぶん）") and i and NUMERAL_RE.match(prev):
+                # N分のM is a fraction (ぶん "part"); any other N分 is minutes
+                # (４５分の電車, ２、３分, 一分の六十分の一: the 六十 before 分)
+                after = "".join(t[0] for t in toks[i + 1:i + 4])
+                m_ = re.match(r"の([0-9０-９一二三四五六七八九十百千]+)(.?)", after)
+                lemma = "〜分（ぶん）" if m_ and m_.group(2) != "分" else "〜分"
             if surf == "何時":
                 f = feats_of(ms)
                 if "Src=idx" in ms and hira(f.get("DRead", "")) == "なんじ" or \
@@ -1163,6 +1186,21 @@ class Japanese(LanguageSpec):
                         if lem.endswith("ない") and len(lem) > 2)
             self._neg_adj = sorted(k for k, c in n.items() if c >= 3)
         return self._neg_adj
+
+    def _ruby_at(self, sid, off):
+        """The Tatoeba furigana of the segment starting at text offset off, or None."""
+        t = self._transcriptions().get(sid)
+        if not t:
+            return None
+        at = 0
+        for m in re.finditer(r"\[([^|\]]+)\|([^\]]*)\]|[^\[]", t):
+            if m.group(1) is None:
+                at += 1
+                continue
+            if at == off:
+                return "".join(m.group(2).split("|"))
+            at += len(m.group(1))
+        return None
 
     def _other_spelling(self, surf, lemma, ms):
         """A token written as another word's usual spelling whose dictionary
@@ -2094,6 +2132,7 @@ class Japanese(LanguageSpec):
         self._person_counts(pieces)
         self._kana_rules(pieces, text, en)
         self._day_counts(pieces)
+        self._minute_counts(pieces)
         self._naka(pieces, en)
         return "".join(self._kana_digits(b, r) for b, r in pieces)
 
@@ -2108,6 +2147,44 @@ class Japanese(LanguageSpec):
                 pieces[i] = [b + "人", ["ひとり" if b in "一１1" else "ふたり"]]
                 pieces[i + 1] = [nb[1:], [re.sub("^(?:ひと|にん|じん)", "", nr)]]
                 self.stats["sentence kana: 一人/二人 split from a compound (一人当たり)"] += 1
+
+    # (十分 before な/に/だ/で/です or at the end is じゅうぶん "enough")
+    MIN_RE = re.compile(r"(?<![0-9０-９一二三四五六七八九十百千万何数])(?!十分(?:[なにだで。、？！]|$))"
+                        r"([0-9０-９]{1,2}|[一二三四五六七八九十]{1,3})分"
+                        r"(?!の[0-9０-９一二三四五六七八九十百千]+[^分0-9０-９一二三四五六七八九十百千]|の[0-9０-９一二三四五六七八九十百千]+$)")
+    _MIN_UNIT = {1: "いっぷん", 2: "にふん", 3: "さんぷん", 4: "よんぷん", 5: "ごふん", 6: "ろっぷん", 7: "ななふん",
+                 8: "はっぷん", 9: "きゅうふん"}
+
+    @classmethod
+    def _minute_reading(cls, n):
+        """N分 as minutes: ふん after 2 5 7 9, ぷん with a doubled sound otherwise."""
+        tens, unit = divmod(n, 10)
+        head = "" if not tens else "じゅう" if tens == 1 else cls._SINO[tens][0] + "じゅう"
+        if unit:
+            return head + cls._MIN_UNIT[unit]
+        return head[:-1] + "っぷん" if head else ""
+
+    def _minute_counts(self, pieces):
+        """N分 is minutes (ふん/ぷん: 一分 いっぷん, ４５分 ４５ふん) unless it is a
+        fraction N分のM (六十分の一 ろくじゅうぶんのいち)."""
+        text = "".join(b for b, _ in pieces)
+        for m in list(self.MIN_RE.finditer(text)):
+            n = self._kanji_int(m.group(1))
+            if not n or n >= 100:
+                continue
+            rd = self._minute_reading(n)
+            offs, at = [], 0
+            for b, _ in pieces:
+                offs.append((at, at + len(b)))
+                at += len(b)
+            idx = [j for j, (s_, e_) in enumerate(offs) if s_ < m.end() and e_ > m.start()]
+            if not idx or offs[idx[0]][0] != m.start() or offs[idx[-1]][1] != m.end():
+                continue                # segment runs past the count: left as is
+            cur = "".join("".join(pieces[j][1]) if pieces[j][1] else pieces[j][0] for j in idx)
+            if cur == rd and len(idx) == 1:
+                continue
+            pieces[idx[0]:idx[-1] + 1] = [[m.group(0), [rd]]]
+            self.stats["sentence kana: minutes re-read (ふん / ぷん)"] += 1
 
     # 中 after a place or a stretch of time is じゅう "throughout" (一日中, 世界中,
     # 部屋中); after an activity it is ちゅう "during, in the middle of" (会議中)
@@ -2429,6 +2506,8 @@ class Japanese(LanguageSpec):
                 new = "ひとり" if b[0] in "１1" else "ふたり"
             elif b in ("一人", "二人") and rd in ("いちにん", "ににん"):
                 new = {"一人": "ひとり", "二人": "ふたり"}[b]
+            elif b == "家" and rd == "か" and re.match(f"[{HIRA}]", after[:1] or "x"):
+                new = "いえ"            # 夏休み中家に: Sudachi's suffix か (作家) on its own is いえ
             elif b == "米" and rd != "こめ" and not after.startswith(("国", "軍")):
                 new = "こめ"
             elif b == "今" and rd == "こん" and not re.match(r"[晩週月年回度夜後日世学季朝]", after):
@@ -2442,9 +2521,22 @@ class Japanese(LanguageSpec):
                     sud, at = {}, 0
                     for m in self._tokenizer().tokenize(text):
                         sud[(at, at + len(m.surface()))] = hira(m.reading_form())
+                        # 遠から: the kanji's own kana is the reading minus the
+                        # written tail (遠 とお; a transcription says とおざ)
+                        mm = re.match(f"^([{KANJI}])([{HIRA}]+)$", m.surface())
+                        rf = hira(m.reading_form())
+                        if mm and rf.endswith(mm.group(2)) and len(rf) > len(mm.group(2)):
+                            sud.setdefault((at, at + 1), (rf[:-len(mm.group(2))], m.dictionary_form()))
                         at += len(m.surface())
                 pos = sum(len(x) for x, _ in pieces[:i])
                 sr = sud.get((pos, pos + 1))
+                if isinstance(sr, tuple):
+                    # from a kanji + kana token: only when the transcription's
+                    # reading is no reading of the word (埋める うずめる is one)
+                    sr, dform = sr
+                    tail = re.search(f"[{HIRA}]*$", dform).group(0)
+                    if dform in self._kaikki_alias().get("reading", {}).get(rd + tail, ()):
+                        sr = None
                 if sr and sr != rd and rd.startswith(sr) and not after.startswith(rd[len(sr):]):
                     new = sr
             if new is not None and new != rd:
