@@ -905,7 +905,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     check("a mouse tap (button not focused) does not move focus", b2.by && focused === null);
     document.createElement = mk;
     check("keys on a show-written button never reach the drill shortcuts (Enter = Next)",
-      api.onShowWritten({ target: { closest: s => s === "[data-showw]" ? b : null } }) && !api.onShowWritten({ target: { closest: () => null } }) && /if\(drillKeyHandler && !onShowWritten\(e\) && !\(onTok\(e\) && e\.key !== "Escape"\)\) drillKeyHandler\(e\)/.test(appHtml));
+      api.onShowWritten({ target: { closest: s => s === "[data-showw]" ? b : null } }) && !api.onShowWritten({ target: { closest: () => null } }) && /if\(drillKeyHandler && !onShowWritten\(e\) && !tokOwns\(e\)\) drillKeyHandler\(e\)/.test(appHtml));
     check("announce() drops the show-written button label from the live-region text", /querySelectorAll\("\[data-showw\]"\)\.forEach\(x => x\.remove\(\)\)/.test(appHtml.match(/function announce[\s\S]*?\n}\n/)[0]));
     let other = false;
     cap({ target: { closest: () => null }, preventDefault(){ other = true; }, stopPropagation(){ other = true; } });

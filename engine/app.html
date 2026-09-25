@@ -20,7 +20,7 @@
     /* pack.fontFamily, when set, is prepended at boot: --wfont = <pack font>, var(--wbase). */
     --wfont: var(--wbase);
     --safe-b: env(safe-area-inset-bottom, 0px);
-    --t1:#3B6E99;--t2:#3E8B5C;--t3:#9C6B2E;--t4:#B33F3F;--t5:#8A8378;
+    --t1:#3B6E99;--t2:#35784F;--t3:#8E622A;--t4:#B33F3F;--t5:#706A61;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -615,9 +615,12 @@ function renderTypeItem(it){
 // A key on a show-written button (pack.pronFirst) is the button's own (Enter/Space reveal
 // the written form); it never reaches the drill's shortcuts (Enter = Next, 1-4 = answer).
 const onShowWritten = e => !!(e && e.target && e.target.closest && e.target.closest("[data-showw]"));
-// Enter/Space on a focused word tap are the tap's own; Escape still reaches the drill (after
-// the panel listener below has dismissed the popover).
-document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e) && !(onTok(e) && e.key !== "Escape")) drillKeyHandler(e); });
+// Enter/Space on a focused word tap are the tap's own. Escape is the tap's own only when it
+// closed an open popover or cleared a highlight (the panel listener below marks that event,
+// tokEscEaten); otherwise it reaches the drill as usual (quit).
+let tokEscEaten = null;
+const tokOwns = e => onTok(e) && (e.key !== "Escape" || e === tokEscEaten);
+document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e) && !tokOwns(e)) drillKeyHandler(e); });
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
 // ---- word taps inside sentences (any pack whose sentences carry ruby, or pronFirst
@@ -656,11 +659,15 @@ function tokTap(t){
   announce(html);
   say(head ? head.surface : w.w);
 }
-// Hides the popover of the tap's data-tokbox and clears its highlight.
+// Hides the popover of the tap's data-tokbox and clears its highlight; true when there was
+// something to close (an open popover or a highlighted token).
 function tokDismiss(t){
-  const box = t.closest("[data-tokbox]"); if(!box) return;
-  box.querySelectorAll(".tk.on").forEach(x => x.classList.remove("on"));
-  const g = box.querySelector(".tokgloss"); if(g) g.hidden = true;
+  const box = t.closest("[data-tokbox]"); if(!box) return false;
+  const on = box.querySelectorAll(".tk.on"); const g = box.querySelector(".tokgloss");
+  const open = on.length > 0 || !!(g && !g.hidden);
+  on.forEach(x => x.classList.remove("on"));
+  if(g) g.hidden = true;
+  return open;
 }
 const onTok = e => !!(e && e.target && e.target.closest && e.target.closest("[data-tok]"));
 
@@ -681,7 +688,7 @@ $("panel").addEventListener("click", e => {
 $("panel").addEventListener("keydown", e => {
   const t = e.target && e.target.closest ? e.target.closest("[data-tok]") : null;
   if(t && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); tokTap(t); }
-  else if(t && e.key === "Escape") tokDismiss(t); // then the drill's own Escape runs as before
+  else if(t && e.key === "Escape" && tokDismiss(t)){ tokEscEaten = e; e.preventDefault(); } // consumed: the drill never sees it
 });
 
 // pack.pronFirst "show written form" tap: capture phase, so it runs before (and stops) the

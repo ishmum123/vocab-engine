@@ -102,7 +102,8 @@ function makeFakeDom(){
       if(m) return m[1] ? tabButtons.filter(b=>b.dataset.t===m[1]) : tabButtons.slice();
       return [];
     },
-    addEventListener(){},
+    _listeners: {},
+    addEventListener(t,f){ (this._listeners[t]=this._listeners[t]||[]).push(f); },
   };
 }
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -137,7 +138,7 @@ return {
   getD: () => D, getCur: () => __cur, panelListeners: t => document.getElementById("panel")._listeners[t || "click"] || [],
   startPassage: p => { tab = "read"; startPassage(p); }, rd: () => RD,
   sentenceRowHTML, sentenceRevealBlock, readSentence, gapSentence, passageSentenceHTML, passagePlainHTML, glossHTML, revealBlock, recallItem, readItem, wordRowHTML, charTeach, charDrillItem,
-  itemFromPlan: ${hook("itemFromPlan")}, tokTap: ${hook("tokTap")}, onTok: ${hook("onTok")}, soundsRefGroups: ${hook("soundsRefGroups")},
+  itemFromPlan: ${hook("itemFromPlan")}, tokTap: ${hook("tokTap")}, onTok: ${hook("onTok")}, tokOwns: ${hook("tokOwns")}, docListeners: t => document._listeners[t] || [], soundsRefGroups: ${hook("soundsRefGroups")},
   drill1: it => drill([it], () => {}, null),
   wordsPage: (lv, set) => { tab = "words"; wordsQuery = ""; wordsLv = lv; wordsSet = set; render(); },
 };`;
@@ -333,7 +334,7 @@ function walk(api, stopAt){
     check("the popover shows the coloured reading, the show-written tap and the gloss", tspans(appended[0].innerHTML) > 0 && /data-showw="学生"/.test(appended[0].innerHTML) && appended[0].innerHTML.includes(VC.escapeHtml(VC.gloss(tw0))));
     check(`the tap speaks the word only (${JSON.stringify(spoken)}), progress unchanged`, spoken.length === 1 && spoken[0] === tw0.w && JSON.stringify(api.getProg()) === progBefore);
     check("keyboard: one keydown listener on #panel (Enter/Space on a tap); drill shortcuts skip a focused tap",
-      api.panelListeners("keydown").length === 1 && api.onTok({ target: { closest: s => s === "[data-tok]" ? {} : null } }) && /!onShowWritten\(e\) && !\(onTok\(e\) && e\.key !== "Escape"\)\) drillKeyHandler/.test(appHtml));
+      api.panelListeners("keydown").length === 1 && api.onTok({ target: { closest: s => s === "[data-tok]" ? {} : null } }) && /!onShowWritten\(e\) && !tokOwns\(e\)\) drillKeyHandler/.test(appHtml));
     check("click delegation: still one bubbling click listener + the show-written capture listener", api.panelListeners("click").length === 2);
     // Teach examples (charTeach) and Words-list examples carry taps too.
     const cs = VC.nextCharSet(["1","2","3"], CHARACTERS, PACK, VC.normalizeProg({}, PACK));
@@ -617,7 +618,22 @@ function walk(api, stopAt){
     const tk = { dataset: { tok: "w0028" }, closest: sel => sel === "[data-tok]" ? tk : sel === "[data-tokbox]" ? box : null };
     kd({ key: "Escape", target: tk, preventDefault(){} }); hidden = g.hidden;
     check("Escape on a focused tap hides the popover and clears the highlight", hidden === true && cleared.includes("on"));
-    check("... and is not swallowed: the drill's own Escape still runs (only Enter/Space are the tap's)", /!\(onTok\(e\) && e\.key !== "Escape"\)\) drillKeyHandler/.test(appHtml));
+    check("... and is consumed: the drill shortcuts skip that Escape (Enter/Space on a tap too)",
+      /!onShowWritten\(e\) && !tokOwns\(e\)\) drillKeyHandler/.test(appHtml) && api.tokOwns({ key: "Enter", target: tk }) && !api.tokOwns({ key: "Escape", target: tk }));
+    // Bubbling order inside a drill: #panel's keydown listener, then the document's.
+    const dks = api.docListeners("keydown");
+    const esc = () => { const ev = { key: "Escape", target: tk2, preventDefault(){} }; kd(ev); dks.forEach(f => f(ev)); };
+    let onSet = [{ classList: { remove(){ onSet = []; } } }]; const g2 = { hidden: false };
+    const box2 = { querySelectorAll: () => onSet, querySelector: () => g2 };
+    const tk2 = { dataset: { tok: "w0028" }, closest: sel => sel === "[data-tok]" ? tk2 : sel === "[data-tokbox]" ? box2 : null };
+    const rw = WORDS.slice(0, 2);
+    api.drill1(api.itemFromPlan({ kind: "read", word: rw[0] }));
+    const key0 = api.getCur() && api.getCur().key;
+    esc();
+    check(`in a drill, Escape with an open popover closes it and leaves the drill on the same item (${key0})`,
+      dks.length === 1 && api.getD() !== null && api.getCur().key === key0 && g2.hidden === true && onSet.length === 0);
+    esc();
+    check("... a second Escape (nothing open) quits the drill as before", api.getD() === null);
     const L = (t, r) => VC.sentencePieces({ t }, r.map(([a, b, x]) => ({ start: a, end: b, tier: "pron", reading: x }))).map(p => p.pre + p.text).join("");
     const q1 = L("他说：“好。”", [[0,1,"tā"],[1,2,"shuō"],[4,5,"hǎo"]]);
     check(`capital after a colon and an opening quote (${q1})`, q1 === "Tā shuō: “Hǎo.”");
