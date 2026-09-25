@@ -136,6 +136,7 @@
   .charteach .en{color:var(--mute);font-size:14px;text-align:left;margin:0}
   .charteach .sent{border-bottom:none;padding:4px 0 0;font-size:14px}
   .hasruby{line-height:2.3}
+  .psent .ptxt.hasruby{line-height:2.3}
   .hasruby ruby{ruby-position:over}
   .hasruby rt{font-family:var(--font);font-size:0.5em;line-height:1;color:var(--mute);font-weight:400}
   .sent{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
@@ -249,6 +250,10 @@ const SIZE = VC.setSizeOf(PACK);
 const BY_LV = VC.wordsByLevel(WORDS, PACK);
 const WORDS_BY_ID = {}; WORDS.forEach(w=>{ WORDS_BY_ID[w.id] = w; });
 const CHAR_CTX = { units: CHAR_LIST, words: WORDS, byId: WORDS_BY_ID }; // VC.charItem context
+// LEGACY is optional too (legacy.js, packs with pack.legacy): the predecessor app's key maps
+// VC.migrateLegacy reads. Without both, no boot migration and no legacy import ever runs.
+const LEGACY_MAP = (typeof LEGACY !== "undefined" && LEGACY && typeof LEGACY === "object") ? LEGACY : null;
+const HAS_LEGACY = !!(PACK.legacy && typeof PACK.legacy === "object" && typeof PACK.legacy.key === "string" && PACK.legacy.key) && !!LEGACY_MAP;
 const SENT_INDEX = new Map(SENTENCES.map((s,i)=>[s, i]));
 const TYPING = VC.typingEnabled(PACK);
 const levelLabel = lv => VC.levelLabel(PACK, lv);
@@ -332,6 +337,7 @@ let soundsSel = null;          // Sounds tab selection
 let wordsLv = LEVELS[0], wordsSet = null, wordsQuery = ""; // Words tab state
 let RD = null;                 // active Read session
 let testSel = null, PL = null; // Test tab state
+let legacyNotice = null;       // one-time notice after the boot migration (HTML), until dismissed
 // Set true right before the boot IIFE's own render() call, at the very end of this
 // script. The voice probe below can fire synchronously before boot has run at all —
 // before store.load() has even been called, so prog is still the just-in-case default
@@ -802,7 +808,7 @@ function charChoiceHTML(){
   const first = path.findIndex(s => s.kind === "chars");
   const next = path.slice(first + 1).find(s => s.kind === "words" && !s.done);
   const L = tw(CHAR_CFG.label), N = escapeHtml(next ? next.label : "");
-  return `<div class="stmt" id="charChoice">${L} next: learn to recognise the written form of the words you already know. Or go on to ${N} first and do ${L} after it.<button class="next" id="choiceStart" style="margin-top:8px">Start ${L}</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to ${N}</button></div>`;
+  return `<div class="stmt" id="charChoice">${L} next: learn to recognise the written form of the words you already know. Or go on to ${N} first and do ${L} after it. You can change this later in Progress.<button class="next" id="choiceStart" style="margin-top:8px">Start ${L}</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to ${N}</button></div>`;
 }
 function todayRender(){
   setScore(0,0);
@@ -826,13 +832,14 @@ function todayRender(){
   refreshReadUnlocks();
   const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
   const choice = !!(snap && snap.choice);
-  P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${pathStrip()}
+  P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${pathStrip()}
     ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice ? charChoiceHTML() : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
     ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${tw(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
     </div>${choice ? "" : `<div class="actions"><button class="next" id="go">Start today</button></div>`}`;
+  if(legacyNotice) $("legacyOk").onclick = () => { legacyNotice = null; todayRender(); };
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
   if(readHint) $("hintRead").onclick = () => { switchToTab("read", "Read"); RD = null; startPassage(readHint); };
@@ -1099,25 +1106,41 @@ function startPassage(p){
 }
 // One passage sentence: linked words as tappable spans (data-pw), words not visible in
 // the text as chips below, and a read-aloud button when speech works (or it has audio).
+// With pack.characters a passage sentence carrying `ruby` (sentences.json format) gets the
+// same tiers as sentence rows (sentenceRuby): each tap segment's text renders its ruby
+// tokens (passageRubyHTML); the line box is the fixed tall one, so no line jumps.
 function passageSentenceHTML(s, si, hi){
   const seg = VC.passageSegments(s, WORDS_BY_ID, PACK);
-  const txt = seg.parts.map(x => x.id ? `<span class="pw" data-pw="${escapeHtml(x.id)}"${x.gloss ? ` data-pg="${escapeHtml(x.gloss)}"` : ""} role="button" tabindex="0">${escapeHtml(x.text)}</span>` : escapeHtml(x.text)).join("");
+  const rt = sentenceRuby(s);
+  let at = 0;
+  const inner = x => { const a = at; at += x.text.length; return rt ? passageRubyHTML(String(s.t || ""), rt, a, at) : escapeHtml(x.text); };
+  const txt = seg.parts.map(x => x.id ? `<span class="pw" data-pw="${escapeHtml(x.id)}" role="button" tabindex="0">${inner(x)}</span>` : inner(x)).join("");
   const chips = seg.unplaced.length ? `<div class="pchips">${seg.unplaced.map(id => `<span class="pw pchip" data-pw="${escapeHtml(id)}" role="button" tabindex="0"${TA}>${escapeHtml(WORDS_BY_ID[id].w)}</span>`).join("")}</div>` : "";
   const aloud = canHearSentence(s) ? `<button class="replay psay" data-say="${si}" aria-label="Read sentence aloud">${TEACH_PLAY_SVG}</button>` : "";
-  return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt"${TA}>${txt}</div>${aloud}${chips}</div>`;
+  return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt${rt ? " hasruby" : ""}"${TA}>${txt}</div>${aloud}${chips}</div>`;
+}
+// Text t[a, b) with the ruby tokens that lie wholly inside it: below bare <ruby>, at or
+// above it plain. A token crossing a tap-segment edge, or malformed, renders plain.
+function passageRubyHTML(t, toks, a, b){
+  let out = "", pos = a;
+  toks.forEach(k => {
+    if(!(k.start >= pos && k.end > k.start && k.end <= b)) return;
+    out += escapeHtml(t.slice(pos, k.start));
+    const base = escapeHtml(t.slice(k.start, k.end));
+    out += k.tier === "bare" ? base : `<ruby>${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`;
+    pos = k.end;
+  });
+  return out + escapeHtml(t.slice(pos, b));
 }
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
 // RTL packs: the popover runs right-to-left (tapped word at the right edge, then pron and
 // gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
 const LTR = SCRIPT.rtl ? ' dir="ltr"' : "";
 const glossBox = () => `<div class="gloss" id="gloss"${SCRIPT.rtl ? ' dir="rtl"' : ""} hidden></div>`;
-// spanGloss: the tapped span's display-only gloss (spans[i][3], data-pg), shown
-// instead of the word's gloss; without one the word's own gloss, as before.
-function glossHTML(id, spanGloss){
+function glossHTML(id){
   const w = WORDS_BY_ID[id]; if(!w) return "";
   const p = pronOf(w);
-  const g = spanGloss ? String(spanGloss).replace(/\s+/g, " ").trim() : "";
-  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(g || VC.gloss(w))}</span>`;
+  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(VC.gloss(w))}</span>`;
 }
 // Wires tap-to-gloss and read-aloud on a freshly rendered passage container (its
 // innerHTML is replaced on every render, so listeners never accumulate).
@@ -1127,9 +1150,8 @@ function wirePassage(box, glossEl){
     if(RD && RD.tapped.indexOf(id) < 0) RD.tapped.push(id);
     box.querySelectorAll(".pw.on").forEach(x => x.classList.remove("on"));
     t.classList.add("on");
-    const g = t.dataset.pg;
-    if(glossEl){ glossEl.innerHTML = glossHTML(id, g); glossEl.hidden = false; }
-    announce(glossHTML(id, g));
+    if(glossEl){ glossEl.innerHTML = glossHTML(id); glossEl.hidden = false; }
+    announce(glossHTML(id));
   };
   box.addEventListener("click", e => {
     const w = e.target.closest("[data-pw]"); if(w){ tap(w); return; }
@@ -1240,6 +1262,10 @@ function testRender(){
   const tg = VC.testGates(lw.length, availSent.length);
   const needMore = tg.needPlacement;
   const n20 = Math.min(20, lw.length), sentN = Math.min(20, availSent.length);
+  // Characters N (pack.characters): recorded units only, weakest first, capped at 20 like
+  // the other free tests; hidden until a unit has a record.
+  const ru = HAS_CHARACTERS ? VC.recordedUnits(CHAR_LIST, prog, PACK) : [];
+  const charN = Math.min(20, ru.length);
   P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
     <div class="actions">
       ${needMore ? `<div class="stmt">Free tests unlock at ${VC.TEST_MIN_WORDS} learned words (${lw.length} so far). Learn ${VC.TEST_MIN_WORDS} words first, or let placement find where to start.<button class="next" id="needPlace" style="margin-top:8px">Take the placement test</button></div>` : `<button class="next" id="pl">Take Placement</button>`}
@@ -1247,7 +1273,8 @@ function testRender(){
         <button class="ghost" id="tListen" style="flex:1">Listen ${n20}</button>
         <button class="ghost" id="tRecall" style="flex:1">Recall ${n20}</button>
       </div>` : ""}
-      ${tg.sentences ? `<button class="ghost" id="tSentences">Sentences ${sentN}</button>` : ""}
+      ${tg.sentences ? `<button class="ghost" id="tSentences">Sentences ${sentN}</button>` : ""}${charN ? `
+      <button class="ghost" id="tChars">Characters ${charN}</button>` : ""}
     </div>`;
   if(needMore) $("needPlace").onclick = enterPlacementFromToday;
   else $("pl").onclick = () => { testSel = "placement"; testRender(); };
@@ -1258,6 +1285,12 @@ function testRender(){
   if(tg.sentences){
     $("tSentences").onclick = () => drill(weakFirstSentences(availSent,20).map(hearSentence), testRender, missSummary);
   }
+  if(charN) $("tChars").onclick = () => drill(charTestPlan(ru, charN).map(planItem), testRender, missSummary);
+}
+// Characters test: the n weakest recorded units, each as a random pack reviewKind.
+function charTestPlan(units, n){
+  const kinds = CHAR_CFG.reviewKinds;
+  return VC.weakFirst(units, n, VC.charRecs(prog)).map(unit => ({ kind: kinds[Math.floor(Math.random() * kinds.length)], unit }));
 }
 function placementItemTotal(){ return VC.strata(WORDS, PACK.placement, SIZE).reduce((n,_,i)=>n+VC.placementItemCount(i), 0); }
 function placeRender(){
@@ -1330,12 +1363,13 @@ function progressRender(){
       ${sentLv.length ? `<tr><td>${L} sentences</td><td>${sentAvailLv.length} / ${sentLv.length} available · ${sentMasteredN} mastered</td></tr>` : ""}`;
   }).join("");
   const weak = weakFirst(lwAll.filter(w=>VC.weakScore(prog.w[w.id])>0), 10);
+  const cp = HAS_CHARACTERS ? charProgress() : null;
   P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
-    <table class="stats">${rows}
+    <table class="stats">${rows}${cp ? cp.rows : ""}
       ${HAS_PASSAGES ? VC.readingStats(PASSAGE_LIST, PACK, prog).map(r => `<tr><td>${escapeHtml(levelLabel(r.lv))} reading</td><td>${r.done} / ${r.total} passages${r.avg != null ? ` · avg ${r.avg}%` : ""}</td></tr>`).join("") : ""}
       ${HAS_LESSONS ? `<tr><td>Sounds</td><td>${LESSON_LIST.filter(l=>prog.lessons[l.id]).length} / ${LESSON_LIST.length} lessons done</td></tr>` : ""}
       <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
-    ${PACK.showPron !== false ? `<div class="row" style="margin-top:14px"><button class="chip ${showPron()?'on':''}" id="togglePron" aria-pressed="${showPron()}">Show pronunciation</button></div>` : ""}
+    ${PACK.showPron !== false ? `<div class="row" style="margin-top:14px"><button class="chip ${showPron()?'on':''}" id="togglePron" aria-pressed="${showPron()}">Show pronunciation</button></div>` : ""}${cp ? cp.controls : ""}
     <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
     ${weak.map(w=>`<div class="rowset">${wordRowHTML(w, "rowset")}</div>`).join("")}
     <div class="row" style="margin-top:16px">
@@ -1346,10 +1380,12 @@ function progressRender(){
       <textarea id="imptxt" placeholder="Paste exported JSON here"></textarea>
       <input type="file" id="impfile" accept="application/json" style="margin-top:8px">
       <button class="next" id="doimport">Load</button>
-      <div id="impErr" class="warn" style="display:none;margin-top:8px"></div>
+      <div id="impErr" class="warn" style="display:none;margin-top:8px"></div>${HAS_LEGACY ? `
+      <div id="impSum" class="stmt" style="display:none;margin-top:8px"></div>` : ""}
     </div>
     <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
   if(PACK.showPron !== false) $("togglePron").onclick = () => { prog.showPron = !showPron(); store.save(); progressRender(); };
+  if(cp) cp.wire();
   $("exp").onclick = () => {
     const blob = new Blob([JSON.stringify(prog, null, 1)], {type:"application/json"});
     const url = URL.createObjectURL(blob);
@@ -1360,15 +1396,37 @@ function progressRender(){
   $("imp").onclick = () => { $("impbox").style.display = $("impbox").style.display==="none" ? "block" : "none"; };
   $("impfile").onchange = e => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { $("imptxt").value = r.result; }; r.readAsText(f); };
   const showImportError = msg => { const el = $("impErr"); el.textContent = msg; el.style.display = "block"; };
+  // Backup first; if it can't be written (read-only session, storage error) the import is
+  // not applied, so the current progress is never lost unbacked.
+  const applyImported = async next => {
+    if(!(await store.backup("pre_import_backup", JSON.stringify(prog)))){ showImportError("Import not applied: the current progress couldn't be backed up first (storage unavailable)."); return; }
+    prog = next;
+    store.save(); applyTheme(); progressRender();
+  };
   $("doimport").onclick = async () => {
     try{
-      const r = VC.applyImport(prog, $("imptxt").value, PACK);
+      const text = $("imptxt").value;
+      // A predecessor app's export (pack.legacy) goes through VC.migrateLegacy, and its
+      // summary (counts, anything that has no place here) is shown before applying.
+      const parsed = HAS_LEGACY ? VC.parseStored(text) : null;
+      if(parsed && parsed.ok && VC.isLegacyRecord(PACK, LEGACY_MAP, parsed.data)){
+        const m = VC.migrateLegacy(PACK, LEGACY_MAP, parsed.data);
+        if(!m.ok){ showImportError("That looks like progress from the older app, but it could not be converted: " + m.reason); return; }
+        // Like applyImport: what the file doesn't carry keeps the current value.
+        if(parsed.data.theme === undefined) m.prog.theme = prog.theme;
+        if(prog.showPron !== undefined) m.prog.showPron = prog.showPron;
+        if(m.prog.chars && prog.chars && parsed.data.mixChars === undefined) m.prog.chars.mix = prog.chars.mix !== false;
+        $("impErr").style.display = "none";
+        const box = $("impSum");
+        box.innerHTML = `${legacySummaryHTML(m, "the file you imported")}<button class="next" id="impApply" style="margin-top:8px">Import this progress</button><button class="ghost" id="impCancel" style="margin-top:8px">Cancel</button>`;
+        box.style.display = "block";
+        $("impApply").onclick = () => applyImported(m.prog);
+        $("impCancel").onclick = () => { box.style.display = "none"; box.innerHTML = ""; };
+        return;
+      }
+      const r = VC.applyImport(prog, text, PACK);
       if(!r.ok){ showImportError("That doesn't look like valid exported progress for this pack: " + r.reason); return; }
-      // Backup first; if it can't be written (read-only session, storage error) the
-      // import is not applied, so the current progress is never lost unbacked.
-      if(!(await store.backup("pre_import_backup", JSON.stringify(prog)))){ showImportError("Import not applied: the current progress couldn't be backed up first (storage unavailable)."); return; }
-      prog = r.prog;
-      store.save(); applyTheme(); progressRender();
+      await applyImported(r.prog);
     }catch(e){
       showImportError("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
     }
@@ -1376,9 +1434,62 @@ function progressRender(){
   $("reset").onclick = async () => {
     if(!confirm(`Reset all progress? A copy is kept under ${STORE_KEY}_reset_backup until the next reset.`)) return;
     if(!(await store.backup("reset_backup", JSON.stringify(prog)))){ alert("Reset cancelled: the current progress couldn't be backed up first (storage unavailable)."); return; }
+    // defaultProg: with pack.characters that includes fresh prog.chars (records, order,
+    // choice and mix all cleared). Only this pack's own key and its _reset_backup are
+    // written; the legacy key and its backup (pack.legacy) are never touched.
     prog = Object.assign(VC.defaultProg(PACK), { theme: prog.theme, showPron: prog.showPron });
     store.save(); progressRender();
   };
+}
+// Progress additions for pack.characters: one row per character stage (taught = units in
+// fully taught sets, recorded = units with a record, mastered/bare by streak), and the
+// controls: the path strip, the learning-order chips (VC.setCharOrder: reversible, flips
+// the path only) and the mix chip (prog.chars.mix: known units' written form in sentences).
+function charProgress(){
+  const stages = VC.stagePath(PACK, WORDS, CHAR_LIST, prog).filter(s => s.kind === "chars");
+  const recs = VC.charRecs(prog);
+  const streak = u => ((recs[u.id] || {}).s || 0);
+  const rows = stages.map(st => {
+    const list = VC.charStageUnits(st.levels, CHAR_LIST, PACK);
+    const taught = VC.charSets(st.levels, CHAR_LIST, PACK).filter(set => VC.charSetTaught(set, prog)).reduce((n, set) => n + set.length, 0);
+    const masteredN = list.filter(u => recs[u.id] && VC.charTier(streak(u), PACK) !== "pron").length;
+    const bareN = list.filter(u => recs[u.id] && VC.charTier(streak(u), PACK) === "bare").length;
+    return `<tr><td>${tw(st.label)}</td><td>${taught} / ${list.length} taught · ${st.recorded} recorded · ${masteredN} mastered · ${bareN} bare</td></tr>`;
+  }).join("");
+  const unlocked = VC.charsUnlocked(PACK, WORDS, prog), started = VC.charsStarted(PACK, WORDS, CHAR_LIST, prog);
+  const defer = !!(prog.chars && prog.chars.defer === true);
+  const deferred = VC.charStages(PACK, Object.assign({}, prog, { chars: Object.assign({}, prog.chars, { defer: true }) }));
+  const top = deferred.length ? levelLabel(deferred[0].after) : "";
+  const mix = !!(prog.chars && prog.chars.mix !== false);
+  const showMix = unlocked || started;
+  const controls = (unlocked || showMix) ? `<div id="charCtl" style="margin-top:14px">${pathStrip()}
+    ${showMix ? `<div class="row"><button class="chip ${mix ? "on" : ""}" id="toggleMix" aria-pressed="${mix}">Mix known characters into sentences</button></div>` : ""}
+    ${unlocked ? `<div class="row"><button class="chip ${defer ? "" : "on"}" id="ordBefore" aria-pressed="${!defer}">Characters before ${escapeHtml(top)}</button><button class="chip ${defer ? "on" : ""}" id="ordAfter" aria-pressed="${defer}">Characters after ${escapeHtml(top)}</button></div>
+    <p class="q" style="margin-top:6px">Changes what Today's Learn step teaches next. Nothing you've learned is lost.</p>` : ""}</div>` : "";
+  const wire = () => {
+    if(showMix) $("toggleMix").onclick = () => { VC.ensureChars(prog).mix = !mix; store.save(); progressRender(); };
+    if(unlocked){
+      $("ordBefore").onclick = () => { VC.setCharOrder(prog, false); store.save(); progressRender(); };
+      $("ordAfter").onclick = () => { VC.setCharOrder(prog, true); store.save(); progressRender(); };
+    }
+  };
+  return { rows, controls, wire };
+}
+// What a legacy migration brought over (VC.migrateLegacy result m): record counts, the
+// retired settings, and every part of the old record with no place here, which survives
+// in `kept` (the backup key at boot, the imported file on import).
+function legacySummaryHTML(m, kept){
+  const p = m.prog, n = o => Object.keys(o || {}).length;
+  const setsN = Object.values(p.sets || {}).reduce((a, b) => a + (b || 0), 0);
+  const parts = [`${n(p.w)} word records`, `${n(p.s)} sentence records`];
+  if(p.chars) parts.push(`${n(p.chars.c)} ${tw(CHAR_CFG ? CHAR_CFG.label : "")} records`);
+  parts.push(`${setsN} sets done`, `${p.sessions || 0} sessions`);
+  const LIST_MAX = 20;
+  const um = m.unmapped || [];
+  const umHTML = um.length ? `<p class="q" style="margin:8px 0 4px">${um.length} part${um.length > 1 ? "s" : ""} of the old record ${um.length > 1 ? "have" : "has"} no place here and ${um.length > 1 ? "were" : "was"} not brought over (kept in ${escapeHtml(kept)}):</p><ul id="legacyUnmapped" style="margin:0;padding-left:20px;font-size:14px">${um.slice(0, LIST_MAX).map(u => `<li><bdi>${escapeHtml(u.path)}</bdi>: ${escapeHtml(u.reason)}</li>`).join("")}${um.length > LIST_MAX ? `<li>and ${um.length - LIST_MAX} more</li>` : ""}</ul>` : "";
+  const dr = (m.dropped || []).map(d => d.path);
+  const drHTML = dr.length ? `<p class="q" style="margin:8px 0 0">Settings this app doesn't have, left out: ${escapeHtml(dr.join(", "))}.</p>` : "";
+  return `<div>Progress from the older app: ${parts.join(", ")}.</div>${umHTML}${drHTML}`;
 }
 
 // ===================== theme =====================
@@ -1390,11 +1501,39 @@ $("themebtn").onclick = () => {
 };
 
 // ===================== boot =====================
+// The predecessor app's record (localStorage[pack.legacy.key]) -> VC.migrateLegacy result,
+// or null (nothing there, unreadable, not convertible, or its backup can't be secured).
+// The raw string is first copied to VC.legacyBackupKey(pack) unless that key already holds
+// something (the first backup is never overwritten); the legacy key itself is only read.
+async function legacyBootMigration(){
+  const old = await store.getRaw(PACK.legacy.key);
+  if(!old.ok || old.value == null || old.value === "") return null;
+  const m = VC.migrateLegacy(PACK, LEGACY_MAP, old.value);
+  if(!m.ok){ console.warn(`${PACK.legacy.key}: not migrated (${m.reason})`); return null; }
+  const bk = VC.legacyBackupKey(PACK);
+  const had = await store.getRaw(bk);
+  if(!had.ok) return null;
+  if((had.value == null || had.value === "") && !(await store.setRaw(bk, String(old.value)))) return null;
+  if(m.unmapped.length) console.warn(`${PACK.legacy.key}: ${m.unmapped.length} unmapped part(s), kept in ${bk}`, m.unmapped);
+  return m;
+}
 (async function(){
   // VC.bootProg: unparseable / invalid stored progress is preserved under
   // <key>_invalid_backup before defaults take over; sets for levels the pack no
   // longer has are dropped (warned), everything else kept.
   const got = await store.load();
+  // Legacy migration (pack.legacy, core.js "legacy migration" contract): only when this
+  // pack's own key read fine and holds nothing.
+  const mig = (HAS_LEGACY && got.ok && (got.value == null || got.value === "")) ? await legacyBootMigration() : null;
+  if(mig){
+    prog = mig.prog;
+    applyTheme();
+    await store.save();
+    legacyNotice = legacySummaryHTML(mig, VC.legacyBackupKey(PACK));
+    booted = true;
+    render();
+    return;
+  }
   const b = VC.bootProg(got.value, PACK, !got.ok);
   if(b.readOnly){
     storeReadOnly = true;
