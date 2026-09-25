@@ -345,7 +345,14 @@ class Indonesian(LanguageSpec):
         # words the reading passages use, which the words above would push out
         ("pedas", "ADJ"), ("kemacetan", "NOUN"), ("keluhan", "NOUN"), ("kelebihan", "NOUN"), ("handuk", "NOUN"),
         ("tiru", "VERB"), ("keberhasilan", "NOUN"), ("penerjemah", "NOUN"), ("pengantin", "NOUN"),
-        ("hidangan", "NOUN"), ("bermanfaat", "VERB")})
+        ("hidangan", "NOUN"), ("bermanfaat", "VERB"),
+        # everyday words near the cut the kept words above would push out
+        ("beasiswa", "NOUN"), ("keponakan", "NOUN"), ("garasi", "NOUN"), ("mangkuk", "NOUN"), ("tepung", "NOUN"),
+        ("rapi", "ADJ"), ("mendadak", "VERB"), ("luang", "ADJ"), ("email", "NOUN"), ("masker", "NOUN"),
+        ("pinjaman", "NOUN"), ("sepasang", "DET"), ("pas", "ADJ"), ("pengobatan", "NOUN"), ("tema", "NOUN"),
+        ("kritik", "NOUN"), ("berlibur", "VERB"), ("berkeliling", "VERB"), ("kelima", "ADJ"), ("ucapan", "NOUN"),
+        ("lirik", "NOUN"), ("mentah", "ADJ"), ("penutup", "NOUN"), ("laboratorium", "NOUN"),
+        ("konferensi", "NOUN"), ("jabatan", "NOUN"), ("atasan", "NOUN"), ("bab", "NOUN"), ("produksi", "VERB")})
     example_shows_word = True
     prefer_headword_sentence = True
     strict_selection = True
@@ -412,6 +419,20 @@ class Indonesian(LanguageSpec):
         ("mendengar", "ADJ"): ("dengar", "VERB"),
         # a reduplicated root with its ber- verb's sense links the ber- verb
         ("pura-pura", "VERB"): ("berpura-pura", "VERB")}
+
+    # film/TV-subtitle register (weapons, crime, horror, sex) in the B1 tail
+    # gives its slots to the everyday words kept above (as de): the subtitle
+    # list ranks it far above its use in everyday reading. Tokens of these
+    # words link nothing; their sentences still ship through other words.
+    drop_keys = {**drop_keys, **{k: None for k in (
+        ("terbunuh", "VERB"), ("peluru", "NOUN"), ("setan", "NOUN"), ("iblis", "NOUN"), ("teroris", "NOUN"),
+        ("senapan", "NOUN"), ("pistol", "NOUN"), ("pedang", "NOUN"), ("monster", "NOUN"), ("mayat", "NOUN"),
+        ("penjahat", "NOUN"), ("detektif", "NOUN"), ("mata-mata", "NOUN"), ("tusuk", "VERB"),
+        ("ledakan", "NOUN"), ("judi", "NOUN"), ("kriminal", "NOUN"), ("penyelidikan", "NOUN"),
+        ("menyelidiki", "VERB"), ("sandi", "NOUN"), ("tahanan", "NOUN"), ("dendam", "NOUN"),
+        ("berdarah", "VERB"), ("buang-buang", "VERB"), ("bandar", "NOUN"), ("jin", "NOUN"), ("budak", "NOUN"),
+        ("bercinta", "VERB"), ("telanjang", "ADJ"), ("kegelapan", "NOUN"), ("meledak", "VERB"),
+        ("kejam", "ADJ"), ("jebak", "NOUN"), ("pelaku", "NOUN"), ("prajurit", "NOUN"))}}
 
     bad_text_re = re.compile(UNTAUGHT_SLANG_RE.pattern + "|^(?:" + "|".join(re.escape(t) for t in BAD_TEXTS) + ")$",
                              re.I)
