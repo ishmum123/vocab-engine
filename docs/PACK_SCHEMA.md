@@ -10,11 +10,12 @@ A pack is one directory of JSON files that holds all the language-specific data.
   lessons.json     optional  "Sounds" tab lessons; required when pack.hasLessons is true
   passages.json    optional  "Read" tab graded passages with questions
   characters.json  optional  character-stage units; required when pack.characters is set
+  script.json      optional  script-primer units; required when pack.script is set
   legacy.json      optional  old-app id maps for one-time progress migration
-  pack.js words.js sentences.js lessons.js characters.js legacy.js   generated, never edit by hand
+  pack.js words.js sentences.js lessons.js characters.js script.js legacy.js   generated, never edit by hand
 ```
 
-The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. They hold the same data as `const PACK=`, `WORDS=`, `SENTENCES=`, `LESSONS=`, `CHARACTERS=` and `LEGACY=`, so the app can load them from `file://` and `build.sh` can inline them. `passages.json` has no file of its own: its `const PASSAGES=` is appended to `sentences.js`, so `build.sh` and the dev loader need nothing new, and a pack without passages gets exactly the `sentences.js` it had before. `characters.json` and `legacy.json` follow `lessons.json`'s pattern instead: their own optional generated file, present only when the source `.json` is. `tools/validate_pack.py` fails when they are stale.
+The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. They hold the same data as `const PACK=`, `WORDS=`, `SENTENCES=`, `LESSONS=`, `CHARACTERS=`, `SCRIPT=` and `LEGACY=`, so the app can load them from `file://` and `build.sh` can inline them. `passages.json` has no file of its own: its `const PASSAGES=` is appended to `sentences.js`, so `build.sh` and the dev loader need nothing new, and a pack without passages gets exactly the `sentences.js` it had before. `characters.json`, `script.json` and `legacy.json` follow `lessons.json`'s pattern instead: their own optional generated file, present only when the source `.json` is. `tools/validate_pack.py` fails when they are stale.
 
 ## pack.json
 
@@ -43,6 +44,7 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `fonts` | `[string]` | no | Google Fonts families the page loads, e.g. `["Noto Nastaliq Urdu"]`, `["Noto Naskh Arabic:wght@400;700"]`, `["Noto Sans Devanagari"]`. Each entry is a family name (letters, digits, spaces), optionally followed by a css2 axis spec. Invalid entries are skipped with a console warning. |
 | `lineHeight` | number 1–4 | no | Line height for target-language text. Use it for tall scripts, e.g. `2.2` for Nastaliq. When absent, the stylesheet's own line heights apply. |
 | `characters` | object | no | Turns on the character stage; see "characters" below. Absent, no character code path runs and `characters.json` must not exist. |
+| `script` | object | no | Turns on the script primer: stages before the first word level that teach the writing system; see "Script primer" below. Absent, no script code path runs and `script.json` must not exist. |
 | `pronFirst` | bool | no (false) | Pronunciation first, for a pack with `characters`: a word is shown by its `pron` until its character unit is mastered; see "pronFirst" below. Without `characters` it has no effect (validator warning). |
 | `tones` | `"pinyin"` | no | Readings carry tone marks: every displayed reading is coloured per syllable by tone; see "Pronunciation aids" below. The only accepted value is `"pinyin"`. |
 | `soundsReference` | `true` | no | The Sounds tab gets a Reference card built from the lesson rows; see "Pronunciation aids" below. Needs `hasLessons` (validator warning). |
@@ -135,6 +137,60 @@ Required when `pack.characters` is set (and must be absent otherwise). Holds the
 | `reading` | string | Optional. Answer for `charSound` and the ruby text. Defaults to the `pron` of `words[0]`. |
 
 `tools/validate_pack.py` checks unique ids, that every `words` id exists, and that `lv` is a pack level, equals the level of `words[0]`, and is covered by a stage.
+
+## Script primer
+
+Optional. `pack.script` plus `pack/script.json` turn on a **script primer**: one stage per `pack.script.stages` entry, placed before the first word level, that teaches a non-Latin writing system symbol by symbol (symbol to sound, recognition, then reading the pack's own first-level words). Absent, no script code path runs and `script.json` must not exist. Design of record: `docs/SCRIPT_PRIMER.md`.
+
+```json
+"script": { "stages":[{"key":"hira","label":"ひらがな"},{"key":"kata","label":"カタカナ"}],
+  "setsPerSession":2, "mastered":3, "tts":true,
+  "learnKinds":["symSound","soundSym"], "reviewKinds":["symSound","soundSym","compose","wordRead"],
+  "testKinds":{"symSound":35,"soundSym":25,"wordRead":25,"symType":15} }
+```
+
+| field | type | required | meaning |
+|---|---|---|---|
+| `stages` | `[{key, label}]`, non-empty | yes | Path order. `key` is the `st` of its units, unique; `label` is shown on the stage strip, Progress and the Script tab. |
+| `setsPerSession` | positive int | no (2) | Script sets Today's Learn step offers per session: the first is taught, the rest behind "One more set". |
+| `mastered` | positive int | no (3) | Streak at which a unit counts as mastered. |
+| `tts` | bool | no (true) | `false` treats every `say` as absent: `soundSym` shows the `roman` as text and `wordHear` becomes `wordRead`. A unit's recorded `audio` still plays. |
+| `learnKinds` | kinds, non-empty | no (`symSound`, `soundSym`) | One Learn item per kind per unit, among the kinds the unit can carry (below). |
+| `reviewKinds` | kinds, non-empty | no (`symSound`, `soundSym`, `wordRead`) | Review draws one at random per unit. |
+| `testKinds` | `{kind: weight}` | no (`symSound` 35, `soundSym` 25, `wordRead` 25, `symType` 15) | The Script tab's practice mix. |
+
+Kinds are `symSound`, `soundSym`, `symType`, `compose`, `formFind`, `formMatch`, `wordRead`, `wordHear` (`docs/SCRIPT_PRIMER.md` §2). A unit carries a kind only when it has what the kind needs: the three sound kinds need `sound` not false; `compose` needs `syll`; `formMatch` needs `joins`; `formFind`, `wordRead` and `wordHear` need `ex`. A `sound:false` unit gets `wordRead` in place of the sound kinds in Learn.
+
+### pack/script.json
+
+Required when `pack.script` is set, absent otherwise. `{units, notes?}`.
+
+| unit field | type | meaning |
+|---|---|---|
+| `id` | `^[a-z]{2,3}-[a-z0-9-]+$`, unique | Progress key (`prog.script.u`), stable, never renumbered. Not the glyph: one glyph in two roles is two units. |
+| `st` | stage key | One of `pack.script.stages[].key`. |
+| `set` | int ≥ 1 | Teaching set within the stage; each stage's sets are contiguous from 1. File order is the order within a set. |
+| `group` | string | Distractor family (vowels, a dot family, a kana row). |
+| `t` | non-empty string | The glyph. A teach card may show two forms separated by a space ("Д д"); items use the last. |
+| `name` | string | The letter's name. |
+| `roman` | non-empty string | Canonical romanisation, the answer to `symSound`. |
+| `alt` | `[string]` | Other accepted romanisations (typed `symType`); a unit whose `roman` is in another's `alt` is never that unit's distractor. |
+| `say` | string | TTS carrier: the bare glyph, a carrier syllable or the name. Absent when unspeakable. |
+| `audio` | URL | Recorded clip; beats `say`, and plays even with `tts` false. |
+| `sound` | bool, default true | `false` for silent or modifier units. |
+| `note` | string | One-line sound note. |
+| `confuse` | `[unitId]` | Hand-listed confusables: preferred distractors, and the padding for early sets. |
+| `ex` | `[[wordId, roman]]`, 1–3 | Example words from this pack with their romanisation. The glyph occurs in the word's `w` or `pron`. |
+| `syll` | `[{t, parts, roman}]` | Composition examples for `compose`; `parts` are glyphs of units at or before this set, `t` occurs in a first-level word. |
+| `joins` | `"dual"` / `"right"` | Joining letters of a right-to-left pack. Forms are drawn by Unicode shaping from the letter plus a zero-width joiner. |
+| `base` | unitId | The unit this one is a variant of (a mark added, the other syllabary); the teach card shows base → variant. |
+| `italic` | string | The glyph's italic form when it differs; the teach card shows it. |
+
+`notes`: `[{st, set, h, body}]`, rule cards shown with the teach cards of that stage's set.
+
+**Progress.** `prog.script = {v:1, u:{[unitId]:{r,w,s}}, skipped, skip:{[stageKey]:bool}, choiceSeen, notice}`, present only with `pack.script`. `skipped` turns the whole primer off and `skip` one stage; an off stage leaves the path, Review and Test, and its records are kept. Taught, done and mastered are derived: a set is taught and a stage done once every unit has a record; mastered is streak ≥ `mastered`. Stored progress with word records and no `script` field (a learner from before the primer) normalizes to `skipped:true, choiceSeen:true, notice:true`: the primer starts off, with a one-time notice that it can be turned on in Progress. Fresh progress starts with the primer on and the choice card unanswered.
+
+**Validation** (`tools/validate_pack.py`): `script.json` exists exactly when `pack.script` does; `pack.script` field types and known kinds; unit ids unique and well-formed; `st` a stage key, `set` an int ≥ 1, each stage's sets contiguous from 1, every stage non-empty; `t` and `roman` non-empty, `sound` a bool, `alt` strings; `confuse` and `base` known ids; `ex` word ids exist, from the first or second level (the second is a warning), the roman non-empty and the glyph in the word (compared after compatibility decomposition and lower-casing, with positional letter variants folded); `syll.parts` glyphs of units at or before the set and `syll.t` in a first-level word; `joins` only in an `rtl` pack; `notes` on a known stage set. Warnings: a unit with no `ex`; two units of one group with the same `roman` and no `confuse` link; a sounded unit with no `say` while `tts` is on.
 
 ## words.json
 
@@ -264,6 +320,7 @@ An object with up to three optional keys, each a map from an old-app string key 
 - `characters.json`, when present: unique ids, non-empty `t`, non-empty `words` with known word ids, and `lv` a pack level, equal to the level of `words[0]`, and covered by a `pack.characters.stages[].levels`.
 - `sentences[].ruby` (and `passages.json` `sentences[].ruby`), when present: same offset rules as `passages.json` `spans` (sorted, non-overlapping, in-bounds, no split surrogate pairs, non-blank), plus a non-empty `reading` and a `wordId` that is both in the sentence's `words` and some `characters.json` unit's `words[0]`. In `passages.json` a `wordId` may also be `null`.
 - `passages.json` `titleRuby`, `questions[].ruby` and `questions[].optionsRuby` (one ruby list per option, same length as `options`), when present: the same offset and reading rules against `title`, `q` and each option, with `wordId` `null` or some `characters.json` unit's `words[0]`. Without `pack.characters` they are a warning.
+- `pack.script` and `script.json`, when present: see "Script primer" above.
 - `pack.legacy` and `legacy.json` must exist together, and every value in `legacy.json`'s `w`/`s`/`c` maps is a real `words.json`/`sentences.json`/`characters.json` id (duplicate values across one map are a warning).
 - The generated `.js` files are in sync.
 
