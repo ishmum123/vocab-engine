@@ -37,7 +37,10 @@ const GOLDEN_DIR = path.join(__dirname, "golden");
 const VC = require(path.join(ROOT, "engine", "core.js"));
 
 const MODE = process.argv[2];
-if (MODE !== "--capture" && MODE !== "--check") {
+// Required as a module (tests/script_checks.js check 9 reuses stripFlagOnFields), the
+// harness exports and does not run.
+const AS_MODULE = require.main !== module;
+if (!AS_MODULE && MODE !== "--capture" && MODE !== "--check") {
   console.error("usage: node tests/flagoff_snapshot.js --capture|--check");
   process.exit(2);
 }
@@ -121,6 +124,9 @@ function stripFlagOnFields(packJson, wordsJson, sentencesJson) {
     // fields; typing "pron" replaced the pre-merge typing: null (typed reading is flag-on).
     delete pack.tones; delete pack.soundsReference;
     if (pack.typing === "pron") pack.typing = null;
+    // Script primer (docs/SCRIPT_PRIMER.md): pack.script is new. script.json / script.js
+    // need nothing here: only pack.json, words.json and sentences.json are hashed.
+    delete pack.script;
   }
   const sentences = Array.isArray(sentencesJson)
     ? sentencesJson.map(s => { const c = Object.assign({}, s); delete c.ruby; return c; })
@@ -406,7 +412,8 @@ async function runBootGoldens() {
 }
 
 // ================================================================== main
-(async function main() {
+if (AS_MODULE) module.exports = { stripFlagOnFields, FLAGOFF_PACKS, REAL_PACKS };
+else (async function main() {
   runFlagOffPackChecks();
   runPureFunctionGoldens();
   await runBootGoldens();
