@@ -50,7 +50,7 @@ Every element that shows target-language text carries `lang` (from `langTag`) an
 - The cloze blank `____` is bidi-isolated, so it sits where the missing word was in RTL text too.
 - The Words search box uses `dir="auto"`.
 
-**External resources.** The only external resource a built page may load is Google Fonts. The page always loads IBM Plex Sans, and it loads `pack.fonts` at runtime through a `fonts.googleapis.com/css2` URL built by core.js `fontsHref`. No other URL can come from a pack.
+**External resources.** The only external resource a built page may load is Google Fonts. The page always loads IBM Plex Sans, and it loads `pack.fonts` at runtime through a `fonts.googleapis.com/css2` URL built by core.js `fontsHref`. No other URL can come from a pack. Neither font stylesheet blocks first paint: IBM Plex is a `preload` that becomes a stylesheet once loaded, and the `pack.fonts` link starts as `media="print"` and switches to `all` on load. Text shows in the fallback stack until the webfont arrives (`display=swap`).
 
 **Pronunciation.** `pron` is display-only. With "Show pronunciation" on (the default comes from `showPron`), a word's `pron` is shown under the headword, beside it in word options, Words-list rows and teach-card rows, and under the word in every reveal. A sentence's `pron`, such as a kana line or romanised Russian with stress marks, is shown under the sentence in read items, example sentences and reveals. It is never shown before a hear or cloze item is answered, because it would give the answer away.
 

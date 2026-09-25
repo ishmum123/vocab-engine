@@ -6,7 +6,9 @@
 <title>Vocab trainer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Non-blocking font CSS: first paint never waits on fonts.googleapis.com (system fonts
+     until it lands; display=swap then swaps the webfont in). -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
 <style>
   :root{
     --bg:#EEF0ED;--ink:#1B2321;--mute:#5C6B67;--line:#D6DAD7;--card:#FFFFFF;
@@ -242,7 +244,8 @@ const tw = s => `<bdi${TA}>${escapeHtml(s)}</bdi>`;
   // fonts.googleapis.com URL from validated family names.
   const fh = VC.fontsHref(PACK);
   if(fh.rejected.length) console.warn("pack.fonts entries ignored (not a Google Fonts family name):", fh.rejected);
-  if(fh.href){ const l = document.createElement("link"); l.rel = "stylesheet"; l.href = fh.href; document.head.appendChild(l); }
+  // media swap: a stylesheet for media "print" never blocks rendering in any browser.
+  if(fh.href){ const l = document.createElement("link"); l.rel = "stylesheet"; l.media = "print"; l.onload = () => { l.media = "all"; }; l.href = fh.href; document.head.appendChild(l); }
 })();
 
 // ===================== progress =====================

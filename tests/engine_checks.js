@@ -48,6 +48,12 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     const links = [...built.matchAll(/<link[^>]*href="([^"]+)"/g)].map(m=>m[1]).filter(h=>!/^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(h));
     check("built file is self-contained (no <script src>, only Google Fonts links)", srcs === 0 && links.length === 0);
     check("built file has no leftover dev pack loader", !built.includes("PACK-BEGIN") && !built.includes("document.write"));
+    // Fonts never block first paint: no parser-inserted <link rel="stylesheet">; the
+    // IBM Plex CSS is a preload that turns itself into a stylesheet once loaded.
+    const linkTags = [...built.matchAll(/<link\b[^>]*>/g)].map(m => m[0]);
+    check("built file has no render-blocking stylesheet link", !linkTags.some(t => /\brel\s*=\s*"?stylesheet/i.test(t)));
+    check("IBM Plex CSS is preloaded (as=style, display=swap) and swapped to a stylesheet on load",
+      linkTags.some(t => /rel="preload"/.test(t) && /as="style"/.test(t) && /family=IBM\+Plex\+Sans[^"]*display=swap/.test(t) && /onload="this\.onload=null;this\.rel='stylesheet'"/.test(t)));
   }catch(e){
     console.log(`\n[0] build.sh failed: ${e.message}`);
     check("build.sh runs cleanly", false);
@@ -1227,7 +1233,7 @@ const appBootChecks = (async function(){
     const bodySection = appHtml.slice(appHtml.indexOf("<body>"), appHtml.indexOf("<nav"));
     registerIdsFromHtml(bodySection);
     return {
-      title: "", head: { appendChild(){} }, body: new El("body", {}), documentElement: new El("html", {}),
+      title: "", head: { appended: [], appendChild(c){ this.appended.push(c); return c; } }, body: new El("body", {}), documentElement: new El("html", {}),
       write(){}, createElement(tag){ return new El(tag, {}); },
       getElementById(id){ return registry.get(id) || null; },
       querySelector(sel){ return this.querySelectorAll(sel)[0] || null; },
@@ -1259,6 +1265,7 @@ const appBootChecks = (async function(){
     };
     const navigator = (env && env.navigator) || { userAgent: "EngineChecks/1.0" };
     const location = env ? env.location : undefined;
+    const pack = (env && env.pack) || PACK;
     const setItemCalls = [];
     const localStorage = { getItem(){ return null; }, setItem(k,v){ setItemCalls.push([k,v]); } };
     const matchMedia = () => ({ matches:false });
@@ -1273,7 +1280,7 @@ return {
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
 };`;
     const fn = new Function("document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS", fnBody);
-    const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, PACK, WORDS, SENTENCES, LESSONS);
+    const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, pack, WORDS, SENTENCES, LESSONS);
     return { api, document, ss, setItemCalls };
   }
   async function bootApp(getVoicesResult, env){
@@ -1377,6 +1384,22 @@ return {
   check('app.html: word-break:keep-all is scoped to [data-tl][lang|="ko"], not a blanket [data-tl] rule',
     /\[data-tl\]\[lang\|="ko"\]\s*\{[^}]*word-break\s*:\s*keep-all/.test(appHtml) &&
     !/\[data-tl\]\s*\{[^}]*word-break/.test(appHtml));
+
+  // pack.fonts: the runtime-added Google Fonts link uses the media swap (print -> all on
+  // load), so it never blocks rendering either; no link at all for a pack without fonts.
+  try{
+    const plain = bootAppSync([{ lang:"zh-CN", name:"x" }]);
+    const withFonts = bootAppSync([{ lang:"zh-CN", name:"x" }], { pack: Object.assign({}, PACK, { fonts: ["Noto Sans JP", "Vazirmatn"] }) });
+    const links = withFonts.document.head.appended.filter(e => e.tagName === "LINK");
+    const l = links[0];
+    const mediaBefore = l && l.media;
+    if(l && l.onload) l.onload();
+    check("pack.fonts: one Google Fonts link for both families, media print until loaded, then all",
+      plain.document.head.appended.length === 0 && links.length === 1 && l.rel === "stylesheet" &&
+      /^https:\/\/fonts\.googleapis\.com\/css2\?family=Noto\+Sans\+JP&family=Vazirmatn&display=swap$/.test(l.href) &&
+      mediaBefore === "print" && l.media === "all");
+    await tick(); await tick();
+  }catch(e){ check(`pack.fonts link scenario does not throw (got: ${e.message})`, false); }
 
   // Service-worker registration: guarded (no navigator.serviceWorker / file:// -> no-op),
   // registers the sibling sw.js over http(s), and shows the update toast only when a
