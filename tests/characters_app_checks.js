@@ -1,6 +1,8 @@
 // App checks for the characters stage in engine/app.html (docs/HSK_MERGE.md §2.5, §2.7,
-// §3, row B4): path strip, choice card, unit Learn with teach cards, the 4 unit item
-// renderers, the Start-today snapshot, unified Review/Recall, sentence ruby by tier.
+// §3, rows B4 and B5): path strip, choice card, unit Learn with teach cards, the 4 unit item
+// renderers, the Start-today snapshot, unified Review/Recall, sentence ruby by tier; B5:
+// Test "Characters N", Progress stage rows and order/mix chips, reset, legacy import, the
+// boot migration hook (§4, core.js "legacy migration" contract) and passage ruby.
 // Boots app.html's inline script for real against the zh pack WITH its characters.js,
 // using the same fake DOM as tests/engine_checks.js check [23] (id registry + regex
 // scan of innerHTML; no jsdom, no dependencies).
@@ -22,6 +24,7 @@ const SENTENCES = loadConst(path.join(ZH, "sentences.js"), "SENTENCES");
 const PASSAGES = tryLoadConst(path.join(ZH, "sentences.js"), "PASSAGES") || [];
 const LESSONS = loadConst(path.join(ZH, "lessons.js"), "LESSONS");
 const CHARACTERS = loadConst(path.join(ZH, "characters.js"), "CHARACTERS");
+const LEGACY = loadConst(path.join(ZH, "legacy.js"), "LEGACY");
 const BY_ID = Object.fromEntries(WORDS.map(w => [w.id, w]));
 const CFG = VC.charsConfig(PACK);
 console.log(`Loaded zh pack: ${WORDS.length} words, ${SENTENCES.length} sentences, ${CHARACTERS.length} units, label ${CFG.label}`);
@@ -114,7 +117,7 @@ async function boot(opts){
   const document = makeFakeDom();
   const ss = { getVoices: () => [{ lang:"zh-CN", name:"x" }], onvoiceschanged: null, cancel(){}, speak(){} };
   const window = { VocabCore: VC, speechSynthesis: ss, SpeechSynthesisUtterance: function(){}, addEventListener(){} };
-  const localStorage = { getItem(){ return null; }, setItem(){} };
+  const localStorage = o.storage || { getItem(){ return null; }, setItem(){} };
   const pack = o.pack || PACK;
   const fnBody = appSrc + `
 let __cur = null;
@@ -128,12 +131,15 @@ return {
   getD: () => D, getCur: () => __cur, getState: () => todayStepState,
   stepFrom: step => { todayStepState.step = step; todayStep(); },
   enterStep: step => { todayStepState = { step }; todayStep(); },
-  sentenceRowHTML, sentenceRevealBlock, readSentence, charDrillItem, hasChars: () => HAS_CHARACTERS,
+  goto: t => { tab = t; testSel = null; RD = null; render(); },
+  legacyNotice: () => legacyNotice,
+  sentenceRowHTML, sentenceRevealBlock, readSentence, charDrillItem, passageSentenceHTML, hasChars: () => HAS_CHARACTERS,
 };`;
-  const names = ["document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
+  const names = ["document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
   const args = [document, window, { userAgent:"CharsAppChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
-    function(){ return { play(){ return Promise.resolve(); }, pause(){} }; }, pack, WORDS, SENTENCES, LESSONS, PASSAGES];
+    function(){ return { play(){ return Promise.resolve(); }, pause(){} }; }, () => true, () => {}, pack, WORDS, SENTENCES, LESSONS, o.passages || PASSAGES];
   if(o.chars !== false){ names.push("CHARACTERS"); args.push(o.units || CHARACTERS); }
+  if(o.legacy){ names.push("LEGACY"); args.push(o.legacy === true ? LEGACY : o.legacy); }
   const api = new Function(...names, fnBody)(...args);
   await tick(); await tick();
   return { api, document };
@@ -351,6 +357,252 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
       check(`Today identical without characters (block-only / units-only / neither), sets ${JSON.stringify(prog.sets)}`,
         !a.api.hasChars() && !b.api.hasChars() && !c.api.hasChars() && b.api.html("panel") === ha && c.api.html("panel") === ha && !/charChoice|<ruby>/.test(ha));
     }
+  }
+
+
+  // ================================================================ B5
+  // Legacy seeds C and D1, built exactly as tests/migration_checks.js builds them.
+  const hanziOf = {}; Object.keys(LEGACY.w).forEach(h => { hanziOf[LEGACY.w[h]] = h; });
+  const hByLv = { 1:[], 2:[], 3:[], 4:[] }; WORDS.forEach(w => hByLv[w.lv].push(hanziOf[w.id]));
+  const hNsets = lv => Math.ceil(hByLv[lv].length / 10);
+  const SENTS = Object.keys(LEGACY.s);
+  const rec = (r, w, s, extra) => Object.assign({ r, w, s }, extra || {});
+  const hWords = (lv, n, f) => { const o = {}; hByLv[lv].slice(0, n).forEach((h, i) => { o[h] = f(i); }); return o; };
+  const clone = x => JSON.parse(JSON.stringify(x));
+  const HSK_FRESH = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{}, c:{}, mixChars:true, charsAfterHsk4:false, charsChoiceSeen:false };
+  const midW = Object.assign(hWords(1, hByLv[1].length, i => rec(3 + i % 4, i % 3, i % 5)), hWords(2, 30, i => rec(1 + i % 3, i % 2, i % 4, i % 7 === 0 ? { prov:1 } : null)));
+  const charsSome = {}; [1,2,3].flatMap(lv => hByLv[lv]).slice(0, 25).forEach((h, i) => { charsSome[h] = rec(1 + i % 3, i % 2, i % 4); });
+  const LSEED_C = Object.assign(clone(HSK_FRESH), { w: midW, sets:{1:hNsets(1),2:3,3:0,4:0}, sessions: 14, theme:"dark", placedOnce:true,
+    lessons:{ tones:1, "finals-simple":1 }, s: Object.fromEntries(SENTS.slice(0, 12).map((z, i) => [z, rec(2, i % 2, i % 3)])) });
+  const LSEED_D1 = Object.assign(clone(HSK_FRESH), { w: clone(midW), sets:{1:hNsets(1),2:hNsets(2),3:hNsets(3),4:0}, sessions: 40, c: charsSome, charsChoiceSeen:true });
+  const LKEY = PACK.legacy.key, BAK = VC.legacyBackupKey(PACK), SKEY = VC.storageKey(PACK);
+  function memStorage(init, opt){
+    const o = opt || {}; const map = new Map(Object.entries(init || {})); const writes = [];
+    return { map, writes,
+      getItem(k){ if(o.throwGet && o.throwGet(k)) throw new Error("SecurityError"); return map.has(k) ? map.get(k) : null; },
+      setItem(k, v){ if(o.throwSet) throw new Error("QuotaExceededError"); writes.push(k); map.set(k, String(v)); } };
+  }
+  // Plays the active drill answering right; returns {shown, result} where result is the
+  // result-screen HTML captured before Continue is pressed.
+  function playToResult(api){
+    const shown = [];
+    for(let i = 0; i < 200; i++){
+      if(!api.getD()) return { shown, result: api.html("panel") };
+      const it = api.getCur(); shown.push(it);
+      api.el("o").children.find(b => b.dataset.v === it.a).click(); api.el("nx").click();
+    }
+    throw new Error("drill did not finish");
+  }
+  const segsOf = h => [...h.matchAll(/<div class="seg">[\s\S]*?<\/i><\/div>([\s\S]*?)<\/div>/g)].map(m => stripTags(m[1]));
+
+  // ---------------------------------------------------------------- [7] Test: Characters N
+  console.log("\n[7] Test tab: Characters N");
+  {
+    const { api } = await boot();
+    api.setProg(seedB()); api.goto("test");
+    check("no unit recorded: no Characters test", !/id="tChars"/.test(api.html("panel")));
+    const p5 = seedB(); VC.answerCharChoice(p5, true);
+    VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).slice(0, 5).forEach(u => { p5.chars.c[u.id] = { r:1, w:0, s:1 }; });
+    api.setProg(p5); api.goto("test");
+    check("5 recorded units: Characters 5", /id="tChars">Characters 5</.test(api.html("panel")));
+    api.setProg(seedC()); api.goto("test");
+    check("40 recorded units: Characters 20 (capped like the other free tests)", /id="tChars">Characters 20</.test(api.html("panel")));
+    api.el("tChars").click();
+    const items = [api.getCur(), ...api.getD().q];
+    const recs = api.getProg().chars.c;
+    check("Characters test: 20 unit items, all recorded units, reviewKinds (form stimulus)",
+      items.length === 20 && items.every(x => x.key.startsWith("c:") && recs[x.key.slice(2)] && /class="big wd"/.test(x.html)));
+    check("Characters test draws the weakest first (all 10 weak units included)",
+      VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).slice(0, 10).every(u => items.some(x => x.key === "c:" + u.id)));
+    let err = null, r = null;
+    try{ r = playToResult(api); }catch(e){ err = e; }
+    check(`Characters test plays to the shared result screen (20 / 20, Continue)${err ? ` (${err.message})` : ""}`,
+      !err && r.shown.length === 20 && /<div class="done"><h2>20 \/ 20<\/h2>/.test(r.result) && /id="ok"/.test(r.result));
+    api.el("ok").click();
+    check("Continue returns to the Test tab", /id="tChars"/.test(api.html("panel")));
+  }
+
+  // ---------------------------------------------------------------- [8] Progress
+  console.log("\n[8] Progress: stage rows, order chips, mix chip, choice card line");
+  {
+    const { api } = await boot();
+    api.goto("progress");
+    let h = api.html("panel");
+    check("fresh learner: stage rows shown, no order/mix controls", /<td><bdi[^>]*>字<\/bdi><\/td><td>0 \/ \d+ taught · 0 recorded · 0 mastered · 0 bare<\/td>/.test(h) && !/id="charCtl"/.test(h));
+    api.setProg(seedC()); api.goto("progress");
+    h = api.html("panel");
+    const n1 = VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).length, n4 = VC.charStageUnits(["4"], CHARACTERS, PACK).length;
+    check(`seed C rows: 字 40 / ${n1} taught · 40 recorded · 30 mastered · 0 bare; 字4 0 / ${n4}`,
+      h.includes(`>字</bdi></td><td>40 / ${n1} taught · 40 recorded · 30 mastered · 0 bare</td>`) && h.includes(`>字4</bdi></td><td>0 / ${n4} taught · 0 recorded · 0 mastered · 0 bare</td>`));
+    const p = seedC(); const us = VC.charStageUnits(["1","2","3"], CHARACTERS, PACK);
+    p.chars.c[us[0].id] = { r:6, w:0, s:6 }; delete p.chars.c[us[39].id]; p.chars.c[us[45].id] = { r:1, w:0, s:1 };
+    api.setProg(p); api.goto("progress");
+    check("taught counts whole sets only, recorded every record, bare by streak",
+      api.html("panel").includes(`>字</bdi></td><td>30 / ${n1} taught · 40 recorded · 30 mastered · 1 bare</td>`));
+    api.setProg(seedB()); api.goto("progress");
+    h = api.html("panel");
+    check("levels 1-3 taught: order chips 'Characters before/after HSK 4' + mix chip + strip", /id="ordBefore"[^>]*>Characters before HSK 4</.test(h) && /id="ordAfter"[^>]*>Characters after HSK 4</.test(h) && /id="toggleMix"/.test(h) && /id="charCtl"/.test(h));
+    check("default order: 'before' on, strip has 字 before HSK 4", /class="chip on" id="ordBefore"/.test(h) && segsOf(h).join("|") === "HSK 1|HSK 2|HSK 3|字|HSK 4|字4");
+    const before = JSON.stringify({ w: api.getProg().w, sets: api.getProg().sets, c: api.getProg().chars.c, cs: api.getProg().chars.choiceSeen });
+    api.el("ordAfter").click();
+    h = api.html("panel");
+    check("order chip 'after': defer on, strip re-rendered with one merged stage last", api.getProg().chars.defer === true && /class="chip on" id="ordAfter"/.test(h) && segsOf(h).join("|") === "HSK 1|HSK 2|HSK 3|HSK 4|字");
+    api.goto("today");
+    check("deferred: Today's Learn is HSK 4 set 1", /2\. Learn<\/td><td>HSK 4, set 1</.test(api.html("panel")));
+    api.goto("progress"); api.el("ordBefore").click();
+    h = api.html("panel");
+    check("order chip 'before': reversible, strip back", api.getProg().chars.defer === false && segsOf(h).join("|") === "HSK 1|HSK 2|HSK 3|字|HSK 4|字4");
+    check("order flips touch no record, set counter or choice state", JSON.stringify({ w: api.getProg().w, sets: api.getProg().sets, c: api.getProg().chars.c, cs: api.getProg().chars.choiceSeen }) === before);
+    // mix chip toggles ruby in a sentence row
+    api.setProg(seedC());
+    const ubw = VC.unitByWord(CHARACTERS);
+    const s = SENTENCES.find(x => Array.isArray(x.ruby) && x.ruby.some(r => ubw.get(r[3])));
+    check("mix on (default): sentence row has ruby", /<ruby>/.test(api.sentenceRowHTML(s)));
+    api.goto("progress"); api.el("toggleMix").click();
+    check("mix chip off: prog.chars.mix false, chip off, sentence row has no ruby", api.getProg().chars.mix === false && /class="chip " id="toggleMix" aria-pressed="false"/.test(api.html("panel")) && !/<ruby>/.test(api.sentenceRowHTML(s)));
+    api.el("toggleMix").click();
+    check("mix chip on again: ruby back", api.getProg().chars.mix === true && /<ruby>/.test(api.sentenceRowHTML(s)));
+    api.setProg(seedB()); api.goto("today");
+    check("choice card says 'You can change this later in Progress.'", /id="charChoice"[\s\S]*You can change this later in Progress\./.test(api.html("panel")));
+  }
+
+  // ---------------------------------------------------------------- [9] reset
+  console.log("\n[9] reset clears chars, never touches the legacy keys");
+  {
+    const st = memStorage({ [BAK]: "OLD", [LKEY]: "{}" });
+    const { api } = await boot({ storage: st, legacy: true });
+    st.writes.length = 0;
+    const p = seedC(); p.chars.mix = false; p.chars.defer = true; api.setProg(p);
+    api.goto("progress"); api.el("reset").click(); await tick();
+    const ch = api.getProg().chars;
+    check("reset: prog.chars back to defaults (no records, order/choice/mix reset)", JSON.stringify(ch) === JSON.stringify(VC.defaultCharsProg()));
+    check("reset backup holds the old chars", Object.keys(JSON.parse(st.map.get(SKEY + "_reset_backup")).chars.c).length === 40);
+    check(`reset writes only ${SKEY} and its _reset_backup (legacy key and ${BAK} untouched)`, st.writes.every(k => k === SKEY || k === SKEY + "_reset_backup") && st.map.get(BAK) === "OLD" && st.map.get(LKEY) === "{}");
+  }
+
+  // ---------------------------------------------------------------- [10] legacy import
+  console.log("\n[10] Progress import of legacy exports (seeds C and D1)");
+  for(const [name, seed] of [["C", LSEED_C], ["D1", LSEED_D1]]){
+    const st = memStorage({});
+    const { api } = await boot({ storage: st, legacy: true });
+    const exp = VC.migrateLegacy(PACK, LEGACY, clone(seed));
+    api.goto("progress");
+    const prev = JSON.stringify(api.getProg());
+    api.el("imptxt").value = JSON.stringify(seed);
+    api.el("doimport").click(); await tick();
+    const sum = api.el("impSum");
+    const sh = sum.innerHTML;
+    check(`seed ${name}: summary shown before applying, progress not yet replaced`, sum.style.display === "block" && JSON.stringify(api.getProg()) === prev && /id="impApply"/.test(sh));
+    check(`seed ${name}: summary counts words, sentences, units, sets, sessions`,
+      sh.includes(`${Object.keys(exp.prog.w).length} word records`) && sh.includes(`${Object.keys(exp.prog.s).length} sentence records`) &&
+      sh.includes(`${Object.keys(exp.prog.chars.c).length} <bdi`) && sh.includes(`${seed.sessions} sessions`) && !/id="legacyUnmapped"/.test(sh));
+    check(`seed ${name}: retired settings listed`, /left out: showChars/.test(sh));
+    api.el("impApply").click(); await tick();
+    const p = api.getProg();
+    check(`seed ${name}: applied: records keyed by id, chars/flags mapped, theme kept`,
+      JSON.stringify(p.w) === JSON.stringify(exp.prog.w) && JSON.stringify(p.chars.c) === JSON.stringify(exp.prog.chars.c) && JSON.stringify(p.sets) === JSON.stringify(exp.prog.sets)
+      && p.chars.choiceSeen === seed.charsChoiceSeen && p.theme === seed.theme);
+    check(`seed ${name}: pre-import backup written, saved as ${SKEY}, legacy keys untouched`,
+      st.map.has(SKEY + "_pre_import_backup") && JSON.parse(st.map.get(SKEY)).sessions === seed.sessions && !st.writes.includes(LKEY) && !st.writes.includes(BAK));
+  }
+  {
+    const { api } = await boot({ legacy: true });
+    api.goto("progress");
+    const bad = Object.assign(clone(LSEED_D1), { foo: 1 }); bad.w["不存在的词"] = rec(1, 0, 1);
+    api.el("imptxt").value = JSON.stringify(bad);
+    api.el("doimport").click(); await tick();
+    const sh = api.el("impSum").innerHTML;
+    check("unmapped parts are listed in the import summary", /id="legacyUnmapped"/.test(sh) && sh.includes("<bdi>foo</bdi>: unknown field") && sh.includes("不存在的词") && /2 parts of the old record have no place here/.test(sh));
+    api.el("impCancel").click();
+    check("Cancel hides the summary and applies nothing", api.el("impSum").style.display === "none" && Object.keys(api.getProg().w).length === 0);
+    // native export: straight through applyImport, no summary
+    api.el("imptxt").value = JSON.stringify(seedC());
+    api.el("doimport").click(); await tick();
+    check("native export imports directly (no legacy summary), chars kept", Object.keys(api.getProg().chars.c).length === 40 && !/id="impApply"/.test(api.html("panel")));
+    api.goto("progress");
+    api.el("imptxt").value = JSON.stringify({ v:3, sets:{} });
+    api.el("doimport").click(); await tick();
+    check("an invalid record still gets the normal import error", api.el("impErr").style.display === "block");
+  }
+
+  // ---------------------------------------------------------------- [11] boot migration hook
+  console.log("\n[11] boot migration hook");
+  {
+    const oldRec = Object.assign(clone(LSEED_D1), { foo: 1 });
+    const raw = JSON.stringify(oldRec);
+    const st = memStorage({ [LKEY]: raw });
+    const exp = VC.migrateLegacy(PACK, LEGACY, raw);
+    const { api } = await boot({ storage: st, legacy: true });
+    const p = api.getProg();
+    check("legacy key present, own key absent: migrated at boot", JSON.stringify(p.w) === JSON.stringify(exp.prog.w) && Object.keys(p.chars.c).length === 25 && p.legacy && p.legacy.key === LKEY);
+    check(`saved as ${SKEY}; raw copied once to ${BAK}; legacy key never written`,
+      st.map.has(SKEY) && st.map.get(BAK) === raw && st.writes.filter(k => k === BAK).length === 1 && !st.writes.includes(LKEY) && st.map.get(LKEY) === raw);
+    const h = api.html("panel");
+    check("one-time notice on Today: counts and the unmapped list", /id="legacyNotice"/.test(h) && h.includes(`${Object.keys(exp.prog.w).length} word records`) && h.includes("<bdi>foo</bdi>: unknown field") && h.includes(`kept in ${BAK}`));
+    api.el("legacyOk").click();
+    check("notice dismissed: gone from Today", !/id="legacyNotice"/.test(api.html("panel")) && api.legacyNotice() === null);
+    const saved = st.map.get(SKEY);
+    st.writes.length = 0;
+    const again = await boot({ storage: st, legacy: true });
+    check("second boot: own key present, no re-migration, no notice, backup not rewritten",
+      JSON.stringify(again.api.getProg()) === JSON.stringify(JSON.parse(saved)) && !st.writes.includes(BAK) && !/id="legacyNotice"/.test(again.api.html("panel")) && st.map.get(BAK) === raw);
+  }
+  {
+    const raw = JSON.stringify(LSEED_C);
+    const st = memStorage({ [LKEY]: raw, [BAK]: "FIRST" });
+    const { api } = await boot({ storage: st, legacy: true });
+    check("an existing backup is never overwritten (migration still runs)", st.map.get(BAK) === "FIRST" && Object.keys(api.getProg().w).length === Object.keys(LSEED_C.w).length && st.map.has(SKEY));
+  }
+  {
+    let err = null, r;
+    try{ r = await boot({ storage: memStorage({ [LKEY]: JSON.stringify(LSEED_C) }, { throwGet: () => true }), legacy: true }); }catch(e){ err = e; }
+    check(`localStorage throwing on every read: boot completes read-only, renders Today${err ? ` (${err.message})` : ""}`, !err && /id="go"|id="charChoice"/.test(r.api.html("panel")) && Object.keys(r.api.getProg().w).length === 0);
+    const st2 = memStorage({ [LKEY]: JSON.stringify(LSEED_C) }, { throwGet: k => k === LKEY });
+    err = null; try{ r = await boot({ storage: st2, legacy: true }); }catch(e){ err = e; }
+    check("legacy key unreadable: no migration, no writes to it or the backup, Today renders", !err && Object.keys(r.api.getProg().w).length === 0 && !st2.writes.includes(BAK) && /id="go"/.test(r.api.html("panel")));
+    const st3 = memStorage({ [LKEY]: JSON.stringify(LSEED_C) }, { throwSet: true });
+    err = null; try{ r = await boot({ storage: st3, legacy: true }); }catch(e){ err = e; }
+    check("storage writes throwing: backup can't be secured, so no migration; no crash", !err && Object.keys(r.api.getProg().w).length === 0 && /id="go"/.test(r.api.html("panel")) && !r.api.legacyNotice());
+    const stB = memStorage({ [LKEY]: JSON.stringify(LSEED_C), [BAK]: "FIRST" }, { throwGet: k => k === BAK });
+    err = null; try{ r = await boot({ storage: stB, legacy: true }); }catch(e){ err = e; }
+    check("backup key unreadable: no migration (it might hold a backup), nothing written", !err && Object.keys(r.api.getProg().w).length === 0 && stB.map.get(BAK) === "FIRST" && !stB.writes.length);
+    const st4 = memStorage({ [LKEY]: JSON.stringify({ v:3 }) });
+    r = await boot({ storage: st4, legacy: true });
+    check("unconvertible legacy record: not migrated, nothing written", Object.keys(r.api.getProg().w).length === 0 && !st4.map.has(BAK) && !st4.map.has(SKEY));
+    const st5 = memStorage({ [LKEY]: JSON.stringify(LSEED_C) });
+    r = await boot({ storage: st5 });
+    check("no legacy.js: the legacy key is ignored", Object.keys(r.api.getProg().w).length === 0 && !st5.map.has(BAK));
+  }
+
+  // ---------------------------------------------------------------- [12] passage ruby
+  console.log("\n[12] passage ruby in the Read tab");
+  {
+    const ubw = VC.unitByWord(CHARACTERS);
+    // A passage whose sentences carry sentences.json-style ruby, built from its spans.
+    const src = PASSAGES.find(p => p.sentences.some(s => (s.spans || []).filter(x => ubw.get(x[2])).length >= 2));
+    const withRuby = clone(src);
+    withRuby.sentences.forEach(s => { s.ruby = (s.spans || []).filter(x => ubw.get(x[2])).map(x => [x[0], x[1], VC.unitReading(ubw.get(x[2]), BY_ID), x[2]]); });
+    const si = withRuby.sentences.findIndex(s => s.ruby.length >= 2 && new Set(s.ruby.map(r => ubw.get(r[3]).id)).size >= 2);
+    const s = withRuby.sentences[si], s0 = src.sentences[si];
+    const [ta] = s.ruby; const tb = s.ruby.find(r => ubw.get(r[3]).id !== ubw.get(ta[3]).id);
+    const p = seedC(); p.chars.c[ubw.get(ta[3]).id] = { r:1, w:0, s:1 }; p.chars.c[ubw.get(tb[3]).id] = { r:6, w:0, s:6 };
+    const on = await boot({ passages: [withRuby] }), plain = await boot({ passages: [src] }), off = await boot({ chars: false, passages: [withRuby] });
+    [on, plain, off].forEach(x => x.api.setProg(JSON.parse(JSON.stringify(p))));
+    const h = on.api.passageSentenceHTML(s, si, false), h0 = plain.api.passageSentenceHTML(s0, si, false);
+    const A = s.t.slice(ta[0], ta[1]), B = s.t.slice(tb[0], tb[1]);
+    check(`below bare: ${A} renders <ruby> with its reading inside its tap span`, new RegExp(`data-pw="${ta[3]}"[^>]*><ruby>${A}<rt>${ta[2]}</rt></ruby></span>`).test(h));
+    check(`at bare: ${B} renders plain`, new RegExp(`data-pw="${tb[3]}"[^>]*>${B}</span>`).test(h));
+    check("ruby line box class on the passage text", /class="ptxt hasruby"/.test(h) && !/hasruby/.test(h0));
+    check("tap spans unchanged and text intact under ruby", count(h, /data-pw=/g) === count(h0, /data-pw=/g) && stripTags((h.match(/<div class="ptxt[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "") === s.t);
+    let bad = 0;
+    withRuby.sentences.forEach((x, i) => { const r = on.api.passageSentenceHTML(x, i, false); if(stripTags((r.match(/<div class="ptxt[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "") !== x.t) bad++; });
+    check(`every sentence of the passage renders to its own text (${bad} bad)`, bad === 0);
+    on.api.getProg().chars.mix = false;
+    check("mix off: passage sentence renders exactly as without ruby", on.api.passageSentenceHTML(s, si, false) === h0);
+    on.api.getProg().chars.mix = true; on.api.getProg().showPron = false;
+    check("showPron off: no ruby", on.api.passageSentenceHTML(s, si, false) === h0);
+    check("no characters stage: passage ruby ignored", off.api.passageSentenceHTML(s, si, false) === plain.api.passageSentenceHTML(s0, si, false));
+    check("CSS: passage ruby line box overrides the passage line height", /\.psent \.ptxt\.hasruby\{line-height:2\.3\}/.test(appHtml));
   }
 
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
