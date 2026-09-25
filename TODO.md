@@ -58,6 +58,7 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 - Gloss-level sensitive scan (vulgar/sexual/slur regex over glosses, A1/A2 must be clean) was introduced after German and Italian shipped. Re-run it on **german** and **italian** (rebuild with the flag on, republish) once the shared rule lands in packbuilder core. **Italian done 2026-09-24** (it.py `sensitive_gloss_re`; 0 glosses matched at any level, words.json byte-identical).
 - Sentence filter scope (A1/A2): sexual content + threats/violence. Italian shipped before this rule; rebuild + republish Italian with `sensitive` enabled. **Italian done 2026-09-24** (it.py `sensitive_re` + `drop_all_levels`; A1/A2: 15 sentences replaced, 23 moved to B1, 1 dropped everywhere; ids frozen).
 - Drop-everywhere tier wording: it.py also drops "sexual assault" / violenza|aggressione sessuale (an A2 Italian sentence about childhood sexual assault only matched `sensitive_re`). de/es/ru `drop_all_levels` lack "sexual assault"; add it (plus own-language terms) at their next rebuild.
+- Suicide / self-harm in the drop-everywhere tier: only `langs/ko.py` drops them (`DROP_ALL_KO`: 자살, 자해, 목숨을 끊, 죽고 싶; `DROP_ALL_KO_EN`: suicid*, self-harm, kill myself, want to die). Move the English patterns into the shared drop-all tier so every language gets them, add own-language terms per language, and rebuild each pack.
 - Drop-everywhere tier: first-person suicide / self-harm lines ("I have attempted suicide", "kill myself") surfaced in the Korean B1 corpus (QA 2026-09-25). ko.py drops them; the shared `drop_all_levels` tier should get suicide/self-harm terms (English + each language) at every pack's next rebuild.
 - Gap blank on reduplicated inflections (Indonesian anak-anak, alat-alatnya, berjam-jam): the blank covers only one half. gapMatch should extend the span across a hyphen-joined repeat of the matched form (and a trailing clitic -nya) before rendering. 7/4110 Indonesian gap candidates.
 - ~~Read tab: inflected forms in passage text not tappable inline (chips under the sentence).~~ **Done 2026-09-24**: `packbuilder passages` emits per-sentence `spans` [[start,end,wordId]] (UTF-16 offsets, from the tagger tokens); core.js `passageSegments` prefers spans and falls back to surface matching for ids without one. Italian: 543 sentences, 6338 spans, 11 ids left without a span (all one token claimed by two ids: `links_all` adds a classify id for a token sentence_links already linked, e.g. come w2012+w2017, scusa w0469+w2137; plus per/il favore inside the `per favore` phrase span). Follow-up **done 2026-09-24** (not yet rebuilt into italian/pack): `links_all` gives one id per token. A phrase owns its tokens, and the fallback never re-links a token the primary pass linked. The scratch relink removes exactly those 11 ids from `words`. No id is left without a span, spans go 6338 -> 6339 («La gains il), and REPORT_passages is unchanged.
@@ -70,3 +71,35 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 
 ## Generated audio for languages without browser voices (user 2026-09-24: keep in TODO, revisit later)
 - Persian has no TTS on Apple/Windows/Google TTS and no Tatoeba clips, so the speaker is hidden for most users; Indonesian has no voice on Apple devices; Urdu will be the same. Option: render words + sentences offline with Piper (fa_IR voices, permissive licence) to Opus (~50–80 MB per pack) and serve from each repo's Pages site. Pack already carries per-sentence `audio`; word audio needs a small engine addition. Also: show a one-line "no voice for this language" note instead of silently hiding the speaker.
+
+## After all languages ship (user 2026-09-25): two large items, in this order
+
+### 1. Merge hsk's post-fork state into the engine, then move hsk onto the engine
+hsk (`../hsk`, read-only until the user says go) kept evolving after the
+2026-09-23 extraction: characters stage (v2.2/v2.3, 10 new / 16 drilled per
+day, unlocks after HSK 3), learning-order switch (characters before/after
+HSK 4), unified Review/Recall, Samsung Internet audio notice, plus two fixes
+the engine already has in another form (teach-row overlap, double speak).
+Plan: diff `hsk/src/pinyin_core.js` + `pinyin_app.html` against
+`engine/core.js` + `engine/app.html`; port the hsk deltas as pack-gated
+features (`hasCharacters` + character data in the pack; unified
+Review/Recall as default if it is simply better; Samsung notice
+unconditional); rebuild the Chinese pack from hsk's current data with
+`tools/pack_from_hsk.py`; migrate the progress localStorage key to `vocab_zh`;
+switch hsk to the engine submodule; browser-check the full HSK path incl.
+the characters stage. The characters stage needs its own tests. Reference
+list of what hsk would gain: `hsk/TODO.md`. Do this BEFORE the B2 expansion
+so every pack is rebuilt once, on the merged engine.
+
+### 2. Expand every pack from B1 to B2 (user is considering it)
+Roughly 2000 → 4000 words per language (B2 ≈ ranks 2001–4000), a fourth
+level in `placement`, `levels` and the Read tab (20 more passages at
+110–150+ words), id maps extended (never renumbered), README scope lines
+updated. Expect the low-resource corpora to strain: Korean (15.9k Tatoeba,
+already 1,513 generated sentences), Persian (1,211 generated), Indonesian
+(421) will need far more generated + reviewed sentences at B2; kaikki gloss
+quality drops in the 2–4k rank band, so the gloss-scan and sensitive-gloss
+filters matter more. Decide per language whether B2 is viable before
+starting (measure candidate words with ≥2 corpus sentences in ranks
+2001–4000). Order after the hsk merge (item 1) so the rebuild happens on the
+final engine.

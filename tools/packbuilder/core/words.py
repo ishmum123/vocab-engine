@@ -389,6 +389,12 @@ def build_words(env, ctx):
     fem_folded = {}
     while True:
         chosen = [k for k in ranked if k not in fem_folded][:need]
+        if sp.keep_keys:
+            # hand-kept words ranked past the cut replace the lowest-ranked chosen
+            # ones, and keep their own rank order (ko: 졸리다, 이빨)
+            extra = [k for k in ranked if k in sp.keep_keys and k not in fem_folded and k not in chosen]
+            if extra:
+                chosen = sorted(chosen[:need - len(extra)] + extra, key=lambda k: order.get(k, 10**9))
         in_pack = defaultdict(list)
         for kk in forced_ok + chosen:
             in_pack[records[kk]["lemma"]].append(kk)

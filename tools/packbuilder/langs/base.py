@@ -510,6 +510,7 @@ class LanguageSpec:
     use_audio = True             # corpus: attach permissive Tatoeba audio (id: off, TTS only)
     corpus_rank_weight = 0       # >0: the tagged corpus's (lemma, POS) counts join the frequency blend
     level_floor = {}             # (lemma, group) -> lowest level it may take (id: colloquial words A2+)
+    keep_keys = frozenset()      # (lemma, group) kept in the word list even when ranked past the cut
     level_ceiling = {}           # (lemma, group) -> highest level it may take (ko: NIKL beginner words <= A2)
 
     # ---- added for Japanese (defaults keep every other language unchanged) ------
