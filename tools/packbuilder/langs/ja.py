@@ -459,6 +459,144 @@ def feats_of(ms):
     return dict(kv.split("=", 1) for kv in ms.split("|") if "=" in kv) if ms else {}
 
 
+# ---- script primer (docs/SCRIPT_PRIMER.md ss3) -------------------------------
+# Kana: hiragana (108 units, 12 sets) then katakana (the same 108, plus ー and 12
+# extended syllables: 121 units, 13 sets). The small ゃ ゅ ょ っ are units of
+# their own, taught in the set before the first yōon set; a yōon unit is read
+# from its parts (き + ゃ) and carries them as its syll. Romans are Hepburn as romaji() writes
+# them (を o, ぢ ji, づ zu); example romans are romaji(pron) exactly.
+# rows: (set, group, [(kana, roman, alt)]) -- the hiragana teaching order; the
+# katakana stage repeats it (ー joins set 5) and adds the extended set.
+_JA_ROWS = [
+    (1, "vowel", [("あ", "a", []), ("い", "i", []), ("う", "u", []), ("え", "e", []), ("お", "o", [])]),
+    (1, "k", [("か", "ka", []), ("き", "ki", []), ("く", "ku", []), ("け", "ke", []), ("こ", "ko", [])]),
+    (2, "s", [("さ", "sa", []), ("し", "shi", ["si"]), ("す", "su", []), ("せ", "se", []), ("そ", "so", [])]),
+    (2, "t", [("た", "ta", []), ("ち", "chi", ["ti"]), ("つ", "tsu", ["tu"]), ("て", "te", []), ("と", "to", [])]),
+    (3, "n", [("な", "na", []), ("に", "ni", []), ("ぬ", "nu", []), ("ね", "ne", []), ("の", "no", [])]),
+    (3, "h", [("は", "ha", ["wa"]), ("ひ", "hi", []), ("ふ", "fu", ["hu"]), ("へ", "he", ["e"]), ("ほ", "ho", [])]),
+    (4, "m", [("ま", "ma", []), ("み", "mi", []), ("む", "mu", []), ("め", "me", []), ("も", "mo", [])]),
+    (4, "y", [("や", "ya", []), ("ゆ", "yu", []), ("よ", "yo", [])]),
+    (4, "r", [("ら", "ra", ["la"]), ("り", "ri", ["li"]), ("る", "ru", ["lu"]), ("れ", "re", ["le"]), ("ろ", "ro", ["lo"])]),
+    (5, "w", [("わ", "wa", []), ("を", "o", ["wo"]), ("ん", "n", ["nn"])]),
+    (6, "dakuten", [("が", "ga", []), ("ぎ", "gi", []), ("ぐ", "gu", []), ("げ", "ge", []), ("ご", "go", []),
+                    ("ざ", "za", []), ("じ", "ji", ["zi"]), ("ず", "zu", []), ("ぜ", "ze", []), ("ぞ", "zo", [])]),
+    (7, "dakuten", [("だ", "da", []), ("ぢ", "ji", ["di"]), ("づ", "zu", ["du"]), ("で", "de", []), ("ど", "do", []),
+                    ("ば", "ba", []), ("び", "bi", []), ("ぶ", "bu", []), ("べ", "be", []), ("ぼ", "bo", [])]),
+    (8, "dakuten", [("ぱ", "pa", []), ("ぴ", "pi", []), ("ぷ", "pu", []), ("ぺ", "pe", []), ("ぽ", "po", [])]),
+    (9, "small", [("ゃ", "ya", []), ("ゅ", "yu", []), ("ょ", "yo", []), ("っ", "(double)", [])]),
+    (10, "yoon", [("きゃ", "kya", []), ("きゅ", "kyu", []), ("きょ", "kyo", []),
+                 ("しゃ", "sha", ["sya"]), ("しゅ", "shu", ["syu"]), ("しょ", "sho", ["syo"]),
+                 ("ちゃ", "cha", ["tya"]), ("ちゅ", "chu", ["tyu"]), ("ちょ", "cho", ["tyo"])]),
+    (11, "yoon", [("にゃ", "nya", []), ("にゅ", "nyu", []), ("にょ", "nyo", []),
+                  ("ひゃ", "hya", []), ("ひゅ", "hyu", []), ("ひょ", "hyo", []),
+                  ("みゃ", "mya", []), ("みゅ", "myu", []), ("みょ", "myo", []),
+                  ("りゃ", "rya", []), ("りゅ", "ryu", []), ("りょ", "ryo", [])]),
+    (12, "yoon", [("ぎゃ", "gya", []), ("ぎゅ", "gyu", []), ("ぎょ", "gyo", []),
+                  ("じゃ", "ja", ["zya", "jya"]), ("じゅ", "ju", ["zyu", "jyu"]), ("じょ", "jo", ["zyo", "jyo"]),
+                  ("びゃ", "bya", []), ("びゅ", "byu", []), ("びょ", "byo", []),
+                  ("ぴゃ", "pya", []), ("ぴゅ", "pyu", []), ("ぴょ", "pyo", [])]),
+]
+_JA_KATA_EXTRA = [(5, "small", [("ー", "(long)", [])]),
+                  (13, "extended", [("ティ", "ti", []), ("ディ", "di", []), ("ファ", "fa", []), ("フィ", "fi", []),
+                                    ("フェ", "fe", []), ("フォ", "fo", []), ("ウィ", "wi", []), ("ウェ", "we", []),
+                                    ("ウォ", "wo", []), ("シェ", "she", []), ("ジェ", "je", []), ("チェ", "che", [])])]
+# id slugs where the roman is taken or is not a slug
+_JA_SLUG = {"を": "wo", "ぢ": "di", "づ": "du", "っ": "sokuon", "ー": "choon",
+            "ゃ": "small-ya", "ゅ": "small-yu", "ょ": "small-yo"}
+# visual confusables (and を/お, same sound); each pair links both ways
+_JA_CONFUSE = ("あお あめ ぬめ いり きさ さち ちら るろ ねれ れわ ねわ はほ はけ まも こに くへ しつ おを じぢ ずづ ばぱ ゃや ゅゆ ょよ っつ "
+               "シツ ソン ノソ クワ ウワ アマ チテ スヌ コユ フワ セヤ ヨユ オヲ ジヂ ズヅ バパ ャヤ ュユ ョヨ ッツ")
+JA_SCRIPT_NOTES = [
+    {"st": "hira", "set": 3, "h": "Particles",
+     "body": "As particles, は is read wa and へ is read e. を, also a particle, is read o."},
+    {"st": "hira", "set": 5, "h": "Long vowels",
+     "body": "A vowel written twice is long: おかあさん okāsan; おう and えい are usually a long o "
+             "and a long e."},
+    {"st": "hira", "set": 6, "h": "Dakuten",
+     "body": "Two dots voice the consonant: か → が, さ → ざ, た → だ, は → ば. ぢ and づ are rare "
+             "and sound like じ and ず."},
+    {"st": "hira", "set": 8, "h": "Handakuten",
+     "body": "A small circle turns h into p: は → ぱ."},
+    {"st": "hira", "set": 9, "h": "Small kana",
+     "body": "Small ゃ ゅ ょ are written half-size after another kana and glide onto it. A small っ "
+             "has no sound of its own: it doubles the next consonant, きって kitte."},
+    {"st": "hira", "set": 10, "h": "Yōon",
+     "body": "A small ゃ ゅ ょ after an i-row kana merges into one syllable: き + ゃ = きゃ kya."},
+    {"st": "kata", "set": 1, "h": "Katakana",
+     "body": "Katakana writes loanwords, names and emphasis. Every sound is one you know from hiragana."},
+    {"st": "kata", "set": 5, "h": "The long mark ー",
+     "body": "ー lengthens the vowel before it: コーヒー kōhī."},
+    {"st": "kata", "set": 9, "h": "Small kana",
+     "body": "Small ャ ュ ョ ッ work as in hiragana: キャ kya, ネット netto."},
+    {"st": "kata", "set": 13, "h": "Extended katakana",
+     "body": "Small ァ ィ ゥ ェ ォ spell sounds Japanese lacks: ティ ti, ファ fa, ウィ wi, チェ che."},
+]
+
+
+def _ja_kata(k):
+    return "".join(chr(ord(c) + 0x60) if "ぁ" <= c <= "ゖ" else c for c in k)
+
+
+def _ja_script_units():
+    pairs = {}
+    for ab in _JA_CONFUSE.split():
+        pairs.setdefault(ab[0], []).append(ab[1])
+        pairs.setdefault(ab[1], []).append(ab[0])
+    hira_ids, units = {}, []
+
+    def unit(stage, st, group, kana, roman, alt, slug, base):
+        u = {"id": ("ja-" if stage == "hira" else "ja-kata-") + slug, "st": stage, "set": st,
+             "group": group, "t": kana, "roman": roman, "alt": alt}
+        if kana in "っッー":
+            u["sound"] = False
+            u["note"] = ("doubles the next consonant" if kana in "っッ" else "lengthens the vowel before it")
+        elif group == "small":
+            ki = "き" if stage == "hira" else "キ"
+            u["note"] = f"written small after an i-row kana: glides onto it ({ki} + {kana} = {ki}{kana})"
+        if base:
+            u["base"] = base
+        return u
+
+    for st, group, row in _JA_ROWS:
+        for kana, roman, alt in row:
+            slug = _JA_SLUG.get(kana, roman)
+            base = None
+            if group == "dakuten":
+                base = hira_ids[chr(ord(kana) - (2 if kana in "ぱぴぷぺぽ" else 1))]
+            elif group == "yoon":
+                base = hira_ids[kana[0]]
+            u = unit("hira", st, group, kana, roman, alt, slug, base)
+            hira_ids[kana] = u["id"]
+            units.append(u)
+    kata_ids, kata = {}, []
+    rows = [(st, g, [(_ja_kata(k), r, a) for k, r, a in row]) for st, g, row in _JA_ROWS] + _JA_KATA_EXTRA
+    rows.sort(key=lambda r: r[0])       # stable: ー after the set-5 rows
+    for st, group, row in rows:
+        for kana, roman, alt in row:
+            hk = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in kana)
+            slug = _JA_SLUG.get(hk if kana != "ー" else "ー", roman)
+            if group == "extended":
+                slug = "x-" + roman
+                base = kata_ids[kana[0]]
+            elif group == "dakuten":
+                base = kata_ids[chr(ord(kana) - (2 if kana in "パピプペポ" else 1))]
+            else:
+                base = hira_ids.get(hk)
+            u = unit("kata", st, group, kana, roman, alt, slug, base)
+            kata_ids[kana] = u["id"]
+            kata.append(u)
+    ids = {**hira_ids, **kata_ids}
+    for u in units + kata:
+        u["confuse"] = [ids[c] for c in pairs.get(u["t"], [])]
+    return units + kata
+
+
+_JA_SMALL = set("ゃゅょぁぃぅぇぉャュョァィゥェォ")
+_JA_SMALL_Y = set("ゃゅょャュョ")
+_JA_KANA_RE = re.compile(f"^[{HIRA}{KATA}]+$")
+
+
+
 class Japanese(LanguageSpec):
     code = "ja"
     name_en = "Japanese"
@@ -3442,6 +3580,86 @@ class Japanese(LanguageSpec):
                     c["indices (confirmed)" if src == "idx" else "indices (corrected)" if src == "idx+"
                       else "sudachi"] += 1
         self.stats.update({f"links: {k}": v for k, v in c.items()})
+
+    # ---- script primer ------------------------------------------------------
+    script = {"stages": [{"key": "hira", "label": "ひらがな"}, {"key": "kata", "label": "カタカナ"}],
+              "setsPerSession": 2, "mastered": 3, "tts": True,
+              "learnKinds": ["symSound", "soundSym"],
+              "reviewKinds": ["symSound", "soundSym", "compose", "wordRead"],
+              "testKinds": {"symSound": 35, "soundSym": 25, "wordRead": 25, "symType": 15}}
+
+    def script_units(self):
+        return _ja_script_units()
+
+    def script_notes(self):
+        return JA_SCRIPT_NOTES
+
+    def script_text(self, word):
+        return word.get("pron")
+
+    def _script_glyphs(self):
+        if not hasattr(self, "_script_glyph_ids"):
+            self._script_glyph_ids = {u["t"]: u["id"] for u in _ja_script_units()}
+        return self._script_glyph_ids
+
+    def script_tokens(self, text):
+        if not _JA_KANA_RE.match(text or ""):
+            return None
+        g, toks, i = self._script_glyphs(), [], 0
+        while i < len(text):
+            two = text[i:i + 2]
+            if len(two) == 2 and two[1] in _JA_SMALL and two in g:
+                if two[1] in _JA_SMALL_Y:
+                    # yōon: named for examples, read from its parts (き + ゃ)
+                    n = len(toks)
+                    toks += [(g[two], True, n, False), (g.get(two[0]), False, n), (g[two[1]], True, n)]
+                else:
+                    toks.append((g[two], True, len(toks)))
+                i += 2
+                continue
+            toks.append((g.get(text[i]), text[i] in g, len(toks)))
+            i += 1
+        return toks
+
+    def script_ex_policy(self, unit):
+        """Katakana: the first two levels hold only 62 katakana words, so an example
+        may hold two unknown katakana and come from the third level as a last
+        resort (the validator warns, not errors, for a later stage's third level)."""
+        return (2, 3) if unit["st"] == "kata" else (1, 2)
+
+    def script_syllables(self, text):
+        """yōon in text: (きゃ, [き, ゃ], kya, owners [きゃ, ゃ]). A hiragana yōon also
+        gives its katakana twin (キャ, [キ, ャ]): the katakana stage re-teaches sounds
+        the first level writes in hiragana, and has too few katakana words of its own
+        to pad a compose item (A1 has one katakana yōon, ニュ). The validator accepts
+        a later stage's syllable attested in a first-level word after kana folding."""
+        g, out = self._script_glyphs(), []
+        for i in range(len(text or "") - 1):
+            two = text[i:i + 2]
+            if two[1] in _JA_SMALL_Y and two in g and two[0] in g:
+                out.append((two, [g[two[0]], g[two[1]]], romaji(two), [g[two], g[two[1]]]))
+                kt = _ja_kata(two)
+                if kt != two and kt in g:
+                    out.append((kt, [g[kt[0]], g[kt[1]]], romaji(two), [g[kt], g[kt[1]]]))
+        return out
+
+    def script_ex_ok(self, word):
+        """は and へ as particles are read wa and e, not their kana sound."""
+        return not (word.get("pos") == "part" and word.get("w") in ("は", "へ"))
+
+    def script_ex_roman(self, word, text, toks):
+        return romaji(text)
+
+    def script_say(self, unit):
+        """Bare kana (docs/SCRIPT_PRIMER.md ss5 default), except: は/へ are said in
+        katakana so a voice never reads them as the particles wa/e; を, ぢ, づ and
+        the small ゃ ゅ ょ are said as the kana they sound like. っ and ー have no sound."""
+        if unit.get("sound") is False:
+            return None
+        t = unit["t"]
+        return {"は": "ハ", "へ": "ヘ", "を": "お", "ぢ": "じ", "づ": "ず",
+                "ヲ": "オ", "ヂ": "ジ", "ヅ": "ズ",
+                "ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "ャ": "ヤ", "ュ": "ユ", "ョ": "ヨ"}.get(t, t)
 
 
 SPEC = Japanese

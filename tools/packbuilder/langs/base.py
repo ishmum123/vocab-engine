@@ -478,6 +478,64 @@ class LanguageSpec:
         words.json records, in teaching order within each level; None: no file."""
         return None
 
+    # ---- script primer (docs/SCRIPT_PRIMER.md ss3; defaults emit nothing) -------
+    # pack.json "script" block ({stages, setsPerSession, mastered, tts, *Kinds});
+    # set together with script_units, which turns on pack/script.json
+    script = None
+
+    def script_units(self):
+        """Hand-written script.json units in teaching order (no ex/syll/say; the
+        emitter core/script.py fills those in); None: no primer."""
+        return None
+
+    def script_notes(self):
+        """script.json notes [{st, set, h, body}]."""
+        return []
+
+    def script_text(self, word):
+        """The written string of a words.json record the primer reads (w; ja: pron)."""
+        return word.get("w")
+
+    def script_tokens(self, text):
+        """text -> [(unitId or None, exact, pos[, need])]: one entry per unit
+        occurrence, in order. need False: names the unit for examples only, not
+        needed to read the word (ja yōon: its parts carry readability). None
+        unitId: a script symbol with no unit (never readable). exact
+        False: read as that unit but not spelled with its glyph (ko ㅅ final read as
+        ㄷ final): counts for readability, never as an example of the unit. pos: the
+        reading position (ko: the block index). Returns None when the text holds
+        anything outside the script (space, hyphen, Latin): never an example."""
+        return None
+
+    def script_ex_policy(self, unit):
+        """(most unknown units allowed in an example, levels the example pool spans)
+        for one unit. Default (1, 2): one unknown only when nothing is readable,
+        first two levels. ja katakana: (2, 3)."""
+        return 1, 2
+
+    def script_ex_ok(self, word):
+        """False drops a word from the example pool (ja: は/へ particles)."""
+        return True
+
+    def script_ex_roman(self, word, text, toks):
+        """Romanisation of an example word; None drops it from the pool."""
+        return None
+
+    def script_ex_penalty(self, toks):
+        """Ranking penalty among equally readable examples (ko: a final consonant
+        before the last block)."""
+        return 0
+
+    def script_syllables(self, text):
+        """Composition examples in text: [(t, [part unitId...], roman[, [owner
+        unitId...]])] (ko blocks, ja yōon). Owners (default: the parts) get it as syll."""
+        return []
+
+    def script_say(self, unit):
+        """The TTS carrier for a unit (docs/SCRIPT_PRIMER.md ss5), or None (unspeakable).
+        One function per language so the S0 probe result changes one place."""
+        return None
+
     def extra_attribution(self, env, sentences):
         """Extra top-level keys for attribution.json."""
         return {}

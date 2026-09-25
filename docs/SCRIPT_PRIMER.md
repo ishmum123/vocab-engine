@@ -131,14 +131,15 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 
 | pack | order (sets) | units | sets |
 |---|---|---|---|
-| ko | ㅏㅓㅗㅜㅡㅣ, then ㄱㄴㄷㄹㅁㅂㅅㅇ, then ㅈㅊㅋㅌㅍㅎ, then ㅑㅕㅛㅠ + ㅐㅔ, then ㄲㄸㅃㅆㅉ, then ㅒㅖㅘㅙㅚㅝㅞㅟㅢ, then batchim ㄱㄴㄷㄹㅁㅂㅇ as finals | 47 | 7 |
+| ko | silent ㅇ + ㅏㅓㅗㅜㅡㅣ, then ㄱㄴㄷㄹㅁㅂㅅ, then ㅈㅊㅋㅌㅍㅎ, then ㅑㅕㅛㅠ + ㅐㅔ, then ㄲㄸㅃㅆㅉ, then ㅒㅖㅘㅙㅚㅝㅞㅟㅢ, then batchim ㄱㄴㄷㄹㅁㅂㅇ as finals | 47 | 7 |
 | ru | true friends А К М О Т Е, then false friends В Н Р С У Х, then new Б Г Д З И Й Л П Ф, then Ж Ц Ч Ш Щ, then Ы Э Ю Я Ё, then Ь Ъ | 33 | 6 |
 | fa | ا ب پ ت د ر ز م ن, then ث ج چ ح خ, then و ی ه آ ذ ژ, then س ش ص ض ط ظ, then ع غ ف ق, then ک گ ل | 33 | 6 |
-| ja | ひらがな: vowels + か, さ + た, な + は, ま + や + ら, わ ん っ, dakuten, handakuten, yōon ×2. カタカナ: the same, plus ー and 12 extended (ティ ファ ウィ…) | 105 + 118 | 11 + 12 |
+| ja | ひらがな: vowels + か, さ + た, な + は, ま + や + ら, わ を ん, dakuten ×2, handakuten, small ゃ ゅ ょ っ, yōon ×3. カタカナ: the same (ー with ワ ヲ ン), plus 12 extended (ティ ファ ウィ…) | 108 + 121 | 12 + 13 |
 | ar, ur, hi (future) | Arabic 28 + ة ى ء + 3 harakat + sukun, shadda. Urdu 38 + ھ digraphs. Devanagari 11 vowels, 33 consonants by varga, matras as compose, 10 common conjuncts, ं ः ँ ़ | ~38 / ~42 / ~60 | 5–8 |
 
 **Rationale for the order:**
-- **Readable words early.** The first set that combines with an earlier one must spell real A1 words: ko 나 너 이 우리, fa بابا نان در, ru мама кот там.
+- **Readable words early.** The first set that combines with an earlier one must spell real A1 words: ko 나 너 이 우리, fa بابا نان در, ru мама кот там. ko teaches the silent ㅇ with the vowels, so set 1 already reads 아이 and 오 (decision 2026-09-26).
+- **Small kana are units** (decision 2026-09-26): ゃ ゅ ょ っ and ャ ュ ョ ッ are taught in the set before the first yōon set, with their own roman (ya, yu, yo; っ is `sound:false`), confuse-linked to their full-size forms. A yōon unit keeps `base` (the i-row kana) and has `syll` parts [i-row kana, small kana], so `compose` works. A yōon in a word is read from its parts: the word is readable once き and ゃ are taught. A hiragana yōon in an A1 word also gives the katakana twin (キャ from きゃく) as a katakana `syll`, since A1 has one katakana yōon (ニュ) and a compose item needs 3 distractor syllables of its own stage. The validator accepts a later stage's `syll.t` attested after kana folding. Packbuilder drops any syllable that could not get 4 compose options and reports it (`syll_dropped`).
 - **Confusables grouped.** Dot families and ㅏ/ㅓ are taught in the same set, so the difference is taught once, on purpose.
 - **Rule-based variants last.** Dakuten and tense consonants are one rule applied to known shapes.
 
@@ -146,6 +147,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 - Each `langs/<x>.py` gets a `SCRIPT` table: the hand-written units, minus `ex` and `syll`. Adding `script = {...}` turns on the pack.json block, the same way `characters` does.
 - A generic `core/pipeline.py write_script(env, out_words)` emitter fills in the generated fields.
 - **`ex`:** up to 3 words from the shipped A1 set, falling back to A2. The unit must appear in the word, initial position is preferred, and so is file order, which is the frequency order. The word must be readable, meaning every unit it contains sits at or before this set. One unknown unit is allowed only when no fully readable word exists, and ko prefers words with no final consonant before the last block.
+- **ja katakana `ex`** (decision 2026-09-26): ja A1 and A2 hold only 62 katakana words, so a katakana unit's example may hold up to 2 unknown katakana, and B1 is the last fallback after A1 and A2. A unit with no such word ships without `ex`. The spec hook is `script_ex_policy`.
 - **`ex` roman:** ja via the existing `langs/ja.py romaji()`; ko via block-wise Revised Romanization with no sound change, which the ex rule keeps equal to the spoken form; ru via the table's `roman`; fa via the word's `pron`.
 - **`syll`:** syllables that occur in the shipped A1 words, ranked by frequency. For ko, blocks are decomposed by Unicode arithmetic.
 - Output is deterministic. `stat("script", …)` reports every unit whose `ex` needed the fallback.
@@ -156,8 +158,8 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 - `st` is a known stage key, `set` is an int ≥ 1, and each stage's sets are contiguous from 1.
 - `t` and `roman` are non-empty, and `sound` is a bool.
 - `confuse` and `base` reference known ids.
-- `ex` word ids exist, their level is the first level (the second level, packbuilder's fallback, is a warning; later is an error), the roman is non-empty, and the unit's glyph occurs in the word's `w` or `pron`. The comparison uses compatibility decomposition and lower case, and folds positional letter variants, so a jamo matches inside a composed block and a dakuten kana inside its word.
-- `syll.parts` are glyphs of units at or before this set, and `syll.t` occurs in some A1 word.
+- `ex` word ids exist, their level is the first level (the second level, packbuilder's fallback, is a warning; the third level is a warning for a unit of a later stage, such as ja katakana, and an error for the first stage; later is an error), the roman is non-empty, and the unit's glyph occurs in the word's `w` or `pron`. The comparison uses compatibility decomposition and lower case, and folds positional letter variants, so a jamo matches inside a composed block and a dakuten kana inside its word.
+- `syll.parts` are glyphs of units at or before this set, and `syll.t` occurs in some A1 word (for a later stage, after folding katakana to hiragana).
 - `joins` is present only when `pack.rtl`.
 - `notes` reference a known `(st, set)`.
 - **Warnings:** a unit with no `ex`; two units in one group with the same `roman` and no `confuse` link; a `say` missing on a `sound:true` unit.

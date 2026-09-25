@@ -535,6 +535,71 @@ PROFANE = ("کیر", "کون", "جنده", "گاییدن", "گایید", "بگا
            "کصکش", "کسخل", "مادرجنده", "پفیوز", "کثافت", "لعنتی", "لعنت")
 
 
+# ---- script primer (docs/SCRIPT_PRIMER.md ss3) -------------------------------
+# Persian alphabet: 33 units in 6 sets, dot families taught together. Romans
+# follow the pack's pron scheme (â kh sh zh gh q '); example words use the
+# word's own pron. Short vowels and ZWNJ are not letters; hamza seats (ء أ ئ ؤ)
+# have no unit, so a word holding one reads with one unknown symbol.
+# (set, group, slug, glyph, name, roman, alt, confuse slugs, joins, note)
+FA_SCRIPT = [
+    (1, "alef", "alef", "ا", "alef", "â", ["a", "aa"], ["alef-madde", "lam"], "right", "â as in 'father'; also carries a word-initial short vowel"),
+    (1, "be", "be", "ب", "be", "b", [], ["pe", "te", "se", "nun"], "dual", "b"),
+    (1, "be", "pe", "پ", "pe", "p", [], ["be", "te", "se"], "dual", "p"),
+    (1, "be", "te", "ت", "te", "t", [], ["be", "pe", "se", "nun"], "dual", "t"),
+    (1, "dal", "dal", "د", "dâl", "d", [], ["zal", "re"], "right", "d"),
+    (1, "re", "re", "ر", "re", "r", [], ["ze", "zhe", "dal"], "right", "r"),
+    (1, "re", "ze", "ز", "ze", "z", [], ["re", "zhe", "zal"], "right", "z"),
+    (1, "mim", "mim", "م", "mim", "m", [], ["he", "ghein"], "dual", "m"),
+    (1, "be", "nun", "ن", "nun", "n", [], ["be", "te", "ye"], "dual", "n"),
+    (2, "be", "se", "ث", "se", "s", [], ["te", "be", "pe", "sin", "sad"], "dual", "s (Arabic loanwords)"),
+    (2, "jim", "jim", "ج", "jim", "j", [], ["che", "he-jimi", "khe"], "dual", "j"),
+    (2, "jim", "che", "چ", "che", "ch", [], ["jim", "he-jimi", "khe"], "dual", "ch"),
+    (2, "jim", "he-jimi", "ح", "he-ye jimi", "h", [], ["jim", "che", "khe", "he"], "dual", "h (Arabic loanwords)"),
+    (2, "jim", "khe", "خ", "khe", "kh", [], ["jim", "che", "he-jimi"], "dual", "ch as in Scottish 'loch'"),
+    (3, "vav", "vav", "و", "vâv", "v", ["u", "o", "ow"], ["dal", "re"], "right", "v; also the vowels u and o"),
+    (3, "ye", "ye", "ی", "ye", "y", ["i", "ey"], ["nun", "be"], "dual", "y; also the vowel i"),
+    (3, "he", "he", "ه", "he", "h", ["e"], ["he-jimi", "mim"], "dual", "h; e at the end of a word"),
+    (3, "alef", "alef-madde", "آ", "âlef-e madde", "â", ["a", "aa"], ["alef"], "right", "â at the start of a word"),
+    (3, "dal", "zal", "ذ", "zâl", "z", [], ["dal", "ze", "zad", "za"], "right", "z (Arabic loanwords)"),
+    (3, "re", "zhe", "ژ", "zhe", "zh", [], ["ze", "re"], "right", "s as in 'pleasure'"),
+    (4, "sin", "sin", "س", "sin", "s", [], ["shin", "sad", "se"], "dual", "s"),
+    (4, "sin", "shin", "ش", "shin", "sh", [], ["sin", "sad"], "dual", "sh"),
+    (4, "sad", "sad", "ص", "sâd", "s", [], ["zad", "sin", "se"], "dual", "s (Arabic loanwords)"),
+    (4, "sad", "zad", "ض", "zâd", "z", [], ["sad", "ze", "zal", "za"], "dual", "z (Arabic loanwords)"),
+    (4, "ta", "ta", "ط", "tâ", "t", [], ["za", "te"], "dual", "t (Arabic loanwords)"),
+    (4, "ta", "za", "ظ", "zâ", "z", [], ["ta", "ze", "zal", "zad"], "dual", "z (Arabic loanwords)"),
+    (5, "ein", "ein", "ع", "'eyn", "'", [], ["ghein", "he-jimi"], "dual", "a catch in the throat, often silent"),
+    (5, "ein", "ghein", "غ", "gheyn", "gh", ["q"], ["ein", "qaf"], "dual", "a throaty g, like French r"),
+    (5, "fe", "fe", "ف", "fe", "f", [], ["qaf", "ghein"], "dual", "f"),
+    (5, "fe", "qaf", "ق", "qâf", "q", ["gh"], ["fe", "ghein"], "dual", "a throaty g (same sound as غ)"),
+    (6, "kaf", "kaf", "ک", "kâf", "k", [], ["gaf", "lam"], "dual", "k"),
+    (6, "kaf", "gaf", "گ", "gâf", "g", [], ["kaf"], "dual", "g as in 'go'"),
+    (6, "lam", "lam", "ل", "lâm", "l", [], ["alef", "kaf"], "dual", "l"),
+]
+FA_SCRIPT_NOTES = [
+    {"st": "abjad", "set": 1, "h": "Right to left, short vowels unwritten",
+     "body": "Persian is read from right to left. Only long vowels are letters: â (ا), u (و), i (ی). "
+             "The short vowels a, e, o are not written, so بد can be bad."},
+    {"st": "abjad", "set": 1, "h": "Joining",
+     "body": "Most letters join on both sides and change shape. Seven never join the letter after "
+             "them: ا د ذ ر ز ژ و."},
+    {"st": "abjad", "set": 3, "h": "Vowel letters",
+     "body": "و and ی are consonants (v, y) or long vowels (u, i). ه at the end of a word is often the "
+             "vowel e (خانه khâne)."},
+    {"st": "abjad", "set": 4, "h": "One sound, several letters",
+     "body": "Arabic loanwords keep their spelling: s is س ص ث, z is ز ذ ض ظ, t is ت ط. Learn which "
+             "letter each word uses."},
+    {"st": "abjad", "set": 5, "h": "Ezafe",
+     "body": "An unwritten -e links a noun to what describes it: ketâb-e man, my book. The pron "
+             "shows it; the script does not."},
+]
+FA_LETTERS = {g: slug for _, _, slug, g, *_ in FA_SCRIPT}
+FA_FOLD = {"ي": "ی", "ى": "ی", "ك": "ک"}
+FA_HAMZA = set("ءأإئؤ")
+FA_IGNORE = set("ًٌٍَُِّْٰ‌ـ")
+
+
+
 class Persian(LanguageSpec):
     code = "fa"
     name_en = "Persian"
@@ -1669,6 +1734,47 @@ class Persian(LanguageSpec):
     qa_verb_re = r"(تن|دن)$|^باید$"
     qa_foreign_letters_re = r"[a-z]"
     qa_proper_re = r"\b(Iran|Tehran|Persia|Islam|Muhammad|God|Allah)\b"
+
+    # ---- script primer ------------------------------------------------------
+    # tts false: no fa voice on Apple, Windows or Google (docs/SCRIPT_PRIMER.md ss0);
+    # a recorded per-unit `audio` (Piper) is the later path
+    script = {"stages": [{"key": "abjad", "label": "الفبا"}],
+              "setsPerSession": 2, "mastered": 3, "tts": False,
+              "learnKinds": ["symSound", "formFind"],
+              "reviewKinds": ["symSound", "formMatch", "formFind", "wordRead"],
+              "testKinds": {"symSound": 35, "formMatch": 25, "wordRead": 25, "symType": 15}}
+
+    def script_units(self):
+        return [{"id": "fa-" + slug, "st": "abjad", "set": st, "group": group, "t": t, "name": name,
+                 "roman": roman, "alt": alt, "note": note, "confuse": ["fa-" + c for c in confuse],
+                 "joins": joins}
+                for st, group, slug, t, name, roman, alt, confuse, joins, note in FA_SCRIPT]
+
+    def script_notes(self):
+        return FA_SCRIPT_NOTES
+
+    def script_tokens(self, text):
+        toks = []
+        for i, c in enumerate(text):
+            c = FA_FOLD.get(c, c)
+            if c in FA_IGNORE:
+                continue
+            if c in FA_LETTERS:
+                toks.append(("fa-" + FA_LETTERS[c], True, len(toks)))
+            elif c in FA_HAMZA:
+                toks.append((None, False, len(toks)))
+            else:
+                return None
+        return toks
+
+    def script_ex_roman(self, word, text, toks):
+        return word.get("pron")
+
+    def script_say(self, unit):
+        """Carrier (docs/SCRIPT_PRIMER.md ss5): a consonant with fatha (بَ), the long
+        vowel letters bare. Unused while pack.script.tts is false."""
+        g = unit["t"]
+        return g if g in "اآوی" else g + "َ"
 
 
 SPEC = Persian

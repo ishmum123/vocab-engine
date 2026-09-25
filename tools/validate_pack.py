@@ -703,6 +703,12 @@ def glyph_keys(s):
     return out
 
 
+def kana_fold(s):
+    """Katakana -> hiragana, for a later script stage's syllables (ja カタカナ re-teaches
+    sounds the first level writes in hiragana)."""
+    return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in str(s))
+
+
 def glyph_in(glyph, text):
     g, t = glyph_keys(glyph), glyph_keys(text)
     if not g:
@@ -758,6 +764,11 @@ def check_script_data(pack, script, stage_keys, words, rep):
     level_ids = [lv.get("id") for lv in pack.get("levels") or [] if isinstance(lv, dict)]
     first_lv = level_ids[0] if level_ids else None
     second_lv = level_ids[1] if len(level_ids) > 1 else None
+    third_lv = level_ids[2] if len(level_ids) > 2 else None
+    # A later stage (ja katakana) teaches a script the first two levels barely use
+    # (62 katakana words in ja A1+A2), so its examples may come from the third
+    # level as a last resort: a warning there, an error for the first stage.
+    first_stage = next(iter(stage_keys), None)
     by_id = {w["id"]: w for w in words if isinstance(w, dict) and is_str(w.get("id"))}
     first_texts = [t for w in words if isinstance(w, dict) and w.get("lv") == first_lv
                    for t in (w.get("w"), w.get("pron")) if is_str(t)]
@@ -821,7 +832,10 @@ def check_script_data(pack, script, stage_keys, words, rep):
                 if w is None:
                     rep.err(f"{where}.ex[{j}] word {e[0]!r} is not a word id")
                     continue
-                if w.get("lv") not in (first_lv, second_lv):
+                if w.get("lv") == third_lv and third_lv is not None and u.get("st") != first_stage:
+                    rep.warn(f"{where}.ex[{j}] word {e[0]} is from level {w.get('lv')!r}, the third level "
+                             f"(allowed as a last resort for a later stage)")
+                elif w.get("lv") not in (first_lv, second_lv):
                     rep.err(f"{where}.ex[{j}] word {e[0]} is level {w.get('lv')!r}, after the second level")
                 elif w.get("lv") != first_lv:
                     rep.warn(f"{where}.ex[{j}] word {e[0]} is from level {w.get('lv')!r}, not the first level")
@@ -844,7 +858,10 @@ def check_script_data(pack, script, stage_keys, words, rep):
                 late = [p for p in s["parts"] if p not in known]
                 if late:
                     rep.err(f"{sw}.parts {late} are not glyphs of units at or before set {u.get('set')} of stage {u.get('st')!r}")
-                if not any(glyph_in(s["t"], t) for t in first_texts):
+                # a later stage's syllable may be attested in the other kana (キャ by きゃ)
+                attested = any(glyph_in(s["t"], t) for t in first_texts) or (
+                    u.get("st") != first_stage and any(glyph_in(kana_fold(s["t"]), kana_fold(t)) for t in first_texts))
+                if not attested:
                     rep.err(f"{sw}.t {s['t']!r} does not occur in any first-level word")
         if u.get("sound", True) is not False and "say" not in u and (pack.get("script") or {}).get("tts") is not False:
             rep.warn(f"{where} has sound but no say (TTS has nothing to speak)")
