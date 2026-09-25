@@ -139,7 +139,7 @@ return {
   goto: t => { tab = t; testSel = null; RD = null; render(); },
   legacyNotice: () => legacyNotice, legacyFail: () => legacyFail, readOnly: () => storeReadOnly, getPrep: () => todayPrep,
   rubyTextHTML, sentenceRowHTML, sentenceRevealBlock, readSentence, charDrillItem, passageSentenceHTML, hasChars: () => HAS_CHARACTERS,
-  gapSentence, recallItem, readItem, hearItem, revealBlock, wordRowHTML, glossHTML, passagePlainHTML, charTeach, revealWritten, pronFirst: () => PRON_FIRST,
+  onShowWritten, gapSentence, recallItem, readItem, hearItem, revealBlock, wordRowHTML, glossHTML, passagePlainHTML, charTeach, revealWritten, pronFirst: () => PRON_FIRST,
   panelListeners: () => document.getElementById("panel")._listeners.click || [],
   wordsSearch: q => { tab = "words"; wordsQuery = q; render(); }, startPassage: p => { tab = "read"; startPassage(p); },
 };`;
@@ -841,17 +841,41 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     const cu = VC.charStageUnits(["1","2","3"], CHARACTERS, PF_ZH)[0];
     const ci = api.charDrillItem("charRead", cu);
     check("characters stage: a charRead item still shows the written form", ci.html.includes(`>${cu.t}<`));
+    // Teach cards: the taught unit's own token in its example sentence is written (ruby).
+    const cs = VC.nextCharSet(["1","2","3"], CHARACTERS, PF_ZH, VC.normalizeProg({}, PF_ZH));
+    api.setProg(seedPF()); api.charTeach(cs, { label: "字" }, () => {});
+    const cards = api.html("panel").split('<div class="charteach">').slice(1);
+    let withEx = 0, bad = 0;
+    cs.units.forEach((u, i) => {
+      const exPart = (cards[i] || "").split('<div class="sent"')[1];
+      if(!exPart) return; withEx++;
+      const others = visHan(exPart.replace(new RegExp(`<ruby>${u.t}<rt>[^<]*</rt></ruby>`, "g"), ""));
+      if(!exPart.includes(`<ruby>${u.t}<rt>${VC.unitReading(u, BY_ID)}</rt></ruby>`) || others) bad++;
+    });
+    check(`teach cards: the taught unit's token is written with ruby in its example, the rest pinyin (${withEx} examples, ${bad} bad)`, withEx > 0 && bad === 0);
   }
   {
     // The show-written tap: swaps itself for the written form, item only, no progress change.
-    const { api } = await boot({ pack: PF_ZH });
+    const { api, document } = await boot({ pack: PF_ZH });
     api.setProg(seedPF());
     const before = JSON.stringify(api.getProg());
-    const b = { dataset: { showw: "你" }, outerHTML: "<button>" };
+    let focused = null; const mk = document.createElement;
+    document.createElement = tag => { const el = mk.call(document, tag); el.focus = () => { focused = el; }; return el; };
+    const b = { dataset: { showw: "你" }, replaceWith(x){ this.by = x; } };
+    document.activeElement = b; // keyboard user: the button has focus
     let stopped = false, prevented = false;
     const cap = api.panelListeners()[1];
     cap({ target: { closest: sel => sel === "[data-showw]" ? b : null }, preventDefault(){ prevented = true; }, stopPropagation(){ stopped = true; } });
-    check(`show-written tap reveals the written form in place (${b.outerHTML})`, /class="wwr"[^>]*>你<\/span>/.test(b.outerHTML) && stopped && prevented);
+    const sp = b.by;
+    check("show-written tap swaps the button for the written form in place", sp && sp.className === "wwr" && sp.textContent === "你" && sp.getAttribute("lang") && stopped && prevented);
+    check("the revealed span keeps keyboard focus (tabindex -1, focused)", sp && sp.getAttribute("tabindex") === "-1" && focused === sp);
+    const b2 = { dataset: { showw: "好" }, replaceWith(x){ this.by = x; } }; focused = null; document.activeElement = null;
+    api.revealWritten(b2);
+    check("a mouse tap (button not focused) does not move focus", b2.by && focused === null);
+    document.createElement = mk;
+    check("keys on a show-written button never reach the drill shortcuts (Enter = Next)",
+      api.onShowWritten({ target: { closest: s => s === "[data-showw]" ? b : null } }) && !api.onShowWritten({ target: { closest: () => null } }) && /if\(drillKeyHandler && !onShowWritten\(e\)\) drillKeyHandler\(e\)/.test(appHtml));
+    check("announce() drops the show-written button label from the live-region text", /querySelectorAll\("\[data-showw\]"\)\.forEach\(x => x\.remove\(\)\)/.test(appHtml.match(/function announce[\s\S]*?\n}\n/)[0]));
     let other = false;
     cap({ target: { closest: () => null }, preventDefault(){ other = true; }, stopPropagation(){ other = true; } });
     check("the tap has no progress effect; other clicks pass through untouched", JSON.stringify(api.getProg()) === before && !other);
@@ -864,7 +888,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     let bad = 0;
     for(let r = 0; r < 10; r++) homs.forEach(w => {
       const it = api.recallItem(w); const labels = it.opts.map(o => stripTags(it.optHtml(o)));
-      const ents = it.opts.map(o => WORDS.find(x => x.w === o));
+      const ents = it.opts.map(o => BY_ID[o]);
       if(new Set(labels).size !== labels.length || ents.some((a, i) => ents.some((b, j) => i < j && VC.pronClash(a, b)))) bad++;
     });
     check(`recall items for ${homs.length} zh words with a homophone: 4 distinct pinyin labels, no two alike in sound (${bad} bad)`, homs.length > 30 && bad === 0);
@@ -888,6 +912,14 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     const glyphRows = a1.filter(w => VC.unitByWord(J.units).get(w.id));
     check(`ja-like: Words rows show kana (${glyphRows.length} kanji words by reading, ${a1.length - glyphRows.length} kana words as written), no kanji visible`,
       list.length === 10 && list.every(h => !visHan(h)) && glyphRows.every(w => list.some(h => h.includes(`>${w.pron}<button type="button" class="showw" data-showw="${w.w}"`))));
+    let dup = 0, runs = 0;
+    for(let r = 0; r < 10; r++) J.words.forEach(w => {
+      runs++; const it = api.recallItem(w); const labels = it.opts.map(o => stripTags(it.optHtml(o)));
+      const ws = it.opts.map(o => J.words.find(x => x.id === o).w);
+      if(new Set(it.opts).size !== it.opts.length || new Set(labels).size !== labels.length || new Set(ws).size !== ws.length) dup++;
+    });
+    const hg = J.words.filter(a => J.words.some(b => b.id !== a.id && b.w === a.w)).length;
+    check(`ja-like recall (${hg} same-form words read differently, ${runs} items): no duplicate option, label or written form (${dup} bad)`, hg >= 2 && dup === 0);
     const k = J.words.find(w => !VC.unitByWord(J.units).get(w.id));
     check("ja-like: a kana word has no show-written tap", !/data-showw/.test(api.wordRowHTML(k)) && api.wordRowHTML(k).includes(`>${k.w}<`));
   }

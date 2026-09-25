@@ -464,8 +464,10 @@ function bigWordHTML(entry){
 }
 // Option label for word-choice items (recall/gap): the word (its reading under
 // pronFirst below mastered), plus its pron when shown and not already the label.
-function wordOptHtml(byW){
-  return o => { const e = byW[o]; const d = e ? dispWord(e) : null; const p = e ? pronBeside(e) : ""; return `${d && d.isPron ? tw(d.text) : tw(o)}${p ? `<span class="op"><bdi>${escapeHtml(p)}</bdi></span>` : ""}`; };
+// byKey maps each option value to its word; written (optional) gives the written label
+// for a value that is not itself the label (recall keys options by word id).
+function wordOptHtml(byKey, written){
+  return o => { const e = byKey[o]; const d = e ? dispWord(e) : null; const p = e ? pronBeside(e) : ""; return `${d && d.isPron ? tw(d.text) : tw(written ? written(o) : o)}${p ? `<span class="op"><bdi>${escapeHtml(p)}</bdi></span>` : ""}`; };
 }
 
 // ===================== generic drill runner =====================
@@ -483,6 +485,7 @@ function setScore(answered, total){
 function announce(html){
   const el = $("live"); if(!el) return;
   const tmp = document.createElement("div"); tmp.innerHTML = html || "";
+  tmp.querySelectorAll("[data-showw]").forEach(x => x.remove()); // the show-written button's label is not content
   el.textContent = tmp.textContent || "";
 }
 function showReveal(html){
@@ -570,7 +573,10 @@ function renderTypeItem(it){
     }
   };
 }
-document.addEventListener("keydown", e => { if(drillKeyHandler) drillKeyHandler(e); });
+// A key on a show-written button (pack.pronFirst) is the button's own (Enter/Space reveal
+// the written form); it never reaches the drill's shortcuts (Enter = Next, 1-4 = answer).
+const onShowWritten = e => !!(e && e.target && e.target.closest && e.target.closest("[data-showw]"));
+document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e)) drillKeyHandler(e); });
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
 // Tap-to-hear for markup anywhere in #panel: data-sent (a SENTENCES index) speaks that
@@ -588,7 +594,17 @@ $("panel").addEventListener("click", e => {
 
 // pack.pronFirst "show written form" tap: capture phase, so it runs before (and stops) the
 // row/tap-to-hear handlers of whatever it sits in. Only attached for pronFirst packs.
-function revealWritten(b){ b.outerHTML = `<span class="wwr"${TA}>${escapeHtml(b.dataset.showw || "")}</span>`; }
+// The revealed span takes the button's place and, when the button had focus (keyboard),
+// the focus too (tabindex -1: focusable, not a tab stop), so focus never drops to body.
+function revealWritten(b){
+  const sp = document.createElement("span");
+  sp.className = "wwr"; sp.setAttribute("data-tl", ""); sp.setAttribute("lang", SCRIPT.lang); if(SCRIPT.rtl) sp.setAttribute("dir", "rtl");
+  sp.setAttribute("tabindex", "-1"); sp.textContent = b.dataset.showw || "";
+  const had = document.activeElement === b;
+  b.replaceWith(sp);
+  if(had) sp.focus();
+  return sp;
+}
 if(PRON_FIRST) $("panel").addEventListener("click", e => {
   const b = e.target && e.target.closest ? e.target.closest("[data-showw]") : null;
   if(!b) return;
@@ -647,9 +663,10 @@ function rubyTextHTML(s, toks, entry){
 // else {html, ruby, written}: tokens below mastered as their reading, others by tier
 // (ruby/bare, bare when pron is hidden), the taught word (entry) bolded, blank as ____;
 // written = the written sentence for the show-written tap (false: nothing hidden).
-function pfSentence(s, entry, blank){
+// written (optional word ids): their tokens show written with ruby (VC.sentenceDisplay).
+function pfSentence(s, entry, blank, written){
   if(!PRON_FIRST) return null;
-  const d = VC.sentenceDisplay(s, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog), blank);
+  const d = VC.sentenceDisplay(s, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog), blank, written);
   if(d === null) return blank ? false : null;
   if(d.mode === "text") return null;
   if(d.mode === "pron") return { html: escapeHtml(d.text), ruby: false, written: String(s.t || "") };
@@ -670,9 +687,10 @@ function pfSentence(s, entry, blank){
   return { html, ruby, written: anyPron ? (bl ? t.slice(0, bl.start) + "____" + t.slice(bl.end) : t) : false };
 }
 const pfWrittenTap = pf => pf.written ? showWrittenBtn(pf.written) : "";
-// entry (optional): the taught word, highlighted in the sentence.
-function sentenceRowHTML(s, entry){
-  const pf = pfSentence(s, entry);
+// entry (optional): the taught word, highlighted in the sentence. written (optional
+// word ids, pronFirst only): tokens shown written with ruby (a unit's teach card).
+function sentenceRowHTML(s, entry, written){
+  const pf = pfSentence(s, entry, null, written);
   if(pf) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   const rt = sentenceRuby(s);
   if(rt) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
@@ -710,10 +728,12 @@ function readItem(entry){
 // distractor that would also be a right answer).
 function recallItem(entry){
   const ds = VC.wordOpts(entry, WORDS, PRON_FIRST ? (e => dispWord(e).text) : null, PACK); // same word class as the answer; pronFirst: distinct displayed labels, no homophones
-  const byW = {}; [entry, ...ds].forEach(e=>{ byW[e.w] = e; });
+  // Options are keyed by word id (the label is optHtml's): two options can never collapse
+  // into one key, whatever they display as.
+  const byId = {}; [entry, ...ds].forEach(e=>{ byId[e.id] = e; });
   return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
-    opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w, optHtml: wordOptHtml(byW), optsT: true, reveal: revealBlock(entry),
+    opts: [entry.id, ...ds.map(d=>d.id)], a: entry.id, optHtml: wordOptHtml(byId, o => byId[o].w), optsT: true, reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
 }
 // type — meaning shown; type the word (normalised per pack.typing, alt forms accepted).
@@ -1048,7 +1068,7 @@ function charTeach(cs, stage, onDrill){
     const w = VC.unitWord(u, WORDS_BY_ID), reading = VC.unitReading(u, WORDS_BY_ID);
     const tap = hasSpeech && w;
     const ex = w ? wordExampleSentences(w, 1) : [];
-    return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${escapeHtml(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w)).join("")}</div>`;
+    return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${escapeHtml(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w, u.words)).join("")}</div>`;
   }).join("");
   P.innerHTML = `<p class="q">${tw(stage.label)}, set ${cs.index+1} of ${cs.total}: the written form of words you already know.${hint}</p>
     <div id="ctl">${cards}</div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;

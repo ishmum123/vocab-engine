@@ -601,6 +601,24 @@ function pronFirstChecks(F){
   check(`[PF] control: word-first wordOpts does offer homophones (${ctrl} runs), so the guard is what excludes them`, ctrl > 0);
   const gc = withSeed(3, () => homs.map(w => VC.gapChoices(w, null, words, pf)));
   check("[PF] gapChoices under pronFirst: no homophone option", gc.every((g, i) => g.opts.every(o => o === g.a || !VC.pronClash(g.byLabel[o], homs[i]))));
+  // Same written form, different reading (ja 方 ほう/かた): with a label fn showing the
+  // reading, the two must never both be options (they are one written word).
+  const pool = clone(words);
+  const extra = [];
+  pool.slice(0, 12).forEach((w, i) => { if(i % 2) return; extra.push(Object.assign({}, w, { id: "x" + w.id, pron: w.pron + "x" + i, en: `other sense ${i}` })); });
+  pool.push(...extra);
+  let dupId = 0, dupLbl = 0, dupW = 0;
+  withSeed(11, () => {
+    for(let r = 0; r < 200; r++){
+      const ans = pool[(r * 7) % pool.length];
+      const ds = VC.wordOpts(ans, pool, e => e.pron, pf);
+      const all = [ans, ...ds];
+      if(new Set(all.map(x => x.id)).size !== all.length) dupId++;
+      if(new Set(all.map(x => x.pron)).size !== all.length) dupLbl++;
+      if(new Set(all.map(x => x.w)).size !== all.length) dupW++;
+    }
+  });
+  check(`[PF] wordOpts with a reading label over same-w/different-pron pairs (${extra.length} pairs, 200 runs): no duplicate id (${dupId}), label (${dupLbl}) or written form (${dupW})`, extra.length > 0 && dupId + dupLbl + dupW === 0);
   check("[PF] pronClash: same pron, and a word written as another's reading, clash; empty never",
     VC.pronClash({ pron:"ab" }, { pron:"AB" }) && VC.pronClash({ w:"ab" }, { w:"x", pron:"ab" }) && !VC.pronClash({ w:"" }, { w:"" }) && !VC.pronClash({ pron:"a" }, { pron:"b" }));
 }

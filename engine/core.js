@@ -107,14 +107,18 @@ function wordOpts(entry, pool, showOf, pack, prefer){
   function pass(strict){
     // Every answer surface is already excluded from `cands`; among distractors only
     // the displayed `w` must differ (their alts are never shown, so sharing one is fine).
+    // With a label fn (showOf) the label is not the written form, so distractors must
+    // also differ in every written surface: two same-w words with different labels
+    // (homographs read differently) would otherwise both be picked as one written word.
     const chosen = []; const usedW = new Set([...surfaces(entry), normKey(show(entry))]); const usedF2 = new Set();
     for(const v of ordered){
       if(chosen.length>=3) break;
       const k = normKey(show(v)), f2 = firstTwoWords(v.en);
       if(usedW.has(k)) continue;
+      if(showOf && surfaces(v).some(x => usedW.has(x))) continue;
       if(pf && chosen.some(c => pronClash(c, v))) continue;
       if(strict && f2 && usedF2.has(f2)) continue;
-      chosen.push(v); usedW.add(k); if(f2) usedF2.add(f2);
+      chosen.push(v); usedW.add(k); if(showOf) surfaces(v).forEach(x => usedW.add(x)); if(f2) usedF2.add(f2);
     }
     return chosen;
   }
@@ -1327,7 +1331,7 @@ function charTier(streak, pack){
 function sentenceTokenTier(streak, started, mix, pack){
   if(!started || !mix) return null;
   const t = charTier(streak, pack);
-  return t === "pron" && !(pack && pack.pronFirst) ? "ruby" : t;
+  return t === "pron" && !(pack && pack.pronFirst === true) ? "ruby" : t;
 }
 // sentence.ruby tokens with their tiers: [{start, end, reading, wordId, unitId, tier}],
 // or null when the sentence has no ruby or mixing is off (see sentenceTokenTier).
@@ -1447,10 +1451,14 @@ function sentencePieces(sentence, toks, blank, cuts){
 //    would otherwise show outside any token (a name, a word with no unit) or the sentence
 //    has no ruby; never used for a blank (null then: the sentence cannot be a gap item);
 //  "text": the text as is (it has no Han characters: kana or Latin only).
-function sentenceDisplay(sentence, units, prog, pack, started, blank){
+// written (optional, word ids): tokens of these words show at least the ruby tier (the
+// written form with its reading): the unit a characters-stage teach card is teaching.
+function sentenceDisplay(sentence, units, prog, pack, started, blank, written){
   if(!pronFirstOn(pack) || !sentence) return null;
   const t = String(sentence.t || "");
-  const toks = rubyTiers(sentence, units, prog, pack, started);
+  const ws = new Set(written || []);
+  const rt = rubyTiers(sentence, units, prog, pack, started);
+  const toks = rt && rt.map(k => k.tier === "pron" && ws.has(k.wordId) ? Object.assign({}, k, { tier:"ruby" }) : k);
   if(toks){
     const cov = new Array(t.length).fill(false);
     toks.forEach(k => { for(let i = Math.max(0, k.start); i < Math.min(t.length, k.end); i++) cov[i] = true; });
