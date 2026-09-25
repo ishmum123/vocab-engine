@@ -72,9 +72,18 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 ## Generated audio for languages without browser voices (user 2026-09-24: keep in TODO, revisit later)
 - Persian has no TTS on Apple/Windows/Google TTS and no Tatoeba clips, so the speaker is hidden for most users; Indonesian has no voice on Apple devices; Urdu will be the same. Option: render words + sentences offline with Piper (fa_IR voices, permissive licence) to Opus (~50–80 MB per pack) and serve from each repo's Pages site. Pack already carries per-sentence `audio`; word audio needs a small engine addition. Also: show a one-line "no voice for this language" note instead of silently hiding the speaker.
 
-## After all languages ship (user 2026-09-25): two large items, in this order
+## Large items (user 2026-09-25; order revised 09:10 the same day)
+Order: (a) live-language follow-ups + Japanese/Korean live with passages,
+(b) merge hsk's post-fork features INTO the engine (section 1 below, minus the
+final switch), (c) Arabic, Hindi, Urdu, (d) switch hsk onto the engine
+submodule as the LAST task (needs explicit user go: hsk is read-only),
+(e) B2 expansion. Progress is kept across the switch: hsk stores it under
+localStorage `hsk_pinyin`, the engine under `vocab_<key>`; the switch ships
+a one-time migration that reads `hsk_pinyin` on first load, remaps word ids
+where the rebuilt pack differs (id map recorded at pack build), copies the
+characters-stage fields, and writes `vocab_zh`.
 
-### 1. Merge hsk's post-fork state into the engine, then move hsk onto the engine
+### 1. Merge hsk's post-fork state into the engine, then (last task) move hsk onto the engine
 hsk (`../hsk`, read-only until the user says go) kept evolving after the
 2026-09-23 extraction: characters stage (v2.2/v2.3, 10 new / 16 drilled per
 day, unlocks after HSK 3), learning-order switch (characters before/after
