@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
-from packbuilder.core.pipeline import write_characters
+from packbuilder.core.pipeline import characters_pack_fields, write_characters
 from packbuilder.langs import spec_class
 from packbuilder.langs.base import LanguageSpec
 from packbuilder.langs.ja import Japanese, KANJI_RE, KANA_ONLY_RE
@@ -175,6 +175,12 @@ class Writer(unittest.TestCase):
         self.assertEqual(sents[0]["ruby"], [[1, 2, "い", "w0002"]])
         self.assertNotIn("ruby", sents[1])
 
+    def test_pron_first_only_with_units(self):
+        sp = ja()
+        self.assertTrue(Japanese.pron_first)
+        self.assertEqual(characters_pack_fields(sp, [{"id": "c0001"}]), {"characters": Japanese.characters, "pronFirst": True})
+        self.assertEqual(characters_pack_fields(sp, []), {})
+
     def test_no_hook_no_ruby_no_file(self):
         sents = [{"t": "a b", "words": ["w0001"]}]
         before = json.dumps(sents)
@@ -191,6 +197,8 @@ class Writer(unittest.TestCase):
             cls = spec_class(code)
             sp = cls.__new__(cls)
             self.assertFalse(cls.emit_ruby, code)
+            self.assertFalse(cls.pron_first, code)
+            self.assertEqual(characters_pack_fields(sp, []), {}, code)
             self.assertIsNone(cls.characters, code)
             self.assertIsNone(sp.character_units(Units.WORDS), code)
             self.assertIsNone(sp.sentence_ruby(1, {"t": "x", "words": []}, ["x"], []), code)

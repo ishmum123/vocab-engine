@@ -573,6 +573,9 @@ class Japanese(LanguageSpec):
                   "setSize": 10, "mastered": 3, "bare": 6,
                   "learnKinds": ["charSound", "charRead"], "reviewKinds": ["charRead", "charSound"]}
     emit_ruby = True
+    # pronunciation first (docs/HSK_MERGE.md ss8, 2026-09-25): a kanji word is shown by
+    # its kana reading until its unit is mastered; written with "characters" only
+    pron_first = True
 
     def __init__(self, repo=None):
         super().__init__(repo)

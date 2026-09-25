@@ -124,6 +124,11 @@ def check_pack(pack, rep):
         if not (isinstance(lg, dict) and is_str(lg.get("key")) and is_str(lg.get("format"))):
             rep.err("pack.legacy must be {key: non-empty string, format: non-empty string}")
     char_levels = check_characters_pack(pack, ids, rep)
+    if "pronFirst" in pack:
+        if not is_bool(pack["pronFirst"]):
+            rep.err("pack.pronFirst must be a boolean")
+        elif pack["pronFirst"] and "characters" not in pack:
+            rep.warn("pack.pronFirst is true but pack.characters is absent: it has no effect")
     return idset, char_levels
 
 

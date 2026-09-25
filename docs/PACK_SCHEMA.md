@@ -35,7 +35,7 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `typing.strictFromLevel` | levelId or `null` | no | With lenient accents, folding stops at this level and every later one. `null` means lenient at every level. |
 | `showPron` | bool | yes | Whether words and sentences carry `pron`. It sets the learner's default for the "Show pronunciation" toggle. When false, the toggle is hidden. |
 | `hasLessons` | bool | yes | Shows the Sounds tab and the Today lesson hint. |
-| `compounds` | `[string]` | no | Surface strings that are not drillable words but that a cloze blank must never cut into. For example, zh 这个 is listed so that 这 is never blanked out of it. Pack words' own `w`/`alt` are always protected this way; this list covers units that aren't words. |
+| `compounds` | `[string]` | no | Surface strings that are not drillable words but that a cloze blank must never cut into. For example, zh 这个 is listed so that 这 is never blanked out of it. Pack words' own `w`/`alt` are always protected this way; this list covers units that aren't words. A blank that would leave no letter or digit outside it (a one-word sentence such as 不客气。) is never a cloze item, in any pack. |
 | `spaced` | bool | no (true) | Whether the script separates words with spaces. When true, cloze matching is whole-word and case-insensitive; ZWNJ/ZWJ count as part of a word, so Persian `می` never matches inside `می‌روم`. When false, as in Chinese or Japanese, it is a plain substring match. |
 | `rtl` | bool | no (false) | The target script is right-to-left (Persian, Arabic, Urdu). Target-language text gets `dir="rtl"`; see "Script display" below. |
 | `langTag` | BCP-47 string | no (language part of `tts`) | `lang` attribute on target-language text, for font selection, line breaking and hyphenation, e.g. `"fa"`, `"ur"`, `"ja"`. An invalid tag falls back to the default. |
@@ -43,6 +43,7 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `fonts` | `[string]` | no | Google Fonts families the page loads, e.g. `["Noto Nastaliq Urdu"]`, `["Noto Naskh Arabic:wght@400;700"]`, `["Noto Sans Devanagari"]`. Each entry is a family name (letters, digits, spaces), optionally followed by a css2 axis spec. Invalid entries are skipped with a console warning. |
 | `lineHeight` | number 1–4 | no | Line height for target-language text. Use it for tall scripts, e.g. `2.2` for Nastaliq. When absent, the stylesheet's own line heights apply. |
 | `characters` | object | no | Turns on the character stage; see "characters" below. Absent, no character code path runs and `characters.json` must not exist. |
+| `pronFirst` | bool | no (false) | Pronunciation first, for a pack with `characters`: a word is shown by its `pron` until its character unit is mastered; see "pronFirst" below. Without `characters` it has no effect (validator warning). |
 | `legacy` | `{key, format}` | no | Marks this pack as the successor to an old standalone app's saved progress, for a one-time migration. `key` is the old app's localStorage key (e.g. `"hsk_pinyin"`); `format` is a migration-function tag (e.g. `"hsk-v2"`). Requires `legacy.json`. |
 
 ### Script display
@@ -91,6 +92,20 @@ Optional. A **character stage** teaches written units (hanzi, kanji-words, …) 
 | `testKinds` | `{kind: weight}`, non-empty | no (`{"charRead":40,"charSound":30,"charPick":30}`) | Kind mix for the Test tab's Characters N: each item's kind is drawn with these relative weights (kinds from the same set, weights positive numbers). The test's pool is the 20 weakest recorded units, topped up with learned words' unrecorded units (level order, then file order); the button shows once characters have started. |
 
 `tools/validate_pack.py` checks `stages` (existing level ids, `after` order, one stage per level, every `levels` id at or before the stage's own `after` in `pack.levels` order), the thresholds (`bare > mastered`), that `learnKinds`/`reviewKinds` are known kinds, and that `testKinds`, when present, maps known kinds to positive weights.
+
+### pronFirst
+
+`"pronFirst": true` (zh and ja) makes a logographic pack pronunciation-first: the learner never starts from the written form. A word whose character unit is below the `mastered` tier is shown by its `pron` (pinyin, kana) wherever its written form would otherwise appear. That covers teach rows, every word drill (stimulus, options, reveal), the Words list and search, Test, Progress and result screens, and the Read tab's tap spans and popover. The unit is the one whose `words[0]` is the word. A word with no unit (a kana word) or no `pron` is shown as written. Once the unit is mastered the word is shown written, with its `pron` beside it as usual. The written form is taught only in the characters stage (teach cards and the four unit item kinds), which is unchanged.
+
+Sentences follow the same rule token by token (`ruby`): before characters start, or with the mix preference off, every token shows its reading. Once they have started with mix on, a token below mastered shows its reading, and the ruby and bare tiers apply from mastered. With Latin readings, tokens are spaced and full-width punctuation is shown in ASCII form. These spacing rules are display cosmetics keyed on Unicode script (Latin readings get spaces, Han text outside tokens triggers the reading-line fallback). They never affect scoring or which tier a token gets. A sentence whose written characters are not all inside `ruby` tokens (a name, a word with no unit) is shown by its sentence `pron` instead, and is never used as a cloze item. "Show pronunciation" off hides only the ruby over written tokens. The reading itself is always shown.
+
+A small **show written** tap sits beside every word or sentence shown by its reading (never inside answer buttons or passage tap spans, which are tap targets themselves). It swaps itself for the written form, for that item only, with no progress effect, so a learner who wants the characters is never blocked. Keys pressed on it never reach the drill shortcuts. When it had keyboard focus, the revealed text takes the focus. Its label is left out of the live-region announcement.
+
+In the characters stage, a unit's teach card shows its example sentence with that unit's own tokens written, with ruby. The other tokens follow the rule above.
+
+Recall and cloze options are unambiguous when shown by their readings: no two options sound alike, and no two share a written form. Recall options are keyed by word id. A distractor with the same `pron` as the answer or another option, or written as another option's reading, is dropped. This is core.js `pronClash` in `wordOpts`.
+
+The rules live in core.js: `displayForm(word, units, prog, pack)` returns `{text, isPron, written}`, plus `sentenceDisplay`, `sentencePieces`, `rubyTiers` and `pronFirstOn`. Validation: `pronFirst` must be a boolean.
 
 ## pack/characters.json
 

@@ -92,9 +92,10 @@ function wordOpts(entry, pool, showOf, pack, prefer){
   const hasPos = !!entry.pos;
   const fw = new Set((pack && pack.functionWords) || []);
   const ansFw = fw.has(entry.id);
+  const pf = pronFirstOn(pack); // pron display: no option may sound like another (pronClash)
   const cands = (pool||[]).filter(v =>
     v.id!==entry.id && !sharesSurface(v, entry) && normKey(v.en)!==ansGloss && !(ansF2 && firstTwoWords(v.en)===ansF2) &&
-    (ansFw || !fw.has(v.id)));
+    (ansFw || !fw.has(v.id)) && !(pf && pronClash(v, entry)));
   const samePos = v => hasPos && v.pos===entry.pos;
   const t1 = cands.filter(v=>v.lv===entry.lv && samePos(v));
   const t2 = cands.filter(v=>v.lv===entry.lv && !samePos(v));
@@ -106,13 +107,18 @@ function wordOpts(entry, pool, showOf, pack, prefer){
   function pass(strict){
     // Every answer surface is already excluded from `cands`; among distractors only
     // the displayed `w` must differ (their alts are never shown, so sharing one is fine).
+    // With a label fn (showOf) the label is not the written form, so distractors must
+    // also differ in every written surface: two same-w words with different labels
+    // (homographs read differently) would otherwise both be picked as one written word.
     const chosen = []; const usedW = new Set([...surfaces(entry), normKey(show(entry))]); const usedF2 = new Set();
     for(const v of ordered){
       if(chosen.length>=3) break;
       const k = normKey(show(v)), f2 = firstTwoWords(v.en);
       if(usedW.has(k)) continue;
+      if(showOf && surfaces(v).some(x => usedW.has(x))) continue;
+      if(pf && chosen.some(c => pronClash(c, v))) continue;
       if(strict && f2 && usedF2.has(f2)) continue;
-      chosen.push(v); usedW.add(k); if(f2) usedF2.add(f2);
+      chosen.push(v); usedW.add(k); if(showOf) surfaces(v).forEach(x => usedW.add(x)); if(f2) usedF2.add(f2);
     }
     return chosen;
   }
@@ -320,7 +326,9 @@ function visibleArticle(before, arts, pack){
 }
 // Indices into sentence.words that are legal cloze blanks: a known word at the
 // sentence's own level, not a pack function word, not repeated in the sentence (by id),
-// and with a gapMatch (visible exactly once, not inside a longer pack word/compound).
+// and with a gapMatch (visible exactly once, not inside a longer pack word/compound)
+// that leaves some letter or digit outside the blank (a one-word sentence such as
+// "不客气。" blanked whole is "____。", no cloze at all).
 function gapCandidateIndices(sentence, wordsById, pack){
   const fw = new Set((pack && pack.functionWords) || []);
   const words = sentence.words || [];
@@ -330,7 +338,10 @@ function gapCandidateIndices(sentence, wordsById, pack){
     if(fw.has(id) || counts[id] > 1) return;
     const entry = wordsById[id];
     if(!entry || entry.lv !== sentence.lv) return;
-    if(!gapMatch(sentence, entry, wordsById, pack)) return;
+    const m = gapMatch(sentence, entry, wordsById, pack);
+    if(!m) return;
+    const t = String(sentence.t || "");
+    if(!/[\p{L}\p{N}]/u.test(t.slice(0, m.start) + t.slice(m.end))) return;
     out.push(i);
   });
   return out;
@@ -1325,18 +1336,144 @@ function charTier(streak, pack){
 function sentenceTokenTier(streak, started, mix, pack){
   if(!started || !mix) return null;
   const t = charTier(streak, pack);
-  return t === "pron" && !(pack && pack.pronFirst) ? "ruby" : t;
+  return t === "pron" && !(pack && pack.pronFirst === true) ? "ruby" : t;
 }
 // sentence.ruby tokens with their tiers: [{start, end, reading, wordId, unitId, tier}],
 // or null when the sentence has no ruby or mixing is off (see sentenceTokenTier).
+// pack.pronFirst: tiers are always returned for a sentence with ruby (every token is
+// "pron" before characters start or with mix off: the reading replaces the written form,
+// as in the predecessor app's reading-only sentences), and follow sentenceTokenTier once
+// characters have started with mix on.
 function rubyTiers(sentence, units, prog, pack, started){
   const mix = !!(prog && isObj(prog.chars) && prog.chars.mix !== false);
-  if(!charsConfig(pack) || !started || !mix || !sentence || !Array.isArray(sentence.ruby)) return null;
+  const pf = pronFirstOn(pack);
+  if(!charsConfig(pack) || !sentence || !Array.isArray(sentence.ruby)) return null;
+  if(!pf && (!started || !mix)) return null;
   const byWord = unitByWord(units), recs = charRecs(prog);
   return sentence.ruby.map(([start, end, reading, wordId]) => {
     const u = byWord.get(wordId) || null; const rec = u && hasCharRec(recs, u.id) ? recs[u.id] : null;
-    return { start, end, reading, wordId, unitId: u ? u.id : null, tier: sentenceTokenTier(rec ? rec.s : 0, true, true, pack) };
+    const tier = pf && !(started && mix) ? "pron" : sentenceTokenTier(rec ? rec.s : 0, true, true, pack);
+    return { start, end, reading, wordId, unitId: u ? u.id : null, tier };
   });
+}
+
+// ---- pronunciation-first (pack.pronFirst, docs/PACK_SCHEMA.md "pronFirst")
+// On only for pack.pronFirst === true with a characters stage: a word whose unit is below
+// the mastered tier is shown by its reading (pron) wherever its written form would appear
+// outside the characters stage, which is where the written form is learned.
+function pronFirstOn(pack){ return !!(pack && pack.pronFirst === true && charsConfig(pack)); }
+// word -> {text, isPron, written}: text is what to display for the word, written its `w`.
+// isPron when pronFirstOn, the word has a pron and a unit (unitByWord: the unit whose
+// words[0] it is) and that unit's streak is below mastered (charTier "pron"). A word with
+// no unit (kana/latin word) or no pron is shown as written. DOM-free, no side effects.
+function displayForm(word, units, prog, pack){
+  const written = String((word && word.w) || "");
+  const out = { text: written, isPron: false, written };
+  if(!word || !pronFirstOn(pack) || !word.pron) return out;
+  const u = unitByWord(units).get(word.id);
+  if(!u) return out;
+  const recs = charRecs(prog); const rec = hasCharRec(recs, u.id) ? recs[u.id] : null;
+  if(charTier(rec ? rec.s : 0, pack) !== "pron") return out;
+  return { text: String(word.pron), isPron: true, written };
+}
+// What a learner hears/reads for a word under pron display: its pron, else its w.
+const sayKey = e => normKey((e && (e.pron || e.w)) || "");
+// Homophone guard for pron display: two words that sound the same (same pron, or one's
+// written form is the other's reading, e.g. a word spelled in its reading and one read alike) are
+// indistinguishable once both are shown by their reading.
+function pronClash(a, b){ return !!(a && b) && sayKey(a) !== "" && sayKey(a) === sayKey(b); }
+
+const LATIN_RE = /\p{Script=Latin}/u;
+const HAN_RE = /\p{Script=Han}/u;
+// Full-width punctuation next to a Latin-script reading, as the reading line writes it.
+const ASCII_PUNCT = { "\uff0c":", ", "\u3001":", ", "\u3002":". ", "\uff01":"! ", "\uff1f":"? ", "\uff1a":": ", "\uff1b":"; ", "\uff08":" (", "\uff09":") ",
+  "\u201c":" \u201c", "\u201d":"\u201d ", "\u2018":" \u2018", "\u2019":"\u2019 ", "\u300a":" \u201c", "\u300b":"\u201d ", "\u2026":"\u2026 ", "\u2014":" \u2014 " };
+// Display pieces of a sentence under pron display, in order: ruby tokens (rubyTiers, or
+// any [{start, end, tier, reading, wordId}] non-overlapping and sorted) and the text
+// around them. A "pron"-tier token shows its reading instead of its written form.
+// blank (optional {start, end}): that range, widened to every token it overlaps, becomes
+// one {kind:"blank"} piece. cuts (optional offsets): text pieces are also split there
+// (passage tap-span edges). When any shown reading is Latin script, adjacent
+// tokens with a reading or blank between them are spaced (pre " ") and full-width punctuation
+// touching a reading or blank is shown in ASCII form with a space; readings in a
+// script written without spaces need neither. Piece: {kind:"text"|"tok"|"blank", start, end, text, pre, tier?, reading?,
+// wordId?, unitId?}. Joining pre+text of every piece gives the displayed line.
+function sentencePieces(sentence, toks, blank, cuts){
+  const t = String((sentence && sentence.t) || "");
+  const valid = []; let pos = 0;
+  (toks || []).forEach(k => { if(k && k.start >= pos && k.end > k.start && k.end <= t.length){ valid.push(k); pos = k.end; } });
+  let b = null;
+  if(blank && blank.end > blank.start){
+    b = { start: blank.start, end: blank.end };
+    valid.forEach(k => { if(k.start < b.end && k.end > b.start){ b.start = Math.min(b.start, k.start); b.end = Math.max(b.end, k.end); } });
+  }
+  const cutSet = [...new Set(cuts || [])].sort((x, y) => x - y);
+  const out = [];
+  const text = (a, z) => {
+    if(z <= a) return;
+    const cs = [a, ...cutSet.filter(c => c > a && c < z), z];
+    for(let i = 0; i < cs.length - 1; i++) out.push({ kind:"text", start: cs[i], end: cs[i+1], text: t.slice(cs[i], cs[i+1]), pre:"" });
+  };
+  const putBlank = () => { out.push({ kind:"blank", start: b.start, end: b.end, text:"____", pre:"" }); };
+  pos = 0; let blankDone = !b;
+  valid.forEach(k => {
+    if(b && k.start < b.end && k.end > b.start) return;
+    if(!blankDone && b.end <= k.start){ text(pos, b.start); putBlank(); pos = b.end; blankDone = true; }
+    text(pos, k.start);
+    const pr = k.tier === "pron";
+    const piece = { kind:"tok", start: k.start, end: k.end, text: pr ? String(k.reading == null ? "" : k.reading) : t.slice(k.start, k.end), pre:"", tier: k.tier, reading: k.reading };
+    if(k.wordId !== undefined) piece.wordId = k.wordId;
+    if(k.unitId !== undefined) piece.unitId = k.unitId;
+    out.push(piece); pos = k.end;
+  });
+  if(!blankDone){ text(pos, b.start); putBlank(); pos = b.end; }
+  text(pos, t.length);
+  const shown = p => (p.kind === "tok" && p.tier === "pron") || p.kind === "blank";
+  if(!out.some(p => p.kind === "tok" && p.tier === "pron" && LATIN_RE.test(p.text))) return out;
+  if(out[0] && out[0].kind === "tok" && out[0].tier === "pron") out[0].text = out[0].text.charAt(0).toUpperCase() + out[0].text.slice(1);
+  // Latin line: full-width punctuation in ASCII form; a reading or blank is spaced from
+  // a neighbour that meets it with a letter or digit (a token, or text such as a name).
+  const edgeL = p => p.kind !== "text" || /^[\p{L}\p{N}]/u.test(p.text);
+  const edgeR = p => p.kind !== "text" || /[\p{L}\p{N}]$/u.test(p.text);
+  out.forEach(p => { if(p.kind === "text") p.text = p.text.replace(/[\uff0c\u3001\u3002\uff01\uff1f\uff1a\uff1b\uff08\uff09\u201c\u201d\u2018\u2019\u300a\u300b\u2026\u2014]/g, c => ASCII_PUNCT[c]); });
+  out.forEach((p, i) => { const prev = out[i-1]; if(prev && (shown(p) || shown(prev)) && edgeL(p) && edgeR(prev)) p.pre = " "; });
+  // tidy: no doubled or edge spaces
+  let last = "";
+  out.forEach((p, i) => {
+    if(/\s$/.test(last)){ p.pre = ""; p.text = p.text.replace(/^\s+/, ""); }
+    if(i === 0){ p.pre = ""; p.text = p.text.replace(/^\s+/, ""); }
+    p.text = p.text.replace(/\s{2,}/g, " ");
+    last = p.pre + p.text || last;
+  });
+  for(let i = out.length - 1; i >= 0; i--){ const p = out[i]; if(p.kind === "text"){ p.text = p.text.replace(/\s+$/, ""); if(p.text) break; } else break; }
+  return out;
+}
+// A sentence under pack.pronFirst: how to show it. null when pron display is off (the
+// caller renders as without it). Else {mode, pieces?, text?}:
+//  "pieces": ruby tokens by tier (sentencePieces), when every Han character of the text
+//    lies inside a ruby token;
+//  "pron": the sentence's own reading line (sentence.pron), when written characters
+//    would otherwise show outside any token (a name, a word with no unit) or the sentence
+//    has no ruby; never used for a blank (null then: the sentence cannot be a gap item);
+//  "text": the text as is (it has no Han characters: kana or Latin only).
+// written (optional, word ids): tokens of these words show at least the ruby tier (the
+// written form with its reading): the unit a characters-stage teach card is teaching.
+function sentenceDisplay(sentence, units, prog, pack, started, blank, written){
+  if(!pronFirstOn(pack) || !sentence) return null;
+  const t = String(sentence.t || "");
+  const ws = new Set(written || []);
+  const rt = rubyTiers(sentence, units, prog, pack, started);
+  const toks = rt && rt.map(k => k.tier === "pron" && ws.has(k.wordId) ? Object.assign({}, k, { tier:"ruby" }) : k);
+  if(toks){
+    const cov = new Array(t.length).fill(false);
+    toks.forEach(k => { for(let i = Math.max(0, k.start); i < Math.min(t.length, k.end); i++) cov[i] = true; });
+    let leak = false;
+    for(let i = 0; i < t.length && !leak; i++){ if(!cov[i]){ const cp = t.codePointAt(i); if(HAN_RE.test(String.fromCodePoint(cp))) leak = true; if(cp > 0xFFFF) i++; } }
+    if(!leak) return { mode:"pieces", pieces: sentencePieces(sentence, toks, blank) };
+  }
+  if(!HAN_RE.test(t)) return { mode:"text" };
+  if(blank) return null;
+  return sentence.pron ? { mode:"pron", text: String(sentence.pron) } : { mode:"text" };
 }
 
 // ---- options
@@ -1635,7 +1772,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   defaultCharsProg, validateCharsShape, normalizeCharsProg, ensureChars, charRecs, markChar, answerCharChoice, setCharOrder,
   unitWord, unitReading, unitGloss, unitByWord, recordedUnits,
   charStageUnits, charSets, charSetTaught, nextCharSet, charStages, stagePath, nextStage, charsUnlocked, charsStarted, showCharChoice,
-  charTier, sentenceTokenTier, rubyTiers, charOpts, recallCharOpts, charSoundOpts, charReadOpts, charItem,
+  charTier, sentenceTokenTier, rubyTiers, pronFirstOn, displayForm, pronClash, sentencePieces, sentenceDisplay, charOpts, recallCharOpts, charSoundOpts, charReadOpts, charItem,
   learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits, charTestPlan, pickWeighted,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;

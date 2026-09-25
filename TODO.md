@@ -4,7 +4,7 @@
 - Browser verification of dist/zh.html is still pending. Check the Today flow, hear items with a real TTS voice, the typed-input flow, dark mode, and the phone and desktop layouts. So far the build has only had a Node syntax check and a jsdom click-through, which found no runtime errors.
 
 ## Behaviour differences vs hsk (intentional, from the extraction)
-- **zh UX is now word-first.** hsk was pinyin-first and hid characters by default. The engine shows `w` (the characters), with `pron` (pinyin) beside it when "Show pronunciation" is on. The per-syllable tone colouring and the showChars, mixChars, and Characters subsystems are gone.
+- **zh UX is pinyin-first again (brief BP, `pack.pronFirst`).** As in hsk, a word shows as pinyin until its character unit is mastered in the 字 stage. A "show written" tap reveals the characters for one item. Per-syllable tone colouring is still gone (brief BP2), and showChars is replaced by the tiers.
 - **zh has no typed production** (`typing: null`). Typing hanzi needs an IME, and pinyin is display-only by rule. zh production is recall only. Revisit this if pinyin typing should come back: it could be done with an `alt`-style "typeable" field, but that would break the "pron never drilled" rule.
 - **No per-word tap-to-hear inside sentences.** hsk rendered per-token pinyin spans. Sentences are now tapped as a whole.
 - **Cloze (gap) items no longer auto-play the sentence** before answering, because hearing it gave the blank away. Audio plays on reveal.

@@ -120,5 +120,6 @@
  "legacy": {
   "key": "hsk_pinyin",
   "format": "hsk-v2"
- }
+ },
+ "pronFirst": true
 }

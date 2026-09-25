@@ -458,6 +458,9 @@ class LanguageSpec:
     # ---- characters stage (docs/HSK_MERGE.md ss2; defaults emit nothing) -------
     # pack.json "characters" block, written only when character_units returns units
     characters = None
+    # True: pack.json also gets "pronFirst": true alongside "characters" (and only
+    # then): words are shown by their reading until their unit is mastered
+    pron_first = False
     # True: build_sentences records where each link sits (sentence_links `where`)
     # and asks sentence_ruby for the shipped sentence's per-token readings
     emit_ruby = False

@@ -1,7 +1,8 @@
 // Node checks for the characters stage in engine/core.js (docs/HSK_MERGE.md §2-3).
 // hsk tests/pinyin_checks.js checks 20-32 ported onto two synthetic packs (a zh-like and
 // a ja-like pack, tests/fixtures/chars_packs.js), plus the flag-off proof that the plan
-// builders and progress functions match the pre-characters engine exactly.
+// builders and progress functions match the pre-characters engine exactly, and the
+// pack.pronFirst display rules (brief BP).
 // Run: node tests/characters_checks.js     (no dependencies; needs git for [33])
 "use strict";
 const fs = require("fs");
@@ -555,8 +556,116 @@ function b8Checks(F){
   check(`[B8] charOpts/charSoundOpts/charReadOpts with 0 or 1 candidates: that many options, never the answer; items keep the answer (${bad} bad; ${w1.id})`, bad === 0);
 }
 
+// ---------------------------------------------------------------- pronFirst (brief BP)
+// core.js displayForm / pronClash-guarded wordOpts / sentencePieces / sentenceDisplay /
+// rubyTiers under pack.pronFirst (docs/PACK_SCHEMA.md "pronFirst").
+function pronFirstChecks(F){
+  const { words, units } = F;
+  const pf = Object.assign({}, F.pack, { pronFirst: true });
+  const cfg = VC.charsConfig(pf);
+  console.log(`\n================ pronFirst (${F.name})`);
+  const byWord = VC.unitByWord(units);
+  const prog0 = VC.normalizeProg({}, pf);
+  check(`[PF] pronFirstOn: true only with pronFirst === true and a characters stage`,
+    VC.pronFirstOn(pf) && !VC.pronFirstOn(F.pack) && !VC.pronFirstOn(stripChars(pf)) && !VC.pronFirstOn(Object.assign({}, F.pack, { pronFirst: "true" })));
+  let bad = 0;
+  words.forEach(w => { const d = VC.displayForm(w, units, prog0, F.pack); if(d.isPron || d.text !== w.w || d.written !== w.w) bad++; });
+  check(`[PF] flag off: displayForm is the written form for every word (${bad} bad)`, bad === 0);
+  bad = 0; let nPron = 0, nAsIs = 0;
+  words.forEach(w => {
+    const d = VC.displayForm(w, units, prog0, pf); const u = byWord.get(w.id);
+    if(u){ nPron++; if(!d.isPron || d.text !== w.pron || d.written !== w.w) bad++; }
+    else { nAsIs++; if(d.isPron || d.text !== w.w) bad++; }
+  });
+  check(`[PF] no unit records: every unit word shows its pron (${nPron}), every word without a unit shows as written (${nAsIs}) (${bad} bad)`, bad === 0 && nPron > 0);
+  const u0 = units.find(u => words.find(w => w.id === u.words[0]));
+  const w0 = words.find(w => w.id === u0.words[0]);
+  const at = s => { const p = VC.normalizeProg({}, pf); p.chars.c[u0.id] = rec(s); return VC.displayForm(w0, units, p, pf); };
+  check(`[PF] tiers: streak ${cfg.mastered - 1} pron, ${cfg.mastered} (mastered) and ${cfg.bare} (bare) written`,
+    at(cfg.mastered - 1).isPron && !at(cfg.mastered).isPron && at(cfg.mastered).text === w0.w && !at(cfg.bare).isPron);
+  check("[PF] a word without pron stays written", !VC.displayForm(Object.assign({}, w0, { pron: "" }), units, prog0, pf).isPron);
+
+  // Homophone-free distractors (recall / gap options) under pron display.
+  const homs = words.filter(a => words.some(b => b.id !== a.id && VC.pronClash(a, b)));
+  let clash = 0, ctrl = 0, runs = 0;
+  withSeed(7, () => {
+    for(let r = 0; r < 25; r++) words.forEach(w => {
+      runs++;
+      const ds = VC.wordOpts(w, words, null, pf);
+      const all = [w, ...ds];
+      all.forEach((a, i) => all.forEach((b, j) => { if(i < j && VC.pronClash(a, b)) clash++; }));
+      if(VC.wordOpts(w, words, null, F.pack).some(d => VC.pronClash(d, w))) ctrl++;
+    });
+  });
+  check(`[PF] wordOpts under pronFirst: no two options sound alike over ${runs} runs (${homs.length} words have a homophone; ${clash} clashes)`, homs.length > 0 && clash === 0);
+  check(`[PF] control: word-first wordOpts does offer homophones (${ctrl} runs), so the guard is what excludes them`, ctrl > 0);
+  const gc = withSeed(3, () => homs.map(w => VC.gapChoices(w, null, words, pf)));
+  check("[PF] gapChoices under pronFirst: no homophone option", gc.every((g, i) => g.opts.every(o => o === g.a || !VC.pronClash(g.byLabel[o], homs[i]))));
+  // Same written form, different reading (ja 方 ほう/かた): with a label fn showing the
+  // reading, the two must never both be options (they are one written word).
+  const pool = clone(words);
+  const extra = [];
+  pool.slice(0, 12).forEach((w, i) => { if(i % 2) return; extra.push(Object.assign({}, w, { id: "x" + w.id, pron: w.pron + "x" + i, en: `other sense ${i}` })); });
+  pool.push(...extra);
+  let dupId = 0, dupLbl = 0, dupW = 0;
+  withSeed(11, () => {
+    for(let r = 0; r < 200; r++){
+      const ans = pool[(r * 7) % pool.length];
+      const ds = VC.wordOpts(ans, pool, e => e.pron, pf);
+      const all = [ans, ...ds];
+      if(new Set(all.map(x => x.id)).size !== all.length) dupId++;
+      if(new Set(all.map(x => x.pron)).size !== all.length) dupLbl++;
+      if(new Set(all.map(x => x.w)).size !== all.length) dupW++;
+    }
+  });
+  check(`[PF] wordOpts with a reading label over same-w/different-pron pairs (${extra.length} pairs, 200 runs): no duplicate id (${dupId}), label (${dupLbl}) or written form (${dupW})`, extra.length > 0 && dupId + dupLbl + dupW === 0);
+  check("[PF] pronClash: same pron, and a word written as another's reading, clash; empty never",
+    VC.pronClash({ pron:"ab" }, { pron:"AB" }) && VC.pronClash({ w:"ab" }, { w:"x", pron:"ab" }) && !VC.pronClash({ w:"" }, { w:"" }) && !VC.pronClash({ pron:"a" }, { pron:"b" }));
+}
+
+// sentencePieces / sentenceDisplay / rubyTiers on hand-built sentences.
+function pronFirstSentenceChecks(){
+  console.log("\n================ pronFirst sentences");
+  const F = zhLike(); const pf = Object.assign({}, F.pack, { pronFirst: true });
+  const J = s => s.map(p => p.pre + p.text).join("");
+  const t = "你好，我是。";
+  const T = (tier2) => [{ start:0, end:1, reading:"nǐ", tier:"pron" }, { start:1, end:2, reading:"hǎo", tier:"pron" }, { start:3, end:4, reading:"wǒ", tier: tier2 || "pron" }, { start:4, end:5, reading:"shì", tier:"pron" }];
+  check(`[PF] sentencePieces: all readings spaced, full-width punctuation made ASCII, first letter capital (${J(VC.sentencePieces({ t }, T()))})`, J(VC.sentencePieces({ t }, T())) === "Nǐ hǎo, wǒ shì.");
+  check(`[PF] sentencePieces: a written token among readings is spaced (${J(VC.sentencePieces({ t }, T("ruby")))})`, J(VC.sentencePieces({ t }, T("ruby"))) === "Nǐ hǎo, 我 shì.");
+  const bl = VC.sentencePieces({ t }, T(), { start:4, end:5 });
+  check(`[PF] sentencePieces: blank replaces its token (${J(bl)})`, J(bl) === "Nǐ hǎo, wǒ ____." && bl.filter(p => p.kind === "blank").length === 1);
+  const allW = [0,1,3,4].map((a, i) => ({ start:a, end:a+1, reading:"x", tier:"bare" }));
+  check("[PF] sentencePieces: no reading shown -> text unchanged, no spacing", J(VC.sentencePieces({ t }, allW)) === t);
+  const kt = "食べる。";
+  check("[PF] sentencePieces: a non-Latin reading gets no spaces and keeps its punctuation", J(VC.sentencePieces({ t: kt }, [{ start:0, end:1, reading:"た", tier:"pron" }])) === "たべる。");
+  const cut = VC.sentencePieces({ t: "我叫王明。" }, [{ start:0, end:1, reading:"wǒ", tier:"pron" }, { start:1, end:2, reading:"jiào", tier:"pron" }], null, [2, 4]);
+  check(`[PF] sentencePieces: cuts split text pieces (${J(cut)})`, J(cut) === "Wǒ jiào 王明." && cut.filter(p => p.kind === "text").length === 2);
+  // sentenceDisplay over the zh-like pack: tokens from its units.
+  const w1 = F.words[0], w2 = F.words[1];
+  const st = w1.w + w2.w + "。";
+  const s = { t: st, pron: "x y.", ruby: [[0, w1.w.length, w1.pron, w1.id], [w1.w.length, w1.w.length + w2.w.length, w2.pron, w2.id]] };
+  const p0 = VC.normalizeProg({}, pf);
+  const d0 = VC.sentenceDisplay(s, F.units, p0, pf, false);
+  check(`[PF] sentenceDisplay: not started -> every token its reading (${d0 && J(d0.pieces)})`, d0 && d0.mode === "pieces" && d0.pieces.filter(p => p.kind === "tok").every(p => p.tier === "pron"));
+  check("[PF] sentenceDisplay: flag off -> null", VC.sentenceDisplay(s, F.units, p0, F.pack, true) === null);
+  const leak = Object.assign({}, s, { t: st + "王", ruby: s.ruby });
+  check("[PF] sentenceDisplay: a written character outside every token -> the reading line; with a blank -> null",
+    VC.sentenceDisplay(leak, F.units, p0, pf, false).mode === "pron" && VC.sentenceDisplay(leak, F.units, p0, pf, false, { start:0, end:1 }) === null);
+  check("[PF] sentenceDisplay: no written characters -> text mode", VC.sentenceDisplay({ t: "abc", pron: "abc" }, F.units, p0, pf, false).mode === "text");
+  const u1 = VC.unitByWord(F.units).get(w1.id);
+  const p3 = VC.normalizeProg({}, pf); p3.chars.c[u1.id] = rec(3);
+  const tiers = on => VC.rubyTiers(s, F.units, p3, pf, on).map(k => k.tier).join(",");
+  check(`[PF] rubyTiers: started + mix -> by streak (${tiers(true)}); not started -> all pron (${tiers(false)})`, tiers(true) === "ruby,pron" && tiers(false) === "pron,pron");
+  p3.chars.mix = false;
+  check("[PF] rubyTiers: mix off -> all pron (reading-only sentences)", tiers(true) === "pron,pron");
+  check("[PF] rubyTiers: word-first pack unchanged (null before start)", VC.rubyTiers(s, F.units, p3, F.pack, false) === null);
+}
+
 suite(zhLike());
 suite(jaLike());
+pronFirstChecks(zhLike());
+pronFirstChecks(jaLike());
+pronFirstSentenceChecks();
 b8Checks(zhLike());
 flagOffEquality();
 
