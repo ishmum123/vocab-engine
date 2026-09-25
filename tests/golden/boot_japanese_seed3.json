@@ -1,0 +1,40 @@
+{
+ "seed": 3,
+ "pack": "ja",
+ "seedProgRaw": "{\"v\":1,\"w\":{\"w0001\":{\"r\":5,\"w\":0,\"s\":5},\"w0002\":{\"r\":5,\"w\":0,\"s\":5},\"w0003\":{\"r\":5,\"w\":0,\"s\":5},\"w0004\":{\"r\":5,\"w\":0,\"s\":5},\"w0005\":{\"r\":5,\"w\":0,\"s\":5},\"w0006\":{\"r\":1,\"w\":3,\"s\":0},\"w0007\":{\"r\":1,\"w\":3,\"s\":0},\"w0008\":{\"r\":1,\"w\":3,\"s\":0},\"w0009\":{\"r\":0,\"w\":0,\"s\":0,\"prov\":true}},\"s\":{\"s1099\":{\"r\":2,\"w\":0,\"s\":2},\"s1431\":{\"r\":2,\"w\":0,\"s\":2},\"s1592\":{\"r\":2,\"w\":0,\"s\":2},\"s2138\":{\"r\":2,\"w\":0,\"s\":2}},\"sets\":{\"A1\":3,\"A2\":3,\"B1\":3},\"lessons\":{},\"sessions\":7,\"theme\":null,\"showPron\":true,\"placedOnce\":true}",
+ "tabs": {
+  "today": "<div class=\"drill-body top\"><div class=\"path\"><div class=\"seg\"><div class=\"bar\"><i style=\"width:5%\"></i></div>A1</div><div class=\"seg\"><div class=\"bar\"><i style=\"width:4%\"></i></div>A2</div><div class=\"seg\"><div class=\"bar\"><i style=\"width:4%\"></i></div>B1</div></div>\n    \n    \n    \n    <p class=\"q\">Session 8, about 15 minutes.<br>90 words learned so far.</p>\n    <table class=\"stats steps\"><tr><td>1. Review</td><td>15 items, weakest first</td></tr><tr><td>2. Learn</td><td>A1, set 4</td></tr><tr><td>3. Listen</td><td>12 items</td></tr><tr><td>4. Recall</td><td>8 items</td></tr><tr><td>5. Sentences</td><td>8 items, weakest first</td></tr></table>\n    </div><div class=\"actions\"><button class=\"next\" id=\"go\">Start today</button></div>",
+  "words": "<div class=\"row\">\n      <input type=\"text\" id=\"wsearch\" autocomplete=\"off\" dir=\"auto\" placeholder=\"Search word or meaning…\" style=\"flex:1;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:15px\" value=\"\">\n      <button class=\"chip on\" id=\"wPron\" aria-label=\"Show pronunciation\" aria-pressed=\"true\">Pron</button>\n    </div>\n    <div id=\"wbody\"></div>",
+  "test": "<p class=\"q\">Placement finds where to start. Free tests draw from what's already learned.</p>\n    <div class=\"actions\">\n      <button class=\"next\" id=\"pl\">Take Placement</button>\n      <div class=\"row\" style=\"margin-top:8px;margin-bottom:0\">\n        <button class=\"ghost\" id=\"tListen\" style=\"flex:1\">Listen 20</button>\n        <button class=\"ghost\" id=\"tRecall\" style=\"flex:1\">Recall 20</button>\n      </div>\n      <button class=\"ghost\" id=\"tSentences\">Sentences 9</button>\n    </div>",
+  "progress": "<div class=\"warn\">No text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>\n    <table class=\"stats\"><tr><td>A1</td><td>30 / 600 learned · 5 mastered</td></tr>\n      <tr><td>A1 sentences</td><td>1 / 811 available · 1 mastered</td></tr><tr><td>A2</td><td>30 / 700 learned · 0 mastered</td></tr>\n      <tr><td>A2 sentences</td><td>5 / 1192 available · 2 mastered</td></tr><tr><td>B1</td><td>30 / 700 learned · 0 mastered</td></tr>\n      <tr><td>B1 sentences</td><td>3 / 1317 available · 1 mastered</td></tr>\n      \n      \n      <tr><td>Sessions</td><td>7</td></tr></table>\n    <div class=\"row\" style=\"margin-top:14px\"><button class=\"chip on\" id=\"togglePron\" aria-pressed=\"true\">Show pronunciation</button></div>\n    <p class=\"q\" style=\"margin-top:14px\">Weakest words</p>\n    <div class=\"rowset\"><span class=\"wd\" data-tl lang=\"ja\">が</span><span class=\"info\"><span class=\"en\">(subject marker); but</span></span></div><div class=\"rowset\"><span class=\"wd\" data-tl lang=\"ja\">と</span><span class=\"info\"><span class=\"en\">(particle) and; with; (quotation marker)</span></span></div><div class=\"rowset\"><span class=\"wd\" data-tl lang=\"ja\">ない</span><span class=\"info\"><span class=\"en\">(negative ending) not</span></span></div>\n    <div class=\"row\" style=\"margin-top:16px\">\n      <button class=\"ghost\" id=\"exp\" style=\"flex:1\">Export progress</button>\n      <button class=\"ghost\" id=\"imp\" style=\"flex:1\">Import progress</button>\n    </div>\n    <div id=\"impbox\" style=\"display:none;margin-top:10px\">\n      <textarea id=\"imptxt\" placeholder=\"Paste exported JSON here\"></textarea>\n      <input type=\"file\" id=\"impfile\" accept=\"application/json\" style=\"margin-top:8px\">\n      <button class=\"next\" id=\"doimport\">Load</button>\n      <div id=\"impErr\" class=\"warn\" style=\"display:none;margin-top:8px\"></div>\n    </div>\n    <button class=\"ghost\" id=\"reset\" style=\"margin-top:16px;color:var(--bad);border-color:var(--bad)\">Reset all progress</button>",
+  "read": null
+ },
+ "todaySteps": [
+  {
+   "step": 0,
+   "label": "Review",
+   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"warn\">This browser has no text-to-speech voice for this language, so listening items show the word instead of playing audio.</div><div class=\"big wd\" data-tl lang=\"ja\">近所</div><div class=\"pron\">きんじょ</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+  },
+  {
+   "step": 1,
+   "label": "Learn",
+   "html": "<p class=\"q\">A1, new set.</p>\n    <div id=\"tl\"></div><div class=\"actions\"><button class=\"next\" id=\"dr\">Drill this set</button></div>"
+  },
+  {
+   "step": 2,
+   "label": "Listen",
+   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"big wd\" data-tl lang=\"ja\">守る</div><div class=\"pron\">まもる</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+  },
+  {
+   "step": 3,
+   "label": "Recall",
+   "html": "<div class=\"drill-body\"><p class=\"q\">Which word is this?</p><div class=\"med\" style=\"text-align:center\">(negative ending) not</div><div class=\"opts opts-hero opts-w\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+  },
+  {
+   "step": 4,
+   "label": "Sentences",
+   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"med wd\" data-tl lang=\"ja\">トムを殺すべきではありませんでした。</div><div class=\"q\">トムをころすべきではありませんでした。</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+  }
+ ],
+ "savedProgressStrings": []
+}

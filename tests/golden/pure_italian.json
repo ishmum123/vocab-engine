@@ -1,0 +1,560 @@
+{
+ "pack": "italian",
+ "defaultProg": {
+  "v": 1,
+  "w": {},
+  "s": {},
+  "sets": {
+   "A1": 0,
+   "A2": 0,
+   "B1": 0
+  },
+  "lessons": {},
+  "sessions": 0,
+  "theme": null,
+  "showPron": false,
+  "placedOnce": false
+ },
+ "normalizeProgSamples": [
+  {
+   "input": {},
+   "output": {
+    "v": 1,
+    "w": {},
+    "s": {},
+    "sets": {
+     "A1": 0,
+     "A2": 0,
+     "B1": 0
+    },
+    "lessons": {},
+    "sessions": 0,
+    "theme": null,
+    "showPron": false,
+    "placedOnce": false
+   }
+  },
+  {
+   "input": {
+    "w": {
+     "w0003": {
+      "r": 2,
+      "w": 1,
+      "s": 1
+     }
+    }
+   },
+   "output": {
+    "v": 1,
+    "w": {
+     "w0003": {
+      "r": 2,
+      "w": 1,
+      "s": 1
+     }
+    },
+    "s": {},
+    "sets": {
+     "A1": 0,
+     "A2": 0,
+     "B1": 0
+    },
+    "lessons": {},
+    "sessions": 0,
+    "theme": null,
+    "showPron": false,
+    "placedOnce": false
+   }
+  },
+  {
+   "input": {
+    "sets": {
+     "A1": 1
+    },
+    "sessions": 4,
+    "theme": "dark"
+   },
+   "output": {
+    "v": 1,
+    "w": {},
+    "s": {},
+    "sets": {
+     "A1": 1,
+     "A2": 0,
+     "B1": 0
+    },
+    "lessons": {},
+    "sessions": 4,
+    "theme": "dark",
+    "showPron": false,
+    "placedOnce": false
+   }
+  }
+ ],
+ "seeds": [
+  {
+   "seed": 1,
+   "fixtureProg": {
+    "v": 1,
+    "w": {},
+    "s": {},
+    "sets": {
+     "A1": 0,
+     "A2": 0,
+     "B1": 0
+    },
+    "lessons": {},
+    "sessions": 0,
+    "theme": null,
+    "showPron": false,
+    "placedOnce": false
+   },
+   "reviewPlan": [],
+   "recallPlan": [],
+   "sentenceKindSequence": [
+    "read",
+    "hear",
+    "read",
+    "gap",
+    "hear",
+    "read",
+    "read",
+    "hear",
+    "gapType",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "gapType",
+    "hear",
+    "hear",
+    "hear",
+    "read",
+    "gapType",
+    "hear",
+    "read",
+    "read",
+    "gapType",
+    "read",
+    "hear",
+    "gap",
+    "hear",
+    "gapType",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "read",
+    "read",
+    "hear",
+    "hear"
+   ]
+  },
+  {
+   "seed": 2,
+   "fixtureProg": {
+    "v": 1,
+    "w": {
+     "w0003": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w0002": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w0001": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w2001": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w2002": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w2003": {
+      "r": 1,
+      "w": 3,
+      "s": 0
+     },
+     "w0007": {
+      "r": 1,
+      "w": 3,
+      "s": 0
+     },
+     "w0008": {
+      "r": 1,
+      "w": 3,
+      "s": 0
+     },
+     "w0005": {
+      "r": 0,
+      "w": 0,
+      "s": 0,
+      "prov": true
+     }
+    },
+    "s": {},
+    "sets": {
+     "A1": 1,
+     "A2": 0,
+     "B1": 0
+    },
+    "lessons": {},
+    "sessions": 2,
+    "theme": null,
+    "showPron": false,
+    "placedOnce": true
+   },
+   "reviewPlan": [
+    {
+     "kind": "type",
+     "id": "w0001"
+    },
+    {
+     "kind": "type",
+     "id": "w0009"
+    },
+    {
+     "kind": "recall",
+     "id": "w2002"
+    },
+    {
+     "kind": "hear",
+     "id": "w2003"
+    },
+    {
+     "kind": "hear",
+     "id": "w2001"
+    },
+    {
+     "kind": "read",
+     "id": "w0003"
+    },
+    {
+     "kind": "hear",
+     "id": "w0008"
+    },
+    {
+     "kind": "hear",
+     "id": "w0005"
+    },
+    {
+     "kind": "recall",
+     "id": "w0002"
+    },
+    {
+     "kind": "read",
+     "id": "w0007"
+    }
+   ],
+   "recallPlan": [
+    {
+     "kind": "recall",
+     "id": "w0007"
+    },
+    {
+     "kind": "recall",
+     "id": "w0008"
+    },
+    {
+     "kind": "type",
+     "id": "w2003"
+    },
+    {
+     "kind": "type",
+     "id": "w0009"
+    },
+    {
+     "kind": "type",
+     "id": "w0005"
+    },
+    {
+     "kind": "type",
+     "id": "w0002"
+    },
+    {
+     "kind": "recall",
+     "id": "w0003"
+    },
+    {
+     "kind": "recall",
+     "id": "w2001"
+    }
+   ],
+   "sentenceKindSequence": [
+    "read",
+    "hear",
+    "gap",
+    "gapType",
+    "gapType",
+    "read",
+    "gap",
+    "read",
+    "read",
+    "hear",
+    "gap",
+    "read",
+    "hear",
+    "gap",
+    "hear",
+    "hear",
+    "hear",
+    "gapType",
+    "hear",
+    "gap",
+    "gapType",
+    "hear",
+    "read",
+    "read",
+    "read",
+    "gapType",
+    "hear",
+    "hear",
+    "read",
+    "hear",
+    "hear",
+    "gapType",
+    "gapType",
+    "hear",
+    "hear",
+    "gapType",
+    "gapType",
+    "hear",
+    "read",
+    "hear"
+   ]
+  },
+  {
+   "seed": 3,
+   "fixtureProg": {
+    "v": 1,
+    "w": {
+     "w0003": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w0002": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w0001": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w2001": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w2002": {
+      "r": 5,
+      "w": 0,
+      "s": 5
+     },
+     "w2003": {
+      "r": 1,
+      "w": 3,
+      "s": 0
+     },
+     "w0007": {
+      "r": 1,
+      "w": 3,
+      "s": 0
+     },
+     "w0008": {
+      "r": 1,
+      "w": 3,
+      "s": 0
+     },
+     "w0005": {
+      "r": 0,
+      "w": 0,
+      "s": 0,
+      "prov": true
+     }
+    },
+    "s": {
+     "s1196": {
+      "r": 2,
+      "w": 0,
+      "s": 2
+     },
+     "s1842": {
+      "r": 2,
+      "w": 0,
+      "s": 2
+     },
+     "s2364": {
+      "r": 2,
+      "w": 0,
+      "s": 2
+     }
+    },
+    "sets": {
+     "A1": 3,
+     "A2": 3,
+     "B1": 3
+    },
+    "lessons": {},
+    "sessions": 7,
+    "theme": null,
+    "showPron": false,
+    "placedOnce": true
+   },
+   "reviewPlan": [
+    {
+     "kind": "hear",
+     "id": "w0015"
+    },
+    {
+     "kind": "recall",
+     "id": "w2003"
+    },
+    {
+     "kind": "type",
+     "id": "w1251"
+    },
+    {
+     "kind": "hear",
+     "id": "w0008"
+    },
+    {
+     "kind": "read",
+     "id": "w1233"
+    },
+    {
+     "kind": "hear",
+     "id": "w0007"
+    },
+    {
+     "kind": "recall",
+     "id": "w1247"
+    },
+    {
+     "kind": "hear",
+     "id": "w0478"
+    },
+    {
+     "kind": "hear",
+     "id": "w0005"
+    },
+    {
+     "kind": "read",
+     "id": "w0475"
+    },
+    {
+     "kind": "hear",
+     "id": "w1256"
+    },
+    {
+     "kind": "type",
+     "id": "w0022"
+    },
+    {
+     "kind": "type",
+     "id": "w1143"
+    },
+    {
+     "kind": "read",
+     "id": "w0012"
+    },
+    {
+     "kind": "recall",
+     "id": "w0466"
+    }
+   ],
+   "recallPlan": [
+    {
+     "kind": "recall",
+     "id": "w0007"
+    },
+    {
+     "kind": "type",
+     "id": "w0008"
+    },
+    {
+     "kind": "recall",
+     "id": "w2003"
+    },
+    {
+     "kind": "type",
+     "id": "w0025"
+    },
+    {
+     "kind": "type",
+     "id": "w0210"
+    },
+    {
+     "kind": "recall",
+     "id": "w1143"
+    },
+    {
+     "kind": "type",
+     "id": "w0055"
+    },
+    {
+     "kind": "recall",
+     "id": "w0462"
+    }
+   ],
+   "sentenceKindSequence": [
+    "read",
+    "hear",
+    "gapType",
+    "gapType",
+    "hear",
+    "gapType",
+    "read",
+    "hear",
+    "gapType",
+    "read",
+    "gap",
+    "gapType",
+    "hear",
+    "hear",
+    "hear",
+    "read",
+    "read",
+    "gapType",
+    "read",
+    "hear",
+    "gapType",
+    "hear",
+    "read",
+    "gap",
+    "hear",
+    "gapType",
+    "gap",
+    "read",
+    "read",
+    "hear",
+    "hear",
+    "hear",
+    "read",
+    "read",
+    "read",
+    "read",
+    "hear",
+    "gap",
+    "read",
+    "gap"
+   ]
+  }
+ ]
+}

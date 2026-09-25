@@ -33,6 +33,7 @@ tools/check_site.sh       stale-build guard for a language repo's index.html + s
 tools/pack_from_hsk.py    reproducible hsk -> packs/zh converter
 tools/packbuilder/        shared corpus-based pack builder for language repos (it; see its README)
 tests/engine_checks.js    Node checks, no dependencies
+tests/flagoff_snapshot.js Golden harness proving hsk-merge work is a no-op for every pack without `characters` (see docs/HSK_MERGE.md); tests/golden/ holds the goldens
 dist/zh.html dist/sw.js   built zh trainer + its service worker (committed; the tests fail if either is stale)
 docs/PACK_SCHEMA.md       pack format (authoritative)
 TODO.md                   known gaps and follow-ups
@@ -45,9 +46,19 @@ python3 tools/jsonify_pack.py packs/zh        # after editing any packs/zh/*.jso
 python3 tools/validate_pack.py packs/zh
 ./build.sh packs/zh dist/zh.html
 /opt/homebrew/bin/node tests/engine_checks.js  # includes the stale-build guard for dist/zh.html
+/opt/homebrew/bin/node tests/flagoff_snapshot.js --check  # flag-off golden check (--capture to update goldens)
 python3 tools/pack_from_hsk.py [../hsk]        # regenerate packs/zh from hsk (idempotent)
 python3 -m unittest discover -s tools/packbuilder/tests -t tools   # packbuilder smoke tests
 ```
+
+## Tests
+
+`node tests/engine_checks.js` covers `engine/core.js`/`engine/app.html` against the real
+zh pack plus synthetic packs. `node tests/flagoff_snapshot.js --check` guards the
+in-progress hsk/characters merge (docs/HSK_MERGE.md): goldens in `tests/golden/` cover
+`defaultProg`, `normalizeProg`, the plan builders, and a fake-DOM boot of every tab, for
+zh, italian, korean and japanese, proving no behaviour change for a pack without
+`characters`. `--capture` regenerates goldens after an intentional flag-off-safe change.
 
 For dev mode, open `engine/app.html?pack=zh` from `file://`. It loads `../packs/zh/*.js` directly, so you don't need a rebuild while you edit the engine. Use `?packdir=<relative path>` to load a pack that lives elsewhere.
 
