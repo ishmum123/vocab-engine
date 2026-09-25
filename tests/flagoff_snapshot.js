@@ -93,7 +93,7 @@ function handleGolden(name, actual) {
 
 // ================================================================== [1] flag-off
 // pack sources unchanged. "Unchanged" for a field that the merge adds (pack.json's
-// `characters`, a sentence's `ruby`) means the merge is not allowed to change the
+// `characters`, `legacy` and `pronFirst`, a sentence's `ruby`) means the merge is not allowed to change the
 // value of any field that predates it — so this strips those fields (once they
 // exist) from the current file before comparing to the pre-merge golden, rather
 // than requiring a literal empty `git diff` (which the merge itself will violate by
@@ -114,7 +114,7 @@ const FLAGOFF_PACKS = [
 function readJsonIfPresent(p) { return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null; }
 function stripFlagOnFields(packJson, wordsJson, sentencesJson) {
   const pack = packJson ? Object.assign({}, packJson) : null;
-  if (pack) { delete pack.characters; delete pack.legacy; }
+  if (pack) { delete pack.characters; delete pack.legacy; delete pack.pronFirst; }
   const sentences = Array.isArray(sentencesJson)
     ? sentencesJson.map(s => { const c = Object.assign({}, s); delete c.ruby; return c; })
     : sentencesJson;

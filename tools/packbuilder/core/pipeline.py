@@ -71,6 +71,17 @@ def write_characters(env, out_words, sentences):
     return units
 
 
+def characters_pack_fields(sp, units):
+    """pack.json keys the characters stage adds, only when units were written:
+    "characters" (spec.characters) and, for a pron_first spec, "pronFirst": true."""
+    if not units:
+        return {}
+    out = {"characters": sp.characters}
+    if sp.pron_first:
+        out["pronFirst"] = True
+    return out
+
+
 def attribution(env, ctx, users, sentences):
     sp = env.spec
     return {
@@ -192,8 +203,7 @@ def run(env, stage="all", check_remote=False):
     units = write_characters(env, out_words, sentences)
     write_json(env.pack / "sentences.json", sentences)
     pack_json = build_pack_json(env, words, ctx["raw_upos"])
-    if units:
-        pack_json["characters"] = sp.characters
+    pack_json.update(characters_pack_fields(sp, units))
     write_json(env.pack / "pack.json", pack_json, compact=False)
     write_json(env.pack / "attribution.json", attribution(env, ctx, users, sentences), compact=False)
     ctx.update(words=words, records=records, sentences=sentences, primary=primary)

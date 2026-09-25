@@ -136,6 +136,9 @@
   .charteach .en{color:var(--mute);font-size:14px;text-align:left;margin:0}
   .charteach .sent{border-bottom:none;padding:4px 0 0;font-size:14px}
   .hasruby{line-height:2.3}
+  /* pack.pronFirst: the "show written form" tap beside a word shown by its reading. */
+  .showw{display:inline-block;width:auto;min-height:0;margin:0 0 0 6px;padding:2px 6px;border:0;background:none;color:var(--mute);font:400 12px/1.2 var(--font);text-decoration:underline;vertical-align:middle;cursor:pointer}
+  .wwr{color:var(--mute);font-size:.8em;margin-inline-start:6px}
   .psent .ptxt.hasruby{line-height:2.3}
   .hasruby ruby{ruby-position:over}
   .hasruby rt{font-family:var(--font);font-size:0.5em;line-height:1;color:var(--mute);font-weight:400}
@@ -440,13 +443,29 @@ const TEACH_PLAY_SVG = speakerSVG(14);
 // pron is display-only: shown beside a word/sentence when the learner has it on.
 const showPron = () => PACK.showPron !== false && prog.showPron !== false;
 const pronOf = x => showPron() ? VC.pronShown(x) : ""; // "" when pron just repeats the text
+// ---- pronunciation-first (pack.pronFirst, core.js displayForm): a word whose character
+// unit is below the mastered tier is shown by its reading wherever its written form would
+// appear outside the characters stage. Off (every other pack), dispWord returns the
+// written form and every helper below renders exactly the pre-pronFirst markup.
+const PRON_FIRST = HAS_CHARACTERS && VC.pronFirstOn(PACK);
+const dispWord = e => VC.displayForm(e, CHAR_LIST, prog, PACK);
+// "show written form": a small tap beside a reading-shown word or sentence. It swaps
+// itself for the written form, for that item only, with no progress effect (panel
+// capture listener below), so a learner who wants the characters is never blocked.
+const showWrittenBtn = written => `<button type="button" class="showw" data-showw="${escapeHtml(written)}" aria-label="Show written form">show written</button>`;
+// A word's display markup: its written form, or its reading plus the show-written tap
+// (tap false: no tap, for places that are themselves tap targets).
+function wordFormHTML(e, tap){ const d = dispWord(e); return d.isPron ? `${escapeHtml(d.text)}${tap === false ? "" : showWrittenBtn(d.written)}` : escapeHtml(d.text); }
+// The pron line beside a word: none when the word is already shown by its reading.
+const pronBeside = e => dispWord(e).isPron ? "" : pronOf(e);
 function bigWordHTML(entry){
-  const p = pronOf(entry);
-  return `<div class="big wd"${TA}>${escapeHtml(entry.w)}</div>${p ? `<div class="pron">${escapeHtml(p)}</div>` : ""}`;
+  const p = pronBeside(entry);
+  return `<div class="big wd"${TA}>${wordFormHTML(entry)}</div>${p ? `<div class="pron">${escapeHtml(p)}</div>` : ""}`;
 }
-// Option label for word-choice items (recall/gap): the word, plus its pron when shown.
+// Option label for word-choice items (recall/gap): the word (its reading under
+// pronFirst below mastered), plus its pron when shown and not already the label.
 function wordOptHtml(byW){
-  return o => { const e = byW[o]; const p = e ? pronOf(e) : ""; return `${tw(o)}${p ? `<span class="op"><bdi>${escapeHtml(p)}</bdi></span>` : ""}`; };
+  return o => { const e = byW[o]; const d = e ? dispWord(e) : null; const p = e ? pronBeside(e) : ""; return `${d && d.isPron ? tw(d.text) : tw(o)}${p ? `<span class="op"><bdi>${escapeHtml(p)}</bdi></span>` : ""}`; };
 }
 
 // ===================== generic drill runner =====================
@@ -567,6 +586,15 @@ $("panel").addEventListener("click", e => {
   const s = SENTENCES[+t.dataset.sent]; if(s) saySentence(s);
 });
 
+// pack.pronFirst "show written form" tap: capture phase, so it runs before (and stops) the
+// row/tap-to-hear handlers of whatever it sits in. Only attached for pronFirst packs.
+function revealWritten(b){ b.outerHTML = `<span class="wwr"${TA}>${escapeHtml(b.dataset.showw || "")}</span>`; }
+if(PRON_FIRST) $("panel").addEventListener("click", e => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-showw]") : null;
+  if(!b) return;
+  e.preventDefault(); e.stopPropagation(); revealWritten(b);
+}, true);
+
 // ===================== word drill items =====================
 // Sentence text with the taught word bolded where it is visible (VC.highlightParts).
 function highlightHTML(s, entry){
@@ -577,7 +605,7 @@ function highlightHTML(s, entry){
 // ruby on it, characters not started, mix off, or pron hidden: showPron off hides all
 // ruby). Non-null replaces the sentence's pron line.
 function sentenceRuby(s){
-  if(!HAS_CHARACTERS || !s || !Array.isArray(s.ruby) || !showPron()) return null;
+  if(!HAS_CHARACTERS || !s || !Array.isArray(s.ruby) || (!showPron() && !PRON_FIRST)) return null;
   return VC.rubyTiers(s, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog));
 }
 // One ruby token (base: escaped written form). Below the bare tier <ruby>t<rt>reading</rt></ruby>;
@@ -613,8 +641,39 @@ function rubyTextHTML(s, toks, entry){
   });
   return out + plain(pos, t.length);
 }
+// pack.pronFirst sentence markup (core.js sentenceDisplay): null when off or when the
+// sentence has no written characters (render as without pronFirst); false when blank is
+// given and cannot be shown (the sentence falls back to its reading line: no gap item);
+// else {html, ruby, written}: tokens below mastered as their reading, others by tier
+// (ruby/bare, bare when pron is hidden), the taught word (entry) bolded, blank as ____;
+// written = the written sentence for the show-written tap (false: nothing hidden).
+function pfSentence(s, entry, blank){
+  if(!PRON_FIRST) return null;
+  const d = VC.sentenceDisplay(s, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog), blank);
+  if(d === null) return blank ? false : null;
+  if(d.mode === "text") return null;
+  if(d.mode === "pron") return { html: escapeHtml(d.text), ruby: false, written: String(s.t || "") };
+  const hits = [];
+  if(entry){ let o = 0; VC.highlightParts(s, entry, WORDS_BY_ID, PACK).forEach(x => { if(x.hit) hits.push([o, o + x.text.length]); o += x.text.length; }); }
+  const inHit = (a, b) => hits.some(([h0, h1]) => a < h1 && b > h0);
+  let ruby = false, anyPron = false, bl = null;
+  const html = d.pieces.map(p => {
+    let h;
+    if(p.kind === "blank"){ bl = p; h = `<span class="blank">____</span>`; }
+    else if(p.kind === "text") h = escapeHtml(p.text);
+    else if(p.tier === "pron"){ anyPron = true; h = escapeHtml(p.text); }
+    else { ruby = true; h = rubyTokHTML(escapeHtml(p.text), showPron() ? p : Object.assign({}, p, { tier:"bare" })); }
+    if(p.kind !== "blank" && inHit(p.start, p.end)) h = `<b>${h}</b>`;
+    return escapeHtml(p.pre) + h;
+  }).join("");
+  const t = String(s.t || "");
+  return { html, ruby, written: anyPron ? (bl ? t.slice(0, bl.start) + "____" + t.slice(bl.end) : t) : false };
+}
+const pfWrittenTap = pf => pf.written ? showWrittenBtn(pf.written) : "";
 // entry (optional): the taught word, highlighted in the sentence.
 function sentenceRowHTML(s, entry){
+  const pf = pfSentence(s, entry);
+  if(pf) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   const rt = sentenceRuby(s);
   if(rt) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   const p = pronOf(s);
@@ -626,9 +685,9 @@ function exampleSentencesHTML(entry){
   return `<p class="q" style="margin-top:12px">Example${ex.length>1?"s":""}:</p>${ex.map(s => sentenceRowHTML(s, entry)).join("")}`;
 }
 function revealBlock(entry){
-  const p = pronOf(entry);
+  const p = pronBeside(entry);
   const icon = hasSpeech ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${hasSpeech ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(entry.w)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
+  return `<div${hasSpeech ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${wordFormHTML(entry)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
 }
 const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
 // hear — TTS plays the word; pick the meaning. Without speech it degrades to read.
@@ -650,7 +709,7 @@ function readItem(entry){
 // recall — meaning shown; pick the word (wordOpts: same pos/level first, never a
 // distractor that would also be a right answer).
 function recallItem(entry){
-  const ds = VC.wordOpts(entry, WORDS, null, PACK); // same word class as the answer
+  const ds = VC.wordOpts(entry, WORDS, PRON_FIRST ? (e => dispWord(e).text) : null, PACK); // same word class as the answer; pronFirst: distinct displayed labels, no homophones
   const byW = {}; [entry, ...ds].forEach(e=>{ byW[e.w] = e; });
   return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
@@ -675,6 +734,12 @@ function missSummary(miss){
 
 // ===================== sentence drill items =====================
 function sentenceRevealBlock(s){
+  const pf = pfSentence(s);
+  if(pf){
+    const canHear = canHearSentence(s);
+    const icon = canHear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
+    return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${icon}${pfWrittenTap(pf)}</div><div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  }
   const rt = sentenceRuby(s);
   const p = rt ? "" : pronOf(s);
   const canHear = canHearSentence(s);
@@ -683,10 +748,12 @@ function sentenceRevealBlock(s){
 }
 const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
 function readSentence(s){
-  const rt = sentenceRuby(s);
-  const p = rt ? "" : pronOf(s);
+  const pf = pfSentence(s);
+  const rt = pf ? null : sentenceRuby(s);
+  const p = rt || pf ? "" : pronOf(s);
   return { kind:"mc", key:"s:"+s.id, label:"What does it mean?", optsClass:"opts-hero",
-    html: `<div class="med wd${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
+    html: pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div>`
+      : `<div class="med wd${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
     opts: sentenceChoices(s), a: s.en, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
     mount: () => saySentence(s), };
 }
@@ -708,7 +775,12 @@ function gapSentence(s, typed){
   const entry = WORDS_BY_ID[s.words[idxs[Math.floor(Math.random()*idxs.length)]]];
   const match = VC.gapMatch(s, entry, WORDS_BY_ID, PACK);
   const b = VC.blankSentence(s, match);
-  const html = `<div class="med wd"${TA}>${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${escapeHtml(s.en)}</div>`;
+  // pronFirst: the blanked sentence by tiers (pfSentence); false = only its reading line
+  // could be shown, where no blank can be placed: no gap item (caller falls back).
+  const pf = pfSentence(s, null, match);
+  if(pf === false) return null;
+  const html = pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="q">${escapeHtml(s.en)}</div>`
+    : `<div class="med wd"${TA}>${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${escapeHtml(s.en)}</div>`;
   const base = { key:"s:"+s.id, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
     onReveal: () => saySentence(s) };
   if(typed && TYPING){
@@ -940,8 +1012,8 @@ function wordRowHTML(w, cls){
   // Pron + gloss always share one .info column so the pron span never has to
   // shrink to width:0 next to the gloss (that caused unbreakable transliterations
   // like "budan" to overlap the gloss text when the gloss was long).
-  const p = pronOf(w);
-  return `<span class="wd"${TA}>${escapeHtml(w.w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
+  const p = pronBeside(w);
+  return `<span class="wd"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
 }
 function vocabTeach(list, lv, onDrill){
   setScore(0,0);
@@ -1130,11 +1202,17 @@ function startPassage(p){
 // tokens (passageRubyHTML); the line box is the fixed tall one, so no line jumps.
 function passageSentenceHTML(s, si, hi){
   const seg = VC.passageSegments(s, WORDS_BY_ID, PACK);
+  const pf = pfPassage(s, seg, true);
+  if(pf){
+    const chips = seg.unplaced.length ? `<div class="pchips">${seg.unplaced.map(id => `<span class="pw pchip" data-pw="${escapeHtml(id)}" role="button" tabindex="0"${TA}>${wordFormHTML(WORDS_BY_ID[id], false)}</span>`).join("")}</div>` : "";
+    const aloud = canHearSentence(s) ? `<button class="replay psay" data-say="${si}" aria-label="Read sentence aloud">${TEACH_PLAY_SVG}</button>` : "";
+    return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}</div>${aloud}${chips}</div>`;
+  }
   const rt = sentenceRuby(s);
   let at = 0;
   const inner = x => { const a = at; at += x.text.length; return rt ? passageRubyHTML(String(s.t || ""), rt, a, at) : escapeHtml(x.text); };
   const txt = seg.parts.map(x => x.id ? `<span class="pw" data-pw="${escapeHtml(x.id)}" role="button" tabindex="0">${inner(x)}</span>` : inner(x)).join("");
-  const chips = seg.unplaced.length ? `<div class="pchips">${seg.unplaced.map(id => `<span class="pw pchip" data-pw="${escapeHtml(id)}" role="button" tabindex="0"${TA}>${escapeHtml(WORDS_BY_ID[id].w)}</span>`).join("")}</div>` : "";
+  const chips = seg.unplaced.length ? `<div class="pchips">${seg.unplaced.map(id => `<span class="pw pchip" data-pw="${escapeHtml(id)}" role="button" tabindex="0"${TA}>${wordFormHTML(WORDS_BY_ID[id], false)}</span>`).join("")}</div>` : "";
   const aloud = canHearSentence(s) ? `<button class="replay psay" data-say="${si}" aria-label="Read sentence aloud">${TEACH_PLAY_SVG}</button>` : "";
   return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt${rt ? " hasruby" : ""}"${TA}>${txt}</div>${aloud}${chips}</div>`;
 }
@@ -1152,6 +1230,49 @@ function passageRubyHTML(t, toks, a, b){
   });
   return out + escapeHtml(t.slice(pos, b));
 }
+// pack.pronFirst passage sentence (null when off): its tap segments (VC.passageSegments)
+// rendered by the same rule as sentences. With `ruby` the tokens follow their tiers
+// (VC.rubyTiers); without it each linked word is one token, its reading while its unit
+// is below mastered (displayForm), else its written form. Text outside every token (a
+// name with no word) stays as written: there is no reading for it. taps: wrap linked
+// words as data-pw tap spans (false: plain, for question reveals and results).
+function pfPassage(s, seg, taps){
+  if(!PRON_FIRST) return null;
+  const t = String(s.t || "");
+  let toks = sentenceRuby(s);
+  const cuts = []; let at = 0;
+  seg.parts.forEach(x => { cuts.push(at); at += x.text.length; });
+  if(!toks){
+    toks = []; at = 0;
+    seg.parts.forEach(x => {
+      const a = at; at += x.text.length;
+      const w = x.id ? WORDS_BY_ID[x.id] : null; if(!w) return;
+      const d = dispWord(w);
+      toks.push({ start: a, end: at, tier: d.isPron ? "pron" : "plain", reading: w.pron || "", wordId: w.id });
+    });
+  }
+  const pieces = VC.sentencePieces(s, toks, null, cuts);
+  let ruby = false;
+  const pieceHTML = p => {
+    if(p.kind === "tok" && (p.tier === "ruby" || p.tier === "bare")){ ruby = true; return rubyTokHTML(escapeHtml(p.text), showPron() ? p : Object.assign({}, p, { tier:"bare" })); }
+    return escapeHtml(p.text);
+  };
+  let html = ""; at = 0;
+  seg.parts.forEach(x => {
+    const a = at; at += x.text.length;
+    const mine = pieces.filter(p => p.start >= a && p.start < at);
+    if(!mine.length) return;
+    const inner = mine.map((p, i) => (i ? escapeHtml(p.pre) : "") + pieceHTML(p)).join("");
+    html += escapeHtml(mine[0].pre) + (x.id && taps ? `<span class="pw" data-pw="${escapeHtml(x.id)}" role="button" tabindex="0">${inner}</span>` : inner);
+  });
+  return { html, ruby };
+}
+// A passage sentence as plain display text (question reveal, results): pronFirst by
+// pfPassage without taps, else the written text.
+function passagePlainHTML(s){
+  const pf = PRON_FIRST ? pfPassage(s, VC.passageSegments(s, WORDS_BY_ID, PACK), false) : null;
+  return pf ? pf.html : escapeHtml(s.t);
+}
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
 // RTL packs: the popover runs right-to-left (tapped word at the right edge, then pron and
 // gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
@@ -1159,8 +1280,8 @@ const LTR = SCRIPT.rtl ? ' dir="ltr"' : "";
 const glossBox = () => `<div class="gloss" id="gloss"${SCRIPT.rtl ? ' dir="rtl"' : ""} hidden></div>`;
 function glossHTML(id){
   const w = WORDS_BY_ID[id]; if(!w) return "";
-  const p = pronOf(w);
-  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(VC.gloss(w))}</span>`;
+  const p = pronBeside(w);
+  return `<span class="gw"${TA}>${wordFormHTML(w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(VC.gloss(w))}</span>`;
 }
 // Wires tap-to-gloss and read-aloud on a freshly rendered passage container (its
 // innerHTML is replaced on every render, so listeners never accumulate).
@@ -1229,7 +1350,7 @@ function readQuestionScreen(){
       [...box.children].forEach(x => { x.disabled = true; if(x.dataset.v === String(q.answer)) x.classList.add("ok"); });
       if(!rec.ok) b.classList.add("bad");
       const s = p.sentences[q.sentence];
-      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"><div${TA}><mark>${escapeHtml(s.t)}</mark></div><div class="q" style="margin:4px 0 0">${escapeHtml(s.en)}</div></div>`);
+      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${escapeHtml(s.en)}</div></div>`);
       const hs = $("pbox").querySelector(`[data-si="${q.sentence}"]`); if(hs) hs.classList.add("hi");
       $("nx").style.display = "block"; setScore(qi+1, p.questions.length);
     };
@@ -1259,7 +1380,7 @@ function readResults(){
   P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
     <p class="q"${TA} style="margin-bottom:8px">${escapeHtml(p.title)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
-      return `<div class="stmt"><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${escapeHtml(q.q)}</div><div style="margin-top:6px"${TA}><mark>${escapeHtml(s.t)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
+      return `<div class="stmt"><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${escapeHtml(q.q)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
     ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${SCRIPT.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id)} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
     <div id="addmsg" class="q" hidden></div>

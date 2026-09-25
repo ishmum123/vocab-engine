@@ -2,7 +2,8 @@
 // §3, rows B4 and B5): path strip, choice card, unit Learn with teach cards, the 4 unit item
 // renderers, the Start-today snapshot, unified Review/Recall, sentence ruby by tier; B5:
 // Test "Characters N", Progress stage rows and order/mix chips, reset, legacy import, the
-// boot migration hook (§4, core.js "legacy migration" contract) and passage ruby.
+// boot migration hook (§4, core.js "legacy migration" contract) and passage ruby; [14]
+// pack.pronFirst (brief BP): pinyin wherever a word appears until its unit is mastered.
 // Boots app.html's inline script for real against the zh pack WITH its characters.js,
 // using the same fake DOM as tests/engine_checks.js check [23] (id registry + regex
 // scan of innerHTML; no jsdom, no dependencies).
@@ -18,7 +19,11 @@ const VC = require(path.join(ROOT, "engine", "core.js"));
 const ZH = path.join(ROOT, "packs", "zh");
 function loadConst(file, name){ return new Function(fs.readFileSync(file, "utf8") + `\nreturn ${name};`)(); }
 function tryLoadConst(file, name){ try{ return loadConst(file, name); }catch(e){ return undefined; } }
-const PACK = loadConst(path.join(ZH, "pack.js"), "PACK");
+// The zh pack is pronunciation-first (pack.pronFirst, brief BP). Sections [1]-[13] check
+// the word-first characters stage, which every characters pack without pronFirst gets,
+// on the same data with pronFirst off; [14] checks the pack as shipped (PACK_ZH).
+const PACK_ZH = loadConst(path.join(ZH, "pack.js"), "PACK");
+const PACK = Object.assign({}, PACK_ZH, { pronFirst: false });
 const WORDS = loadConst(path.join(ZH, "words.js"), "WORDS");
 const SENTENCES = loadConst(path.join(ZH, "sentences.js"), "SENTENCES");
 const PASSAGES = tryLoadConst(path.join(ZH, "sentences.js"), "PASSAGES") || [];
@@ -134,10 +139,13 @@ return {
   goto: t => { tab = t; testSel = null; RD = null; render(); },
   legacyNotice: () => legacyNotice, legacyFail: () => legacyFail, readOnly: () => storeReadOnly, getPrep: () => todayPrep,
   rubyTextHTML, sentenceRowHTML, sentenceRevealBlock, readSentence, charDrillItem, passageSentenceHTML, hasChars: () => HAS_CHARACTERS,
+  gapSentence, recallItem, readItem, hearItem, revealBlock, wordRowHTML, glossHTML, passagePlainHTML, charTeach, revealWritten, pronFirst: () => PRON_FIRST,
+  panelListeners: () => document.getElementById("panel")._listeners.click || [],
+  wordsSearch: q => { tab = "words"; wordsQuery = q; render(); }, startPassage: p => { tab = "read"; startPassage(p); },
 };`;
   const names = ["document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
   const args = [document, window, { userAgent:"CharsAppChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
-    function(){ return { play(){ return Promise.resolve(); }, pause(){} }; }, () => true, () => {}, pack, WORDS, SENTENCES, LESSONS, o.passages || PASSAGES];
+    function(){ return { play(){ return Promise.resolve(); }, pause(){} }; }, () => true, () => {}, pack, o.words || WORDS, o.sentences || SENTENCES, o.lessons || LESSONS, o.passages || PASSAGES];
   if(o.chars !== false){ names.push("CHARACTERS"); args.push(o.units || CHARACTERS); }
   if(o.legacy){ names.push("LEGACY"); args.push(o.legacy === true ? LEGACY : o.legacy); }
   const api = new Function(...names, fnBody)(...args);
@@ -381,7 +389,8 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     p.chars.mix = true;
     api.setProg(VC.normalizeProg({ sets: { "1": 2 } }, PACK));
     check("characters not started: sentence renders exactly as without characters", api.sentenceRowHTML(s) === offRow);
-    check("gap items are unchanged (no ruby in the gap stimulus)", !/hasruby/.test(appHtml.match(/function gapSentence[\s\S]*?\n}\n/)[0]));
+    check("word-first gap items are unchanged (ruby in the gap stimulus only on the pack.pronFirst branch)",
+      !/hasruby/.test(appHtml.match(/function gapSentence[\s\S]*?\n}\n/)[0].replace(/pf\.ruby \? " hasruby" : ""/g, "")));
   }
 
   // ---------------------------------------------------------------- [6] flag-off
@@ -716,6 +725,171 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     let err = null, r = null;
     try{ r = await boot({ pack: odd }); }catch(e){ err = e; }
     check("pack.characters not an object (true): HAS_CHARACTERS off (charsConfig null), no crash", !err && !r.api.hasChars() && !/charChoice|<ruby/.test(r.api.html("panel")));
+  }
+
+  // ---------------------------------------------------------------- [14] pronFirst
+  console.log("\n[14] pronunciation-first (pack.pronFirst, brief BP): the zh pack as shipped");
+  // Visible written characters in markup: Han outside the show-written tap's hidden form.
+  const visHan = h => (String(h == null ? "" : h).replace(/data-showw="[^"]*"/g, "").match(/\p{Script=Han}/gu) || []).join("");
+  const onlyLabel = h => /^字*$/.test(visHan(h)); // the stage label 字 / 字4 (path strip, Progress rows)
+  const PF_ZH = PACK_ZH;
+  const NSZ = lv => VC.nSets(VC.wordsByLevel(WORDS, PF_ZH)[lv], VC.setSizeOf(PF_ZH));
+  const seedPF = () => VC.normalizeProg({ sets: { "1": NSZ("1"), "2": 2 }, placedOnce: true, sessions: 5 }, PF_ZH);
+  check("zh pack.json ships pronFirst: true", PF_ZH.pronFirst === true);
+  // Walks the active screen flow: answers every drill item right, presses Continue /
+  // Drill / Next, and records every screen, option label and reveal.
+  function walk(api, stopAt){
+    const seen = [];
+    for(let i = 0; i < 600; i++){
+      const P = api.html("panel");
+      if(api.getD()){
+        const it = api.getCur(); const btns = api.el("o").children;
+        seen.push({ where: it.key, html: P + btns.map(b => b.innerHTML).join("|") });
+        const btn = btns.find(b => b.dataset.v === it.a); if(!btn) throw new Error("no answer option " + it.key);
+        btn.click(); seen.push({ where: it.key + " reveal", html: api.html("rv") }); api.el("nx").click(); continue;
+      }
+      seen.push({ where: "screen", html: P });
+      if(stopAt && stopAt.test(P)) return seen;
+      if(/id="ok"/.test(P)){ api.el("ok").click(); continue; }
+      if(/id="dr"/.test(P)){ const tl = api.el("tl"); if(tl) seen.push({ where: "teach", html: tl.children.map(c => c.innerHTML).join("|") }); api.el("dr").click(); continue; }
+      return seen;
+    }
+    throw new Error("walk did not finish");
+  }
+  {
+    const { api } = await boot({ pack: PF_ZH });
+    check("PRON_FIRST on for zh, show-written capture listener attached", api.pronFirst() && api.panelListeners().length === 2);
+    api.setProg(seedPF()); api.today();
+    // The Read hint names a passage by its title, which has no reading data (reported residual).
+    const todayH = api.html("panel").replace(/<div class="stmt" id="readHintBox">[\s\S]*?<\/div>/, "");
+    check(`Today: no written form besides the stage label and the Read hint's passage title (${visHan(todayH)})`, onlyLabel(todayH));
+    api.el("go").click();
+    let seen = [], err = null;
+    try{ seen = walk(api, /id="again"/); }catch(e){ err = e; }
+    const bad = seen.filter(x => visHan(x.html));
+    const kinds = new Set(seen.map(x => x.where.split(":")[0]));
+    check(`Today, no unit recorded: Review, Learn (teach + drill), Listen, Recall, Sentences show no hanzi (${seen.length} screens/items; ${bad.length} bad${bad[0] ? `: ${bad[0].where} ${visHan(bad[0].html)}` : ""})${err ? " " + err.message : ""}`,
+      !err && bad.length === 0 && kinds.has("w") && kinds.has("s") && kinds.has("teach") && /id="again"/.test(api.html("panel")));
+    const w0 = BY_ID["w0028"]; // 你 nǐ
+    check("readItem: the stimulus is the reading, with a show-written tap carrying the written form",
+      api.readItem(w0).html.includes(`>${w0.pron}<button type="button" class="showw" data-showw="${w0.w}"`));
+    // Every sentence: row, read item, reveal; gap items where legal.
+    let sb = 0, gb = 0, gn = 0, rb = 0;
+    SENTENCES.forEach(s => {
+      if(visHan(api.sentenceRowHTML(s)) || visHan(api.readSentence(s).html) || visHan(api.sentenceRevealBlock(s))) sb++;
+      const g = api.gapSentence(s, false);
+      if(g){ gn++; if(visHan(g.html) || g.opts.some(o => visHan(g.optHtml(o))) || !/class="blank"/.test(g.html)) gb++; }
+    });
+    check(`all ${SENTENCES.length} sentences: row, read item and reveal read as pinyin (${sb} bad)`, sb === 0);
+    check(`gap items: blanked pinyin sentence, pinyin options (${gn} built, ${gb} bad)`, gn > 100 && gb === 0);
+    WORDS.forEach(w => { if(visHan(api.wordRowHTML(w)) || visHan(api.revealBlock(w)) || visHan(api.glossHTML(w.id))) rb++; });
+    check(`all ${WORDS.length} words: Words-list row, reveal and passage popover show pinyin (${rb} bad)`, rb === 0);
+    // Words tab list and search.
+    api.goto("words");
+    const rows = () => api.el("wl").children.map(c => c.innerHTML);
+    check("Words tab: set rows are pinyin", rows().length === 10 && rows().every(h => !visHan(h)));
+    api.wordsSearch("hao");
+    check(`Words search "hao": ${rows().length} rows, all pinyin`, rows().length > 0 && rows().every(h => !visHan(h)));
+    // Test: Listen and Recall; placement.
+    api.goto("test");
+    api.el("tRecall").click();
+    seen = walk(api);
+    check(`Test Recall ${seen.filter(x => x.where.startsWith("w:") && !x.where.endsWith("reveal")).length}: pinyin options and reveals`, seen.length > 20 && seen.every(x => !visHan(x.html)));
+    api.goto("test"); api.el("tListen").click(); seen = walk(api);
+    check("Test Listen: no hanzi in reveals or the result screen", seen.length > 20 && seen.every(x => !visHan(x.html)));
+    api.goto("test"); api.el("pl").click(); api.el("go").click();
+    let pbad = 0, pn = 0;
+    for(let i = 0; i < 100 && /id="o"/.test(api.html("panel")); i++){ pn++; if(visHan(api.html("panel"))) pbad++; api.el("o").children[0].click(); }
+    check(`Placement: ${pn} items, no hanzi (${pbad} bad)`, pn > 10 && pbad === 0);
+    // Progress: weak rows.
+    const pw = seedPF(); ["w0028","w0091","w0099"].forEach(id => { pw.w[id] = { r:1, w:3, s:0 }; });
+    api.setProg(pw); api.goto("progress");
+    check("Progress: weakest-word rows in pinyin", onlyLabel(api.html("panel")) && api.html("panel").includes(BY_ID["w0091"].pron));
+    // Read: tap spans and question reveals.
+    if(PASSAGES.length){
+      api.startPassage(PASSAGES[0]);
+      const box = api.html("panel").split('id="pbox">')[1] || ""; // the fake DOM keeps markup on the panel only
+      const spans = [...box.matchAll(/<span class="pw" data-pw="[^"]*" role="button" tabindex="0">([\s\S]*?)<\/span>/g)].map(m => m[1]);
+      check(`Read: every tap span of "${PASSAGES[0].title}" reads as pinyin (${spans.length} spans)`, spans.length > 10 && spans.every(h => !visHan(h)));
+      const left = visHan(box);
+      const unlinked = PASSAGES[0].sentences.map(x => VC.passageSegments(x, BY_ID, PF_ZH).parts.filter(q => !q.id).map(q => q.text).join("")).join("");
+      check(`Read: the only hanzi left in the passage are text no word links (names: ${left})`, left === visHan(unlinked));
+      const qs = PASSAGES[0].sentences.map(x => api.passagePlainHTML(x));
+      check("Read: question reveal sentences use the same display (tap spans in pinyin)", qs.every(h => h.includes(VC.escapeHtml(BY_ID["w0091"].pron)) || !h.includes("我")));
+    }
+  }
+  {
+    // Mastered unit: its word shows written; sentences give it ruby, the rest stay pinyin.
+    const { api } = await boot({ pack: PF_ZH });
+    const p = seedPF(); VC.answerCharChoice(p, true);
+    const uWo = VC.unitByWord(CHARACTERS).get("w0091"); // 我
+    p.chars.c[uWo.id] = { r:3, w:0, s:3 };
+    api.setProg(p);
+    const wo = BY_ID["w0091"], ni = BY_ID["w0028"];
+    check("mastered unit (streak = mastered): its word renders written with its pron beside it",
+      new RegExp(`^<span class="wd" data-tl lang="[^"]+">${wo.w}</span>`).test(api.wordRowHTML(wo)) && api.wordRowHTML(wo).includes(`>${wo.pron}<`) && !/data-showw/.test(api.wordRowHTML(wo)));
+    check("an unmastered word next to it still renders its reading", !visHan(api.wordRowHTML(ni)));
+    const s0 = SENTENCES[0]; // 你好，我是学生。
+    const row = api.sentenceRowHTML(s0);
+    check(`sentence: the mastered token as ruby, the rest pinyin (${stripTags(row)})`, row.includes(`<ruby>${wo.w}<rt>${wo.pron}</rt></ruby>`) && visHan(row) === wo.w);
+    p.chars.c[uWo.id].s = 6;
+    check("at bare: the token is bare (reading hidden)", api.sentenceRowHTML(s0).includes(`<ruby class="bare">${wo.w}<rt>`));
+    p.chars.mix = false;
+    check("mix off: the sentence is reading-only again, the word itself stays written", !visHan(api.sentenceRowHTML(s0)) && api.wordRowHTML(wo).includes(`>${wo.w}<`));
+    p.chars.mix = true;
+    // Characters stage: teach cards and char items keep the written form.
+    const cu = VC.charStageUnits(["1","2","3"], CHARACTERS, PF_ZH)[0];
+    const ci = api.charDrillItem("charRead", cu);
+    check("characters stage: a charRead item still shows the written form", ci.html.includes(`>${cu.t}<`));
+  }
+  {
+    // The show-written tap: swaps itself for the written form, item only, no progress change.
+    const { api } = await boot({ pack: PF_ZH });
+    api.setProg(seedPF());
+    const before = JSON.stringify(api.getProg());
+    const b = { dataset: { showw: "你" }, outerHTML: "<button>" };
+    let stopped = false, prevented = false;
+    const cap = api.panelListeners()[1];
+    cap({ target: { closest: sel => sel === "[data-showw]" ? b : null }, preventDefault(){ prevented = true; }, stopPropagation(){ stopped = true; } });
+    check(`show-written tap reveals the written form in place (${b.outerHTML})`, /class="wwr"[^>]*>你<\/span>/.test(b.outerHTML) && stopped && prevented);
+    let other = false;
+    cap({ target: { closest: () => null }, preventDefault(){ other = true; }, stopPropagation(){ other = true; } });
+    check("the tap has no progress effect; other clicks pass through untouched", JSON.stringify(api.getProg()) === before && !other);
+  }
+  {
+    // Homophone distractors in the recall item, on the real pack.
+    const { api } = await boot({ pack: PF_ZH });
+    api.setProg(seedPF());
+    const homs = WORDS.filter(a => WORDS.some(b => b.id !== a.id && VC.pronClash(a, b)));
+    let bad = 0;
+    for(let r = 0; r < 10; r++) homs.forEach(w => {
+      const it = api.recallItem(w); const labels = it.opts.map(o => stripTags(it.optHtml(o)));
+      const ents = it.opts.map(o => WORDS.find(x => x.w === o));
+      if(new Set(labels).size !== labels.length || ents.some((a, i) => ents.some((b, j) => i < j && VC.pronClash(a, b)))) bad++;
+    });
+    check(`recall items for ${homs.length} zh words with a homophone: 4 distinct pinyin labels, no two alike in sound (${bad} bad)`, homs.length > 30 && bad === 0);
+  }
+  {
+    // Flag-off: a characters pack without pronFirst renders byte-identically to pronFirst:false.
+    const noKey = Object.assign({}, PF_ZH); delete noKey.pronFirst;
+    const a = await boot({ pack: PACK }), b = await boot({ pack: noKey });
+    a.api.setProg(seedC()); b.api.setProg(seedC());
+    const pages = api => ["today","words","test","progress","read"].map(t => { api.goto(t); return api.html("panel") + (api.el("wl") ? api.el("wl").children.map(c => c.innerHTML).join("") : ""); });
+    check("pronFirst absent = pronFirst false: every tab identical, no show-written tap anywhere", JSON.stringify(pages(a.api)) === JSON.stringify(pages(b.api)) && !pages(b.api).some(h => /data-showw/.test(h)) && a.api.panelListeners().length === 1);
+  }
+  {
+    // ja-like synthetic pack: kanji words read in kana, kana words as they are.
+    const { jaLike } = require(path.join(__dirname, "fixtures", "chars_packs.js"));
+    const J = jaLike(); const jp = Object.assign({}, J.pack, { pronFirst: true });
+    const { api } = await boot({ pack: jp, words: J.words, units: J.units, sentences: [], lessons: [], passages: [] });
+    api.goto("words");
+    const list = api.el("wl").children.map(c => c.innerHTML);
+    const a1 = J.words.filter(w => w.lv === "A1").slice(0, 10);
+    const glyphRows = a1.filter(w => VC.unitByWord(J.units).get(w.id));
+    check(`ja-like: Words rows show kana (${glyphRows.length} kanji words by reading, ${a1.length - glyphRows.length} kana words as written), no kanji visible`,
+      list.length === 10 && list.every(h => !visHan(h)) && glyphRows.every(w => list.some(h => h.includes(`>${w.pron}<button type="button" class="showw" data-showw="${w.w}"`))));
+    const k = J.words.find(w => !VC.unitByWord(J.units).get(w.id));
+    check("ja-like: a kana word has no show-written tap", !/data-showw/.test(api.wordRowHTML(k)) && api.wordRowHTML(k).includes(`>${k.w}<`));
   }
 
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);

@@ -175,6 +175,20 @@ console.log("Checking tools/validate_pack.py characters/legacy/ruby cases (Node 
   check("accepts: valid, sorted, non-overlapping ruby", rOk.status === 0, rOk.out);
 })();
 
+// ------------------------------------------------------------ pack.pronFirst (brief BP)
+(function(){
+  const words = baseWords();
+  const units = baseCharUnits(words);
+  const ok = runValidate(mkPack({ pack: basePack({ characters: baseCharacters(), pronFirst: true }), words, characters: units }));
+  check("accepts: pronFirst true with a characters stage", ok.status === 0 && !/pronFirst/.test(ok.out), ok.out);
+  const bad = runValidate(mkPack({ pack: basePack({ characters: baseCharacters(), pronFirst: "yes" }), words, characters: units }));
+  check("rejects: pronFirst not a boolean", bad.status !== 0 && /pack\.pronFirst must be a boolean/.test(bad.out), bad.out);
+  const one = runValidate(mkPack({ pack: basePack({ characters: baseCharacters(), pronFirst: 1 }), words, characters: units }));
+  check("rejects: pronFirst 1 (a number, not a boolean)", one.status !== 0 && /pack\.pronFirst must be a boolean/.test(one.out), one.out);
+  const lone = runValidate(mkPack({ pack: basePack({ pronFirst: true }), words }));
+  check("warns: pronFirst true without a characters stage (no effect)", lone.status === 0 && /pronFirst is true but pack\.characters is absent/.test(lone.out), lone.out);
+})();
+
 // ------------------------------------------------------------ legacy.json
 (function(){
   const words = baseWords();

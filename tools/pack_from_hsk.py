@@ -205,6 +205,9 @@ def main(argv):
             "testKinds": {"charRead": 40, "charSound": 30, "charPick": 30},
         },
         "legacy": {"key": "hsk_pinyin", "format": "hsk-v2"},
+        # Pronunciation first (docs/HSK_MERGE.md §8, 2026-09-25): a word is shown by its
+        # pinyin until its character unit reaches the mastered tier, as hsk does.
+        "pronFirst": True,
     }
 
     # ---- characters: one unit per word, same order as words.json (docs/HSK_MERGE.md §2.1).
