@@ -60,6 +60,12 @@ class SpecFields(unittest.TestCase):
             sp = importlib.import_module(f"packbuilder.langs.{code}").SPEC()
             self.assertTrue(issubclass(type(sp), LanguageSpec))
             self.assertEqual(sp.code, code)
+            if getattr(sp, "passage_only", False):
+                # a passage-only spec (zh: pack built outside the packbuilder)
+                # has no build pipeline fields; it needs levels and its linker
+                self.assertTrue(sp.level_ids, f"{code}: passage-only spec without level_ids")
+                self.assertTrue(hasattr(sp, "passage_linker"), f"{code}: passage-only spec without passage_linker")
+                continue
             self.check_spec(sp)
 
     def test_italian(self):

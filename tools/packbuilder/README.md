@@ -69,6 +69,7 @@ python3 -m packbuilder check  --lang it --repo .           # exit 1 on failure
 python3 -m packbuilder scan   --lang it --repo . [--only 1|2|3]
 python3 -m packbuilder sample --lang it --repo . --seed 303
 python3 -m packbuilder passages . [--lang it] [--check]    # reading passages, see below
+python3 -m packbuilder passages ../packs/zh [--check]      # a flat pack dir (zh, from vocab-engine/tools), see "Chinese (zh) passages"
 python3 -m unittest discover -s engine/tools/packbuilder/tests -t engine/tools
 ```
 
@@ -225,7 +226,46 @@ Declared names (source `"names": [...]` per passage, all languages; French and I
 
 Always on (all languages): a counted token with no pack id inside a matched pack phrase links that phrase ("favor" in "por favor", "embargo" in "sin embargo"). A token the resolver reads as a verb never links the interjection spelled like it ("Ich bitte Sie": bitten, not bitte). A token whose lemma is an article and no other pack word links the article entry (de relative/demonstrative der, "ein oder zwei"). An ellipsis ("...", "…") ends a sentence, so the next capital is not a name (ru "Так... Вижу"). Italian and Spanish passages are byte-identical with these on.
 
+Pack layout: `<repo>` is a language repo (`tools/passages_src.json`, `pack/words.json`; output `pack/passages.json` and `tools/REPORT_passages.md`), or a flat pack directory holding `pack.json`, `words.json` and `passages_src.json` together, with `passages.json` and `REPORT_passages.md` written beside them (`passages.layout`; used when `<repo>/pack/words.json` is absent and `<repo>/words.json` and `<repo>/pack.json` exist). zh uses the flat form (`packs/zh`). `--lang` defaults to the layout's `pack.json` key. A pack without `lemma` fields in `words.json` (zh) uses `w` as the lemma.
+
 The link context is pickled with the spec attributes the fresh build set (`bind_lexicon` handles such as es `_lex`, fr/id `_lx`, derived sets such as de `pluralia_tantum`); a cached run restores them instead of re-running `bind_lexicon`, whose lexicon edits are already in the pickle. A cached run gives the same output as a fresh one.
+
+### Linker-level passage hooks
+
+For a language whose pack has no packbuilder build context (no corpus, tagger or lexicon cache). Each is off unless the spec defines it, so other languages' passages, check output and reports are byte-identical (verified for ko and it: passages.json, `--check` output, generated report section).
+
+- `passage_linker(shipped, pack_dir)`: returns the object `run` uses instead of `Linker` (and `load_context` is never called). It must offer the Linker interface `run` uses: `pretag`, `tag(text, en, names)` returning `[text, lemma, upos, ...]` tokens, `classify`, `links_all`, `lemma_of`, `lemma_ids`, `num_ids`, `lowered`. zh: `langs/zh.ZhLinker`.
+- The linker may also define `declared(p)`: the passage's `names` value (what `tag` and the tag cache receive) built from the whole passage, so declared `oop` words can be segmentation units; `n_words(toks)`: the words of one tagged sentence (the band rule; default `n_words` over the text); `passage_notes(texts, names)`: extra report-only notes per passage.
+- `passage_join` (spec, default `" "`): joins the sentences into the passage `text`. zh: `""`.
+- `passage_unspaced` (spec): the report's `ws_words` column is the linked word count (what the app shows for an unspaced pack) instead of whitespace tokens.
+- `passage_only` (spec): the module has no build pipeline; `tests/test_spec.py` checks only its `level_ids` and `passage_linker`.
+- The report's budget sentence is the fixed A1/A2/B1 text for the default budget and is generated from `rules.budget` otherwise (zh: "1 may use <=3 2 lemmas and nothing above; ...").
+
+### Chinese (zh) passages
+
+`packs/zh` is built by `tools/pack_from_hsk.py`, not by the packbuilder, so `langs/zh.py` is a passage-only spec whose `ZhLinker` segments with the pack itself. Levels are the HSK ids `"1"`..`"4"` (`rules` in `passages_src.json` uses them; budget: a level may use <=3 lemmas of the next level and none above; level 4 anything in the pack). Run from `vocab-engine/tools`:
+
+```
+../.venv/bin/python -m packbuilder passages ../packs/zh --check     # report only
+../.venv/bin/python -m packbuilder passages ../packs/zh             # writes packs/zh/passages.json + REPORT_passages.md
+python3 jsonify_pack.py ../packs/zh                                  # then regenerate the .js
+```
+
+Segmentation (per hanzi run, `ZhLinker._segment_run`): every candidate unit at every position; the path with the fewest unknown characters, then the fewest tokens; on a tie the path whose last token is longest (reverse maximum matching: 十 + 分钟, not 十分 + 钟), then the unit kind priority (numeral, pack word, compound, name, oop, derived, unknown). Units and rules:
+
+- A pack headword links itself. 了, 着, 的, 地, 得, 不, 没, 是 are pack words and link as themselves: 吃了 = 吃 + 了; 不去 = 不 + 去; 没有 (not in the pack) = 没 + 有; 是 ... 的 = 是 + 的. Lexicalised pack words win by length: 不客气, 没关系, 为什么, 一起.
+- `pack.json` `compounds` (他们, 你们, 她们, 这个, 这些, 这儿, 这里, 哪儿, 春天 ...): one token and one span, linking the compound's longest pack-word prefix. This is the pack's own policy (pack_from_hsk: SENTENCE_EXTRA base), so 他们 links 他. 们 plural beyond that list: X们 with X a pack word links X (朋友们, 同学们 -> 朋友, 同学). The same for erhua X儿 (点儿 -> 点) and a locative + 面/边 (上面 -> 上), when the whole string is no pack word.
+- Reduplication, one span, linking the base: AA (看看, 走走 -> 看, 走; not a numeral, and not when AA is a pack word: 爸爸, 谢谢), A一A and A了A (看一看, 找了找), AABB (高高兴兴 -> 高兴), ABAB (休息休息 -> 休息).
+- Resultatives: a pack compound is one word (看见). Otherwise the verb and a complement that is a pack word are two words (看 + 到, 听 + 懂). 见 is no pack word, so after a perception verb (听, 遇, 碰, 梦, 瞧) it joins the verb: 听见 -> 听, one span.
+- Numerals: a numeral character (〇零一二三四五六七八九十百千万亿两), and 第 before one, is not counted, and links its pack word with one span per character (八十九 -> 八 + 十 + 九; 两 links 两). ASCII and full-width digits are not counted and link nothing. The measure word after a numeral is an ordinary counted pack word (三个 = 三 + 个, 五岁, 八十九块). A numeral run is one word in the words-per-passage count.
+- 过 right after a verb (a pack word whose gloss starts "to ") is the experiential aspect particle (去过): not counted, not linked, since the pack's only 过 is the level-4 verb "to cross". Elsewhere 过 is that verb (他过马路).
+- Declared names (`names`, and `oop` keys whose reason starts "name") are units: not counted, not linked, so 上海 is never 上 + 海. A pack word spelled the same wins (北京 declared as a name still links 北京). A declared name's surname (first character of a 2-3 character name) before a title (老师, 先生, 小姐, 太太, 医生, 同学, 经理, 校长, 阿姨, 叔叔 ...) or after 小/老 is a name too (王老师 = 王 + 老师, 小王). Chinese names are declared whole: "王明", not "王 明".
+- Declared `oop` words are units: counted, not linked, reported under their declared spelling (熊猫 stays one word, not 熊 + 猫).
+- Anything else is an unknown character; adjacent unknown characters merge into one out-of-pack token, reported by surface in `oop` errors so the author can declare it (or rewrite).
+- Latin letters are one counted token, out of pack unless declared.
+- Spans: one per linked token, UTF-16 offsets on the original sentence; a compound, derived or reduplicated unit gets one span. `words` lists each linked id once, in order.
+
+jieba (optional, `requirements-zh.txt`, installed in `vocab-engine/.venv`) is report-only: `passage_notes` lists proper nouns jieba finds (posseg nr/ns/nt/nz, HMM on) that the pack segmentation split into single characters with at least one linked (小红 -> 小 + 红, 张伟 -> 张 + 伟), so the author can declare them. jieba dictionary entries rarer than 100 (太贵, 张老师, 爸爸妈妈: tagged nr in its dictionary) are left out. Without jieba the notes are empty and one line goes to stderr. passages.json never depends on jieba. `tests/test_passage_zh.py` covers the rules above and a flat-layout end-to-end run (double build byte-identical).
 
 ## Determinism
 

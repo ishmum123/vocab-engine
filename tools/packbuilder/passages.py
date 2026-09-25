@@ -11,6 +11,10 @@ pack/passages.json deterministically plus tools/REPORT_passages.md.
 
     python3 -m packbuilder passages <repo> [--check]
 
+<repo> may also be a flat pack directory (pack.json, words.json and
+passages_src.json together; zh: packs/zh), see layout(); a spec with
+passage_linker (zh) supplies its own linker and no link context is built.
+
 The link context (lexicon, word keys) is rebuilt from the cached corpus the
 same way `build` builds it, verified against pack/words.json, and pickled
 under <repo>/.cache/derived/ keyed by the builder source and pack files.
@@ -698,19 +702,40 @@ def resolve_q_words(lk, lemmas, sent_ids):
     return out, errs
 
 
+def layout(repo):
+    """(source/report dir, pack dir) of a passages repo. A language repo keeps
+    tools/passages_src.json and pack/words.json; a pack directory built outside
+    the packbuilder (packs/zh) holds pack.json, words.json and the source and
+    report beside them."""
+    repo = Path(repo)
+    if not (repo / "pack" / "words.json").exists() and (repo / "words.json").exists() \
+            and (repo / "pack.json").exists():
+        return repo, repo
+    return repo / "tools", repo / "pack"
+
+
 def run(spec, check_only=False, out=sys.stdout):
     repo = spec.repo
-    src = json.loads((repo / "tools" / "passages_src.json").read_text())
+    tools_dir, pack_dir = layout(repo)
+    src = json.loads((tools_dir / "passages_src.json").read_text())
     rules = {**DEFAULT_RULES, **src.get("rules", {})}
-    shipped = {w["id"]: w for w in json.loads((repo / "pack" / "words.json").read_text())}
-    lk = Linker(spec, load_context(spec), shipped)
+    shipped = {w["id"]: w for w in json.loads((pack_dir / "words.json").read_text())}
+    for w in shipped.values():
+        w.setdefault("lemma", w["w"])      # a pack without lemmas (zh): the headword
+    # spec.passage_linker (zh): a language whose pack has no build context
+    # supplies its own linker with the Linker interface
+    lk = spec.passage_linker(shipped, pack_dir) if hasattr(spec, "passage_linker") else \
+        Linker(spec, load_context(spec), shipped)
     lv_rank = {lv: i for i, lv in enumerate(spec.level_ids)}
     lv_of = {wid: w["lv"] for wid, w in shipped.items()}
     passages, rows, errors = [], [], []
     n_spans = n_ids = 0
     unplaced = []       # (passage id, sentence index, headword, id) linked but with no span
     ids = set()
-    names_of = {id(p): frozenset(w for n in p.get("names", []) for w in n.split()) for p in src["passages"]}
+    # a linker's declared(p) (zh) widens the per-passage names into its own
+    # segmentation units (names plus declared oop words)
+    names_of = {id(p): lk.declared(p) if hasattr(lk, "declared") else
+                frozenset(w for n in p.get("names", []) for w in n.split()) for p in src["passages"]}
     lk.pretag([(t, en, names_of[id(p)]) for p in src["passages"] for t, en in p["sentences"]] +
               [(qt, "", names_of[id(p)]) for p in src["passages"] for q in p["questions"]
                for qt in [q["q"]] + (q["options"] or [])])
@@ -732,10 +757,12 @@ def run(spec, check_only=False, out=sys.stdout):
         oop_name = {ofold(k): k for k in p.get("oop", {})}
         names = names_of[id(p)]
         sents, counted, oop, above = [], [], Counter(), {}
+        sent_toks = []
         linked = 0
         used_oop = set()     # declared oop lemmas met as names or in questions/options
         for t, en in p["sentences"]:
             toks = lk.tag(t, en, names)
+            sent_toks.append(toks)
             ws, cl, spans, linked_toks = lk.links_all(toks, t, en, names)
             sents.append({"t": t, "en": en, "words": ws, "spans": spans})
             placed = {sp_[2] for sp_ in spans}
@@ -753,14 +780,15 @@ def run(spec, check_only=False, out=sys.stdout):
                     oop[lem] += 1
                 elif lv_rank[lv_of[wid]] > lv_rank[lv]:
                     above.setdefault(lv_of[wid], set()).add(shipped[wid]["lemma"])
-        text = " ".join(s["t"] for s in sents)
+        text = getattr(spec, "passage_join", " ").join(s["t"] for s in sents)
         cov = sum(counted) / len(counted) if counted else 0.0
         if cov < rules["coverage"][lv]:
             perr.append(f"coverage {cov:.3f} < {rules['coverage'][lv]}")
         unlisted = sorted(set(oop) - set(oop_ok))
         if unlisted:
             perr.append(f"out-of-pack lemmas without a reason: {[oop_name.get(k, k) for k in unlisted]}")
-        nw = n_words(text)
+        # a linker's n_words (zh, unspaced): the sentences' tokens after segmentation
+        nw = sum(lk.n_words(tk) for tk in sent_toks) if hasattr(lk, "n_words") else n_words(text)
         lo, hi = rules["words_per_passage"][lv]
         if not lo <= nw <= hi:
             perr.append(f"{nw} words outside {lo}-{hi}")
@@ -833,6 +861,8 @@ def run(spec, check_only=False, out=sys.stdout):
                     wid = w2
                 if lv_rank[lv_of[wid]] > lv_rank[lv]:
                     note.append(f"title {surf!r}: {shipped[wid]['lemma']} {lv_of[wid]}")
+        if hasattr(lk, "passage_notes"):
+            note += lk.passage_notes([t for t, _en in p["sentences"]], names)
         counted_q = {x for ls in above.values() for x in ls}
         for q in p["questions"]:
             for qt in [q["q"]] + (q["options"] or []):
@@ -856,7 +886,9 @@ def run(spec, check_only=False, out=sys.stdout):
                 perr.append(f"{len(lems)} {alv} words > {cap}: {sorted(lems)}")
         passages.append({"id": pid, "lv": lv, "title": p["title"], "text": text, "sentences": sents,
                          "questions": qs, "src": "gen"})
-        rows.append({"id": pid, "lv": lv, "title": p["title"], "words": nw, "ws_words": len(text.split()), "cov": cov,
+        # unspaced script (zh): the app's length is the linked word count
+        ws_n = sum(len(s["words"]) for s in sents) if getattr(spec, "passage_unspaced", False) else len(text.split())
+        rows.append({"id": pid, "lv": lv, "title": p["title"], "words": nw, "ws_words": ws_n, "cov": cov,
                      "counted": len(counted), "link": linked / len(counted) if counted else 0.0, "oop": dict(sorted((oop_name.get(k, k), n) for k, n in oop.items())),
                      "oop_reason": p.get("oop", {}),
                      "above": {k: sorted(v) for k, v in sorted(above.items())},
@@ -877,22 +909,33 @@ def run(spec, check_only=False, out=sys.stdout):
         if errors:
             print("passages: not writing pack/passages.json (fix the errors first)", file=out)
             return 1
-        write_json(repo / "pack" / "passages.json", passages)
-        write_report(repo, rows, rules)
+        write_json(pack_dir / "passages.json", passages)
+        write_report(repo, rows, rules, tools_dir, getattr(spec, "passage_unspaced", False))
         print(f"passages: wrote {len(passages)} passages", file=out)
     return 1 if errors else 0
 
 
-def write_report(repo, rows, rules):
+def write_report(repo, rows, rules, tools_dir=None, unspaced=False):
+    tools_dir = tools_dir or repo / "tools"
+    if rules["budget"] == DEFAULT_RULES["budget"]:
+        budget = ["punctuation not counted). Level budget (passage + questions + options): A1 may use",
+                  "<=3 A2 lemmas and no B1; A2 may use <=3 B1 lemmas; B1 may use anything in the pack."]
+    else:
+        parts = [f"{lv} may use <={n} {nxt} lemmas and nothing above" if nxt else f"{lv} may use anything in the pack"
+                 for lv, (nxt, n) in rules["budget"].items()]
+        budget = ["punctuation not counted). Level budget (passage + questions + options): " + "; ".join(parts) + "."]
+    src_rel = "tools/passages_src.json" if layout(repo)[0] == Path(repo) / "tools" else "passages_src.json"
     lines = ["# Reading passages report", "",
-             "Generated by `python3 -m packbuilder passages <repo>` from `tools/passages_src.json`.",
-             "Coverage = tokens whose lemma is a pack word / counted tokens (names, numerals,",
-             "punctuation not counted). Level budget (passage + questions + options): A1 may use",
-             "<=3 A2 lemmas and no B1; A2 may use <=3 B1 lemmas; B1 may use anything in the pack.",
+             f"Generated by `python3 -m packbuilder passages <repo>` from `{src_rel}`.",
+             "Coverage = tokens whose lemma is a pack word / counted tokens (names, numerals,"] + budget + [
              "Linked = tokens whose word id is also in the sentence's `words` (the stricter share:",
-             "a pack lemma can go unlinked when the tagger reads it with another POS).",
-             "words = the builder's word count (the band rule); ws_words = whitespace-separated",
-             "tokens of the passage text, the count the app shows (report only).", ""]
+             "a pack lemma can go unlinked when the tagger reads it with another POS)."]
+    if unspaced:
+        lines += ["words = the builder's word count (the band rule: tokens after segmentation); ws_words =",
+                  "linked words, the count the app shows for an unspaced pack (report only).", ""]
+    else:
+        lines += ["words = the builder's word count (the band rule); ws_words = whitespace-separated",
+                  "tokens of the passage text, the count the app shows (report only).", ""]
     for lv in sorted({r["lv"] for r in rows}):
         rs = [r for r in rows if r["lv"] == lv]
         covs = [r["cov"] for r in rs]
@@ -917,7 +960,7 @@ def write_report(repo, rows, rules):
         lines += ["", "Title words, and question/option words the budget does not count (a numeral-like",
                   "pack word), that are out of the pack or above the passage's level (report only;",
                   "the budget rule above is unchanged):", ""] + notes
-    path = repo / "tools" / "REPORT_passages.md"
+    path = tools_dir / "REPORT_passages.md"
     manual = ""
     if path.exists() and MANUAL_MARK in path.read_text():
         manual = path.read_text().split(MANUAL_MARK, 1)[1]
@@ -928,5 +971,5 @@ def main(repo, lang=None, check_only=False):
     from .langs import get_spec
     repo = Path(repo).resolve()
     if lang is None:
-        lang = json.loads((repo / "pack" / "pack.json").read_text())["key"]
+        lang = json.loads((layout(repo)[1] / "pack.json").read_text())["key"]
     return run(get_spec(lang, str(repo)), check_only)

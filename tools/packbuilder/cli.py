@@ -4,7 +4,8 @@
     check   pack-level schema, coverage and language assertions (exit 1 on failure)
     scan    the QA scans (gloss junk, articles/closed sets, non-lemmas)
     sample  stratified word / sentence samples for hand QA (--seed)
-    passages  <repo>: tools/passages_src.json -> pack/passages.json (--check: report only)
+    passages  <repo>: tools/passages_src.json -> pack/passages.json (--check: report only);
+              <repo> may be a flat pack dir (packs/zh: passages_src.json -> passages.json beside it)
 """
 import argparse
 
@@ -34,7 +35,7 @@ def main(argv=None):
     sm.add_argument("--words", type=int, default=60)
     sm.add_argument("--sentences", type=int, default=60)
     pg = sub.add_parser("passages", help="reading passages: tools/passages_src.json -> pack/passages.json")
-    pg.add_argument("repo", help="language repo root")
+    pg.add_argument("repo", help="language repo root, or a flat pack dir (packs/zh)")
     pg.add_argument("--lang", help="language code (default: pack/pack.json key)")
     pg.add_argument("--check", action="store_true", help="report coverage/validation only, write nothing")
     args = ap.parse_args(argv)
