@@ -1275,7 +1275,7 @@ let __renderCalls = 0;
 const __wrappedRender = render;
 render = function(){ __renderCalls++; return __wrappedRender.apply(this, arguments); };
 return {
-  getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
+  glossHTML, glossBox, getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
   setHasSpeech: v => { hasSpeech = v; },
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
 };`;
@@ -1400,6 +1400,25 @@ return {
       mediaBefore === "print" && l.media === "all");
     await tick(); await tick();
   }catch(e){ check(`pack.fonts link scenario does not throw (got: ${e.message})`, false); }
+
+  // RTL gloss popover: for pack.rtl the #gloss container is dir=rtl (word at the right
+  // edge, pron/gloss after it in reading order) with pron and the English gloss as LTR
+  // runs; ltr packs get exactly the old markup.
+  try{
+    const wid = WORDS.find(w => w.pron).id;
+    const ltr = bootAppSync([{ lang:"zh-CN", name:"x" }]).api;
+    const rtl = bootAppSync([{ lang:"zh-CN", name:"x" }], { pack: Object.assign({}, PACK, { rtl: true }) }).api;
+    const rg = rtl.glossHTML(wid), lg = ltr.glossHTML(wid);
+    check("rtl pack: #gloss container has dir=rtl", /^<div class="gloss" id="gloss" dir="rtl" hidden><\/div>$/.test(rtl.glossBox()));
+    check("rtl pack: gloss word is rtl, English gloss and pron spans are dir=ltr",
+      /<span class="gw" data-tl lang="[^"]+" dir="rtl">/.test(rg) && /<span class="ge" dir="ltr">/.test(rg) && /<span class="gp" dir="ltr">/.test(rg));
+    check("ltr pack: #gloss container and gloss spans carry no dir (unchanged)",
+      ltr.glossBox() === '<div class="gloss" id="gloss" hidden></div>' && !/dir=/.test(lg) && /<span class="ge">/.test(lg));
+    check("app.html: .gloss aligns text-align:start", /\.gloss\{[^}]*text-align:start/.test(appHtml));
+    check("app.html: both passage screens use glossBox() (no hard-coded #gloss markup left)",
+      (appHtml.match(/\$\{glossBox\(\)\}/g) || []).length === 2 && !/<div class="gloss" id="gloss" hidden>/.test(appHtml));
+    await tick(); await tick();
+  }catch(e){ check(`rtl gloss scenario does not throw (got: ${e.message})`, false); }
 
   // Service-worker registration: guarded (no navigator.serviceWorker / file:// -> no-op),
   // registers the sibling sw.js over http(s), and shows the update toast only when a

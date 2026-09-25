@@ -140,7 +140,7 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 
 **Progress.** `prog.read` (`{unlocked: {levelId: 1}, done: {passageId: {sc, n, d, x}}}`) is created on first use, exported and imported with the rest, and checked by `validateProgShape`. Stored progress without it loads unchanged. The Progress tab shows passages done and the average latest score per level.
 
-**Script display.** Titles, passage sentences, questions, mc options and gloss words carry `lang`, `dir="rtl"` and the pack fonts, as everywhere else. English translations and True/False labels do not.
+**Script display.** Titles, passage sentences, questions, mc options and gloss words carry `lang`, `dir="rtl"` and the pack fonts, as everywhere else. English translations and True/False labels do not. In RTL packs the tap-to-gloss popover itself is `dir="rtl"` with `text-align:start`, so the tapped word sits at the right edge and its `pron` and English gloss follow in reading order. Those two stay isolated left-to-right runs (`dir="ltr"`).
 
 ## Validation
 

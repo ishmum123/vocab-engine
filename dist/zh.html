@@ -146,7 +146,7 @@
   .pw{border-bottom:1px dotted var(--mute);cursor:pointer}
   .pw.on{background:var(--ok-bg);border-bottom-color:var(--ok)}
   .pchip{font-size:14px;padding:2px 8px;border:1px solid var(--line);border-radius:8px;border-bottom-style:solid}
-  .gloss{position:sticky;top:0;z-index:2;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:6px 0;font-size:15px}
+  .gloss{position:sticky;top:0;z-index:2;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:6px 0;font-size:15px;text-align:start}
   .gloss .gw{font-size:19px;font-weight:500}
   .gloss .gp,.gloss .ge,.wk .gp,.wk .ge{color:var(--mute)}
   mark{background:var(--ok-bg);color:inherit;border-radius:4px;padding:0 2px}
@@ -2063,10 +2063,14 @@ function passageSentenceHTML(s, si, hi){
   return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt"${TA}>${txt}</div>${aloud}${chips}</div>`;
 }
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
+// RTL packs: the popover runs right-to-left (tapped word at the right edge, then pron and
+// gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
+const LTR = SCRIPT.rtl ? ' dir="ltr"' : "";
+const glossBox = () => `<div class="gloss" id="gloss"${SCRIPT.rtl ? ' dir="rtl"' : ""} hidden></div>`;
 function glossHTML(id){
   const w = WORDS_BY_ID[id]; if(!w) return "";
   const p = pronOf(w);
-  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp">${escapeHtml(p)}</span>` : ""} <span class="ge">${escapeHtml(VC.gloss(w))}</span>`;
+  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(VC.gloss(w))}</span>`;
 }
 // Wires tap-to-gloss and read-aloud on a freshly rendered passage container (its
 // innerHTML is replaced on every render, so listeners never accumulate).
@@ -2091,7 +2095,7 @@ function readPassageScreen(){
   P.innerHTML = `<div class="row"><button id="rback">‹ passages</button></div>
     <h2 class="ptitle"${TA}>${escapeHtml(p.title)}</h2>
     <p class="q">${escapeHtml(levelLabel(p.lv))} · ${VC.passageLength(p, PACK)} words. Tap a word to see its meaning.</p>
-    <div class="gloss" id="gloss" hidden></div>
+    ${glossBox()}
     <div class="passage" id="pbox">${passageHTML(-1)}</div>
     <div class="actions"><button class="next" id="rdone">Done reading</button></div>`;
   wirePassage($("pbox"), $("gloss"));
@@ -2112,7 +2116,7 @@ function readQuestionScreen(){
     <div class="opts ${tf ? "" : "opts-w"}" id="o"></div>
     <div class="reveal" id="rv"></div>
     <button class="ghost" id="ptoggle" aria-expanded="${RD.shown}" style="margin-top:12px">${RD.shown ? "Hide passage" : "Show passage"}</button>
-    <div class="gloss" id="gloss" hidden></div>
+    ${glossBox()}
     <div class="passage" id="pbox"${RD.shown ? "" : " hidden"}>${passageHTML(-1)}</div>
     </div><div class="actions"><button class="next" id="nx" style="display:none">${qi+1 < p.questions.length ? "Next" : "See results"}</button></div>`;
   wirePassage($("pbox"), $("gloss"));

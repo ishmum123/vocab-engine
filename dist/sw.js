@@ -1,5 +1,5 @@
 // Service worker for a built trainer page. build.sh writes it as sw.js next to the page,
-// filling in 3256762211-446555 (cksum of the built page) and zh.html (its file name), so
+// filling in 1193040117-446851 (cksum of the built page) and zh.html (its file name), so
 // every rebuild that changes the page also changes sw.js and the browser installs it.
 //
 // - Cache-first for the page and same-origin pack/*.js inside this worker's scope.
@@ -13,7 +13,7 @@
 // - skipWaiting + claim: a new build takes over at once. The open page keeps running on
 //   what it already loaded (the page is self-contained); the next load gets the new build.
 "use strict";
-const BUILD = "3256762211-446555";
+const BUILD = "1193040117-446851";
 const PAGE = "zh.html";
 const SCOPE = self.registration ? self.registration.scope : new URL("./", self.location.href).href;
 const PREFIX = "ve:" + new URL(SCOPE).pathname + ":";
