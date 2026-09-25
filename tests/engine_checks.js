@@ -338,17 +338,19 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
 
 // ------------------------------------------------------------ [10] engine is language-agnostic
 (function(){
-  console.log("\n[10] no pinyin/tone/character logic in engine/");
-  // Allowed: the HTML charset declaration only.
+  console.log("\n[10] no pinyin/tone/script-specific logic in engine/");
+  // Allowed: the HTML charset declaration only. "char" is not banned: the characters
+  // stage (pack.characters, prog.chars) is a pack-generic feature used by zh and ja
+  // (docs/HSK_MERGE.md §2); language-specific terms below still are.
   const ALLOW = [/<meta charset="utf-8">/];
   const hits = [];
   ["core.js", "app.html"].forEach(f=>{
     fs.readFileSync(path.join(ROOT, "engine", f), "utf8").split("\n").forEach((line, i)=>{
-      if(/tone|pinyin|cjk|char|hsk/i.test(line) && !ALLOW.some(re=>re.test(line))) hits.push(`${f}:${i+1}: ${line.trim().slice(0,100)}`);
+      if(/tone|pinyin|cjk|hsk|hanzi|kanji/i.test(line) && !ALLOW.some(re=>re.test(line))) hits.push(`${f}:${i+1}: ${line.trim().slice(0,100)}`);
     });
   });
   hits.forEach(h=>console.log("    " + h));
-  check("engine/ has no tone/pinyin/CJK/char/hsk references (besides <meta charset>)", hits.length === 0);
+  check("engine/ has no tone/pinyin/CJK/hsk/hanzi/kanji references (besides <meta charset>)", hits.length === 0);
 })();
 
 // ------------------------------------------------------------ [11] homographs / homophones (review major 1)
