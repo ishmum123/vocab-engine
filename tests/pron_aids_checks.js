@@ -460,6 +460,80 @@ function walk(api, stopAt){
     check(`passage sentences with an internal . ! ? (${n}): every reading after one is capitalised (${badCap.length} bad${badCap[0] ? ": " + badCap[0] : ""})`, n > 0 && badCap.length === 0);
   } catch(e){ check(`section threw: ${e.message}`, false); }
 
+  // ---------------------------------------------------------------- [8] titles, questions, options (ruby)
+  console.log("\n[8] passage titleRuby, questions[].ruby, optionsRuby under pronFirst; no hanzi in the Read tab");
+  try {
+    const withTR = PASSAGES.filter(p => Array.isArray(p.titleRuby) && p.titleRuby.length).length;
+    const withQR = PASSAGES.flatMap(p => p.questions).filter(q => Array.isArray(q.ruby)).length;
+    check(`zh passages carry titleRuby (${withTR}/${PASSAGES.length}) and question ruby (${withQR})`, withTR === PASSAGES.length && withQR > 0);
+    const { api } = await boot({ seed: 5 });
+    const pr = seedPF(); pr.read = { unlocked: PASSAGES.map(p => p.lv).filter((v, i, a) => a.indexOf(v) === i) }; api.setProg(VC.normalizeProg(pr, PACK));
+    // Today read hint: the suggested passage's title by its reading.
+    api.today();
+    const hint = (api.html("panel").match(/<div class="stmt" id="readHintBox">([\s\S]*?)<button class="next"/) || [])[1];
+    check(`Today read hint: the title reads by its ruby, coloured, with a show-written tap (${hint ? stripTags(hint).slice(0, 60) : "no hint"})`, !!hint && !HAN.test(stripTags(hint)) && tspans(hint) > 0 && /data-showw=/.test(hint));
+    // Passage list: titles as readings inside the list buttons, no show-written inside a button.
+    api.goto("read");
+    const list = api.html("panel");
+    const btns = [...list.matchAll(/<button data-pid="[^"]*"[^>]*>([\s\S]*?)<\/button>/g)].map(m => m[1]);
+    check(`Read list: every title button shows the title's reading, coloured, no show-written or tap inside (${btns.length} buttons)`,
+      btns.length > 0 && btns.every(b => !HAN.test(stripTags(b)) && tspans(b) > 0 && !/data-showw|data-tok/.test(b)));
+    // Every passage: heading, passage, every question and its options, reveals, results.
+    let screens = 0, hanBad = [], colBad = 0, optBad = 0, qBad = 0;
+    const scan = (where, h) => { screens++; const t = stripTags(String(h).replace(/<button type="button" class="showw"[^>]*>[^<]*<\/button>/g, "")); if(HAN.test(t)) hanBad.push(`${where}: ${t.match(/[\s\S]{0,15}\p{Script=Han}+[\s\S]{0,5}/u)[0]}`); if(uncoloured(h).length) colBad++; };
+    for(const p of PASSAGES){
+      api.startPassage(p);
+      const ps = api.html("panel"); scan(p.id + " passage", ps);
+      const h2 = (ps.match(/<h2 class="ptitle"[^>]*>([\s\S]*?)<\/h2>/) || [])[1] || "";
+      if(!(tspans(h2) && h2.includes(`data-showw="${VC.escapeHtml(p.title)}"`))) qBad++;
+      api.el("rdone").click();
+      for(let qi = 0; qi < p.questions.length; qi++){
+        const q = p.questions[qi];
+        const qs = api.html("panel"); scan(`${p.id} q${qi}`, qs);
+        const qh = (qs.match(/<div class="med wd"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "";
+        if(Array.isArray(q.ruby) && !(tspans(qh) && qh.includes(`data-showw="${VC.escapeHtml(q.q)}"`))) qBad++;
+        const opts = api.el("o").children;
+        opts.forEach(b => { scan(`${p.id} q${qi} option`, b.innerHTML); if(q.type === "mc" && (!tspans(b.innerHTML) || /data-showw|data-tok/.test(b.innerHTML))) optBad++; });
+        const right = opts.find(b => b.dataset.v === String(q.answer));
+        right.click(); scan(`${p.id} q${qi} reveal`, api.html("rv")); api.el("nx").click();
+      }
+      scan(p.id + " results", api.html("panel"));
+    }
+    check(`passage headings and question texts: reading-first, coloured, with a show-written tap (${qBad} bad)`, qBad === 0);
+    check(`mc option buttons: coloured readings, no show-written, no word taps (${optBad} bad)`, optBad === 0);
+    check(`no hanzi anywhere in the Read tab before characters are mastered: list, passages, questions, options, reveals, results of all ${PASSAGES.length} passages (${screens} screens, ${hanBad.length} with hanzi${hanBad[0] ? ": " + hanBad.slice(0, 3).join(" | ") : ""})`, hanBad.length === 0 && screens > 500);
+    check(`every reading on those screens is tone-coloured (${colBad} screens with an uncoloured reading)`, colBad === 0);
+    // Names (null wordId) show their reading.
+    const q0 = PASSAGES[0].questions[0];
+    const qn = q0.ruby.find(r => r[3] === null);
+    api.startPassage(PASSAGES[0]); api.el("rdone").click();
+    const q0h = api.html("panel");
+    check(`a null-wordId token (a name) shows its reading (${qn && qn[2]} in "${stripTags((q0h.match(/<div class="med wd"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "").slice(0, 40)}")`, !!qn && stripTags((q0h.match(/<div class="med wd"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "").startsWith(qn[2]));
+    // Ruby first: 越来越 / 一下 read from the passage ruby (as the builder wrote it); the
+    // composed reading is only the fallback when a sentence has no ruby.
+    const find = t => { for(const p of PASSAGES) for(let si = 0; si < p.sentences.length; si++) if(p.sentences[si].t.includes(t)) return { p, s: p.sentences[si], si }; return null; };
+    const f = find("我来介绍一下我的家人");
+    const i = f.s.t.indexOf("一下");
+    const alt = Object.assign({}, f.s, { ruby: f.s.ruby.map(r => r[0] === i && r[1] === i + 2 ? [r[0], r[1], "yíxià", r[3]] : r) });
+    api.setProg(seedPF());
+    const vRuby = stripTags(api.passageSentenceHTML(alt, f.si, false).replace(/<button[\s\S]*?<\/button>/g, ""));
+    const noRuby = Object.assign({}, f.s); delete noRuby.ruby;
+    const vComp = stripTags(api.passageSentenceHTML(noRuby, f.si, false).replace(/<button[\s\S]*?<\/button>/g, ""));
+    const head = api.passageSentenceHTML(alt, f.si, false).match(/data-ts="一下" data-tr="([^"]*)"/);
+    check(`一下 reads from the sentence ruby (ruby says yíxià -> "${vRuby}"; popover head ${head && head[1]})`, /yíxià/.test(vRuby) && !!head && head[1] === "yíxià");
+    check(`without ruby the composed fallback applies (-> "${vComp}")`, /yīxià/.test(vComp));
+    const f2 = find("越来越好");
+    check(`shipped ruby: 越来越 is one ruby token reading ${JSON.stringify(f2.s.ruby.find(r => f2.s.t.slice(r[0], r[1]) === "越来越"))}`, !!f2.s.ruby.find(r => f2.s.t.slice(r[0], r[1]) === "越来越" && r[2] === "yuèláiyuè"));
+    // Flag off (no pronFirst): titles, questions and options stay written, as before.
+    const off = Object.assign({}, PACK); delete off.pronFirst;
+    const { api: a3 } = await boot({ pack: off });
+    a3.setProg(VC.normalizeProg(seedPF(), off)); a3.goto("read");
+    const offList = [...a3.html("panel").matchAll(/<button data-pid="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)];
+    check(`without pronFirst the list titles stay written, ruby unused (${offList.length} titles)`, offList.length > 0 && offList.every(m => m[2].includes(PASSAGES.find(p => p.id === m[1]).title) && !tspans(m[2])));
+    a3.startPassage(PASSAGES[0]); a3.el("rdone").click();
+    check("without pronFirst the heading, question and options stay written", a3.el("o").children.some(b => b.innerHTML.includes(PASSAGES[0].questions[0].options[0])) && a3.html("panel").includes(VC.escapeHtml(PASSAGES[0].questions[0].q)));
+  } catch(e){ check(`section threw: ${e.message}`, false); }
+
   // ---------------------------------------------------------------- [7] control vs main
   console.log(`\n[7] control: BP2 fields absent -> HTML byte-identical to main ${MAIN}`);
   {
