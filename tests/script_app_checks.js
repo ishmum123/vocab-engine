@@ -148,6 +148,8 @@ return {
   const args = [document, window, window.SpeechSynthesisUtterance, { userAgent:"ScriptAppChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
     function(){ return { play(){ played.push(this.src); return Promise.resolve(); }, pause(){} }; }, () => true, () => {}, fx.pack, fx.words, [], [], []];
   if(o.script !== false){ names.push("SCRIPT"); args.push(fx.script); }
+  Object.keys(o.extra || {}).forEach(k => { names.push(k); args.push(o.extra[k]); });
+  if(o.console){ names.push("console"); args.push(o.console); }
   const api = new Function(...names, fnBody)(...args);
   await tick(); await tick();
   return { api, document, spoken, played, storage: localStorage };
@@ -457,6 +459,36 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     const noData = await boot(KO, { script: false });
     check("pack.script without script.js: primer off, no choice card", !noData.api.hasScript() && !/scriptChoice/.test(noData.api.html("panel")));
     check("engine/app.html: dev loader lists script.js", /\["pack","words","sentences","lessons","characters","script","legacy"\]/.test(appHtml));
+  }
+  // pack.script without its data, on a characters pack (the crash that
+  // characters_app_checks [15] hit on ../japanese/pack): the primer is off everywhere,
+  // one console warning, never a crash; the Today snapshot equals the flag-off one.
+  {
+    const ZH = path.join(ROOT, "packs", "zh");
+    const ld = (f, n) => new Function(fs.readFileSync(path.join(ZH, f), "utf8") + `\nreturn ${n};`)();
+    const zp = ld("pack.js", "PACK"), zw = ld("words.js", "WORDS"), zc = ld("characters.js", "CHARACTERS");
+    const withScript = Object.assign({}, zp, { script: FX.ko().pack.script });
+    for(const [what, data] of [["no script.js", false], ["empty units", { units: [], notes: [] }]]){
+      const warns = [];
+      const con = Object.assign(Object.create(console), { warn: (...a) => warns.push(a.join(" ")) });
+      let b = null, err = null, hs = {};
+      try{
+        b = await boot({ pack: withScript, words: zw, script: data || undefined }, { script: data ? undefined : false, extra: { CHARACTERS: zc }, console: con });
+        b.api.today(); hs.today = b.api.html("panel");
+        b.api.goto("progress"); hs.progress = b.api.html("panel");
+        b.api.goto("sounds"); hs.sounds = b.api.html("panel");
+        b.api.today(); b.api.el("go").click(); hs.snap = b.api.getState().snap;
+      }catch(e){ err = e; }
+      const flagOff = VC.todaySnapshot(zp, zw, zc, VC.defaultProg(zp));
+      check(`pack.script + ${what} on a characters pack: boots, Today/Progress/Sounds render, no crash${err ? ` (${err.message})` : ""}`, !err && /id="go"|id="charChoice"/.test(hs.today) && !!hs.progress);
+      check(`... primer off everywhere: no choice card, notice, chips or script stage; one warning (${warns.length})`,
+        !err && !b.api.hasScript() && !/scriptChoice|scriptNotice|scriptCtl|xtab/.test(hs.today + hs.progress + hs.sounds) && warns.length === 1 && /script primer is off/.test(warns[0]));
+      check(`... the Today snapshot equals the flag-off snapshot`, !err && JSON.stringify(hs.snap) === JSON.stringify(flagOff));
+    }
+    check("core: scriptActive needs config and units; path/choice/snapshot ignore pack.script without units",
+      VC.scriptActive(withScript, FX.ko().script.units) && !VC.scriptActive(withScript, []) && !VC.scriptActive(withScript, undefined) && !VC.scriptActive(zp, FX.ko().script.units)
+      && JSON.stringify(VC.stagePath(withScript, zw, zc, VC.defaultProg(withScript))) === JSON.stringify(VC.stagePath(zp, zw, zc, VC.defaultProg(zp)))
+      && VC.showScriptChoice(withScript, [], VC.defaultProg(withScript)) === false);
   }
   // The built page runs every inline <script> in one global scope: script.js's
   // `const SCRIPT` must not collide with anything the app declares.

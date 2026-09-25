@@ -314,6 +314,9 @@ const CHAR_CTX = { units: CHAR_LIST, words: WORDS, byId: WORDS_BY_ID }; // VC.ch
 const SCRIPT_DATA = (typeof SCRIPT !== "undefined" && SCRIPT && typeof SCRIPT === "object" && Array.isArray(SCRIPT.units)) ? SCRIPT : null;
 const HAS_SCRIPT = VC.scriptConfig(PACK) !== null && !!SCRIPT_DATA && SCRIPT_DATA.units.length > 0;
 const SCFG = HAS_SCRIPT ? VC.scriptConfig(PACK) : null;
+// pack.script without its data (no script.js, or no units): the primer is off everywhere
+// (SU undefined, so core returns the flag-off path/snapshot), with one console warning.
+if(VC.scriptConfig(PACK) !== null && !HAS_SCRIPT) console.warn("pack.script is set but script.js has no units: the script primer is off");
 const SUNITS = HAS_SCRIPT ? SCRIPT_DATA.units : [];
 const SNOTES = HAS_SCRIPT && Array.isArray(SCRIPT_DATA.notes) ? SCRIPT_DATA.notes : [];
 const SU = HAS_SCRIPT ? SUNITS : undefined;
@@ -1255,7 +1258,7 @@ function todayRender(){
   refreshReadUnlocks();
   const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
   const choice = !!(snap && snap.choice);
-  const xChoice = !!(snap && snap.choice === "script");
+  const xChoice = HAS_SCRIPT && !!(snap && snap.choice === "script");
   const xNotice = showScriptNotice();
   P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${legacyFail ? `<div class="stmt" id="legacyFail">${legacyFailHTML(legacyFail)}<button class="ghost" id="legacySkip" style="margin-top:8px">Start without it</button></div>` : ""}${xNotice ? `<div class="stmt" id="scriptNotice">A script primer is available. Turn it on in Progress.<button class="ghost" id="scriptNoticeOk" style="margin-top:8px">OK</button></div>` : ""}${pathStrip()}${xChoice ? scriptChoiceHTML() : ""}
     ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice && !xChoice ? charChoiceHTML() : ""}

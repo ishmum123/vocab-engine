@@ -1673,7 +1673,7 @@ function todaySnapshot(pack, words, units, prog, sunits){
   const cset = stage && stage.kind === "chars" ? nextCharSet(stage.levels, units, pack, prog) : null;
   const started = charsStarted(pack, words, units, prog, sunits);
   const snap = { stage, cset, charsStarted: started, reviewSize: started ? REVIEW_SIZE_CHARS : REVIEW_SIZE, choice: showCharChoice(pack, words, units, prog, sunits) };
-  const scfg = scriptConfig(pack);
+  const scfg = scriptActive(pack, sunits) ? scriptConfig(pack) : null; // no units: the flag-off snapshot
   if(scfg){
     const onScript = !!(stage && stage.kind === "script");
     snap.ssets = onScript ? nextScriptSets(stage.key, sunits, pack, prog, scfg.setsPerSession) : [];
@@ -1817,8 +1817,11 @@ function nextScriptSets(key, units, pack, prog, n){
 // Script stages for this learner, in path order ([] when skipped or without pack.script):
 // {kind:"script", key, label, recorded, nunits, nsets, frac, done}. done = every unit
 // recorded, so a missed review never pulls the stage back into the path.
+// The primer runs only with a config AND its units: pack.script without script.js data
+// (absent or empty units) is the primer off everywhere, exactly the flag-off output.
+function scriptActive(pack, units){ return !!scriptConfig(pack) && Array.isArray(units) && units.length > 0; }
 function scriptStages(pack, units, prog){
-  const cfg = scriptConfig(pack); if(!cfg || scriptSkipped(prog)) return [];
+  const cfg = scriptConfig(pack); if(!cfg || !scriptActive(pack, units) || scriptSkipped(prog)) return [];
   const recs = scriptRecs(prog);
   return cfg.stages.filter(st => !scriptSkipped(prog, st.key)).map(st => {
     const list = scriptStageUnits(st.key, units);
@@ -1843,7 +1846,7 @@ function scriptPool(units, prog, set){
 // The choice card shows while it is unanswered, the primer is not switched off, and no
 // script record exists. Placement does not answer it (it tests words, not the script).
 function showScriptChoice(pack, units, prog){
-  const cfg = scriptConfig(pack); if(!cfg || !cfg.stages.length) return false;
+  const cfg = scriptConfig(pack); if(!cfg || !cfg.stages.length || !scriptActive(pack, units)) return false;
   const sc = (prog && isObj(prog.script)) ? prog.script : {};
   if(sc.choiceSeen === true || sc.skipped === true) return false;
   const recs = scriptRecs(prog);
@@ -2438,7 +2441,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   SCRIPT_PROG_VERSION, SCRIPT_MASTERED, SCRIPT_SETS_PER_SESSION, REVIEW_SIZE_SCRIPT, SCRIPT_KINDS, scriptConfig,
   defaultScriptProg, validateScriptShape, normalizeScriptProg, ensureScript, scriptRecs, scriptSkipped, setScriptSkipped, answerScriptChoice,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
-  recordedScriptUnits, scriptPool, showScriptChoice, scriptKindFits, scriptKindFor, pickScriptKind, scriptGlyph, scriptSecondRight,
+  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindFits, scriptKindFor, pickScriptKind, scriptGlyph, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
   tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
