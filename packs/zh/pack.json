@@ -58,7 +58,7 @@
   "w0156",
   "w0144"
  ],
- "typing": null,
+ "typing": "pron",
  "showPron": true,
  "hasLessons": true,
  "spaced": false,
@@ -121,5 +121,7 @@
   "key": "hsk_pinyin",
   "format": "hsk-v2"
  },
- "pronFirst": true
+ "pronFirst": true,
+ "tones": "pinyin",
+ "soundsReference": true
 }

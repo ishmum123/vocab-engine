@@ -340,5 +340,37 @@ console.log("Checking tools/validate_pack.py characters/legacy/ruby cases (Node 
   check("warns: passage ruby without pack.characters is never rendered", r6.status === 0 && /WARN.*p1\.sentences\[0\]\.ruby present but pack\.characters is absent/.test(r6.out), r6.out);
 })();
 
+// ------------------------------------------------------------ pronunciation aids (BP2)
+// pack.tones (only "pinyin"), pack.typing "pron" (needs prons), pack.soundsReference
+// (only true; needs lesson rows with a one-character say). docs/PACK_SCHEMA.md.
+(function(){
+  const words = baseWords().map((w, i) => Object.assign({}, w, { pron: `pr${i}` }));
+  const lessons = [{ id: "l1", title: "L1", blurb: "b", cards: [{ h: "h", body: "b", rows: [["ma", "M", "x"]], say: ["M"] }],
+    items: [{ t: "mc", q: "q", opts: ["a", "b"], a: "a" }] }];
+  const withLessons = (pack) => { const d = mkPack({ pack, words }); writeJSON(d, "lessons", lessons); return d; };
+  const ok = runValidate(withLessons(basePack({ tones: "pinyin", typing: "pron", soundsReference: true, hasLessons: true })));
+  check("accepts: tones \"pinyin\", typing \"pron\", soundsReference true (no warning about them)", ok.status === 0 && !/WARN.*(tones|typing|soundsReference|pron)/.test(ok.out), ok.out);
+  const cases = [
+    ["tones not the one admitted system", { tones: "jyutping" }, /pack\.tones must be one of/],
+    ["tones not a string", { tones: true }, /pack\.tones must be one of/],
+    ["typing an unknown string", { typing: "reading" }, /pack\.typing must be an object, "pron" or null/],
+    ["soundsReference not true", { soundsReference: "yes", hasLessons: true }, /pack\.soundsReference must be true/],
+  ];
+  for(const [name, patch, re] of cases){
+    const r = runValidate(withLessons(basePack(patch)));
+    check(`rejects: ${name}`, r.status !== 0 && re.test(r.out), r.out);
+  }
+  const noPron = runValidate(mkPack({ pack: basePack({ typing: "pron" }), words: baseWords() }));
+  check("rejects: typing \"pron\" when no word has a pron", noPron.status !== 0 && /no word has a pron/.test(noPron.out), noPron.out);
+  const somePron = runValidate(mkPack({ pack: basePack({ typing: "pron" }), words: words.map((w, i) => i < 3 ? Object.assign({}, w, { pron: undefined }) : w) }));
+  check("warns: typing \"pron\" with some words lacking a pron (they get recall)", somePron.status === 0 && /WARN.*3 words have no pron/.test(somePron.out), somePron.out);
+  const noLessons = runValidate(mkPack({ pack: basePack({ soundsReference: true }), words }));
+  check("warns: soundsReference without lessons", noLessons.status === 0 && /WARN.*soundsReference is set but pack\.hasLessons is not true/.test(noLessons.out), noLessons.out);
+  const d = mkPack({ pack: basePack({ soundsReference: true, hasLessons: true }), words });
+  writeJSON(d, "lessons", [Object.assign({}, lessons[0], { cards: [{ h: "h", body: "b", rows: [["mama", "MM", "x"]], say: ["MM"] }] })]);
+  const empty = runValidate(d);
+  check("warns: soundsReference with no one-character lesson row (empty card)", empty.status === 0 && /WARN.*Reference card is empty/.test(empty.out), empty.out);
+})();
+
 console.log(`\n${fails === 0 ? "ALL PASSED" : "FAILED"}: ${passes} passed, ${fails} failed`);
 process.exit(fails === 0 ? 0 : 1);
