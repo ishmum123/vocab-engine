@@ -1,0 +1,187 @@
+# HSK merge: design and plan
+
+Design, 2026-09-25; TODO.md "Large items" 1.
+hsk rollback point: `main` **3aeecc4**. Engine 510ac3e was extracted from b5b5f24-era hsk minus the characters subsystem, so every hsk change from a7e7f86 on is a delta. hsk `data/` is unchanged since, so `packs/zh` ids match a rebuild.
+
+## 1. Delta inventory
+
+hsk `core` = `src/pinyin_core.js`, `app` = `src/pinyin_app.html`.
+
+| # | hsk behaviour | hsk file:line | engine counterpart | tag |
+|---|---|---|---|---|
+| 1 | Character records `c` `{r,w,s}` | core 408-418; app 316-329 | none | PORT |
+| 2 | Tier thresholds: mastered s≥3, bare s≥6 | core 585-604 | none | PORT (pack params) |
+| 3 | Mixed-script sentences (pinyin, ruby, bare by streak) | core 606-611; app 617-638 | none | PORT (needs per-token readings, §2.3) |
+| 4 | "Mix known characters" toggle | app 1333, 1350 | none | PORT |
+| 5 | Character stages in the path (字 after HSK3, 字4 after HSK4), sets of 10 | core 657-697; app 303-313, 823-826 | `pathStrip` app 686 (levels only) | PORT |
+| 6 | Learn teaches the current stage's set: cards, 10 pickChar + 10 readChar | app 925-945, 971-984 | `todayStep` s===1, app 736 | PORT |
+| 7 | Stage and unified-mode snapshotted at "Start today" | app 872-877 | app 717 | PORT-UNCONDITIONAL (no visible change without characters) |
+| 8 | Items readChar, charSound, pickChar, recallChar; homophone-free `charOpts` | core 628-655, 737; app 709-758 | `meaningOpts`, `wordOpts`, `samePron` core 47-124 | PORT |
+| 9 | One-time choice card (start characters / skip to HSK 4) | core 705-715; app 848-871 | none | PORT |
+| 10 | Learning-order switch in Progress (reversible) | app 1334-1356 | none | PORT |
+| 11 | `charsStarted` gate for every character surface | core 699-704 | none | PORT |
+| 12 | Unified Review: 20 weakest across words and characters, one score | core 717-735; app 905-915 | `buildReviewPlan` core 825 | PORT-UNCONDITIONAL (inert without a character pool) |
+| 13 | Unified Recall: words plus recallChar | app 951-958 | `buildRecallPlan` core 835 | PORT-UNCONDITIONAL (inert without a character pool) |
+| 14 | Test → Characters N | core 614-626; app 1192, 1206-1216 | Test tab app 1071 | PORT |
+| 15 | Progress rows per character stage | app 1318-1323 | `progressRender` app 1154 | PORT |
+| 16 | Fields `c`, `mixChars`, `charsAfterHsk4`, `charsChoiceSeen`, additive migration | core 376-452; app 1405-1413 | `validateProgShape`/`normalizeProg` core 677-710 | PORT (as `prog.chars`, §2.5) |
+| 17 | Import keeps `mixChars` when absent; Reset clears characters | app 1377-1391 | `applyImport` core 751; reset app 1215 | PORT |
+| 18 | Reveal taps resolve `data-vidx` | app 596-608 | one delegated `#panel` listener, app 530 | ALREADY-IN-ENGINE (extend that listener) |
+| 19 | Samsung Internet audio notice | app 363-372, 853 | `isSamsungBrowser` core 902; `samsungNoticeHTML` app 324, 707 | ALREADY-IN-ENGINE (unconditional) |
+| 20 | Teach-row layout: long gloss overlapped pinyin | app 127-131 | `.rowset .info` column layout, app 120-126 | ALREADY-IN-ENGINE (other CSS) |
+| 21 | Double speak on example taps | app 450-452, 596-598 | single delegated listener, app 530 (engine 59d438e) | ALREADY-IN-ENGINE |
+| 22 | v2.2 separate Characters step, unlock hint, 10 new / 16 drilled per day | a7e7f86, b5b5f24 | none | DROP: hsk itself replaced it in 263768b |
+| 23 | `hsk_characters.html` (radical data) | gitignored | none | DROP: pre-fork, unpublished |
+
+Totals: 14 PORT, 3 PORT-UNCONDITIONAL, 4 ALREADY-IN-ENGINE, 2 DROP.
+
+## 2. Characters stage (zh and ja)
+
+### 2.1 Unit and UI placement
+A **character unit** is the written form of a known word. hsk teaches whole words (我们, not 们) and has no decomposition data. zh units are all 1193 words. ja units are words whose `w` contains kanji, read by their kana `pron`. Single glyphs (食 linked to 食べる, 食事) fit later through a multi-id `words` list.
+
+Characters stay a **stage in the path**, as in hsk. A stage reuses the one daily new-material slot (Learn), so the load stays at 10 new items. A tab would add a second stream, crowd the tab bar at 390px, and collide with item 1c's Script tab.
+
+### 2.2 pack.json
+`characters` is an optional object. When it is absent, no character code path runs.
+
+```json
+"characters": {
+  "label": "字",
+  "stages": [ {"after":"3","levels":["1","2","3"]}, {"after":"4","levels":["4"]} ],
+  "setSize": 10,
+  "mastered": 3,
+  "bare": 6,
+  "learnKinds": ["charPick","charRead"],
+  "reviewKinds": ["charRead","charSound"]
+}
+```
+- Each stage sits after word level `after` and covers `levels`. Later stages append their last level id to `label` (字4).
+- Deferred order (`prog.chars.defer`) merges all stages into one after the last level.
+- ja: `stages:[{after:"A2",levels:["A1","A2"]},{after:"B1",levels:["B1"]}]`, label 漢字, `learnKinds:["charSound","charRead"]` (reading plus meaning).
+- `validate_pack.py` checks stages, level ids and thresholds.
+
+### 2.3 Data files
+`pack/characters.json` holds the units, in teaching order within each level:
+
+| field | type | meaning |
+|---|---|---|
+| `id` | `c0001`… | Progress key. Never renumber. |
+| `t` | string | Written form, shown large. |
+| `words` | `[wordId]`, ≥1 | Linked words. `words[0]` supplies the gloss and the audio. |
+| `lv` | levelId | Decides which stage the unit belongs to. |
+| `reading` | string | Answer for charSound and the ruby text. Defaults to the pron of `words[0]`. |
+
+Optional `sentences[].ruby` is `[[start, end, reading, wordId]]` in UTF-16 offsets, sorted, non-overlapping. A token's tier follows the unit whose `words[0]` is `wordId`. zh builds it from hsk's space-aligned pinyin tokens, with compounds like 这个 mapped to their base word. ja builds it from the per-token readings `langs/ja.py` `kana_line` (~2085, 2336) already computes but flattens into `pron`; nothing per-token is emitted today.
+
+`jsonify_pack.py` writes `characters.js` only when `characters.json` exists. `build.sh` inlines it when present and emits nothing otherwise.
+
+### 2.4 Rules, all in core.js and DOM-free
+- `stagePath(pack, words, chars, prog)` inserts character stages among word stages. `nextStage` is the first incomplete one.
+- `nextCharSet` chunks a stage's units in level order, then file order. A set is taught once all its units have records.
+- `charsStarted`, `showCharChoice`, `charTier` and `charReviewScore` port hsk's rules. The choice needs a later word level still incomplete.
+- Without `pack.characters`, `stagePath` returns today's level stages exactly.
+
+### 2.5 Drill items
+| kind | stimulus | answer options |
+|---|---|---|
+| charRead | `t` only, no reading, no audio | 4 meanings (`meaningOpts`) |
+| charSound | `t` | 4 readings, never a homophone, same length first |
+| charPick | audio plus reading | 4 written forms (`charOpts`) |
+| charRecall | meaning | 4 written forms |
+
+Scoring writes `prog.chars.c` only. charSound drills `pron`, breaking the engine's pron-is-display-only rule, but only in character items.
+
+### 2.6 Progress
+`prog.chars = {v:1, c:{[unitId]:{r,w,s}}, defer:false, choiceSeen:false, mix:true}`, added by `normalizeProg` only when `pack.characters` exists and validated whenever present. Top-level `v` stays 1: the current engine treats an unknown `v` as invalid, so a bump would reset learners on any rollback, while an unknown `chars` key survives untouched.
+
+### 2.7 Today and the rest of the UI
+- **Review:** up to 5 provisional words, then the weakest words and units under one score: 20 items once started, 15 before. Words keep the ≥40% production mix.
+- **Learn:** the snapshotted stage's next set, word or unit. A unit set gets teach cards, then two `learnKinds` items per unit.
+- **Recall:** 8 weakest-first from words plus charRecall units (hsk picks at random; question 5).
+- **Listen, Sentences:** unchanged apart from tiers.
+- The choice card replaces Start today until answered, and the strip shows every stage. Test gains Characters N. Progress gains stage rows, order chips and the mix chip.
+- **Tiers**, with mix on and characters started: sentences with `ruby` render `<ruby>t<rt>reading</rt></ruby>` below `bare` and plain `t` at or above it, replacing the pron line. `showPron` off hides all ruby. Gap items are unchanged.
+
+## 3. Learning order, unified Review and Recall, Samsung
+- **Learning order:** pack-gated, since it only exists with characters. `prog.chars.defer` replaces `charsAfterHsk4`. Flipping it re-derives the path only, and a running session keeps its snapshot.
+- **Unified Review and Recall:** engine default. The plan builders take an optional unit pool, and with none their output is unchanged. One ranking is simpler than per-kind steps, and hsk's clamp prevents starvation.
+- **Samsung notice:** already in the engine, unconditional (row 19).
+
+## 4. Progress migration `hsk_pinyin` → `vocab_zh`
+`pack_from_hsk.py` emits `packs/zh/legacy.json` (`const LEGACY`): `w` hanzi→word id (1193, unique), `s` sentence text→id (882, unique), `c` hanzi→unit id. `pack.legacy = {"key":"hsk_pinyin","format":"hsk-v2"}`. Pure core `migrateLegacy(raw, LEGACY, pack)` returns `{prog, unmapped}`.
+
+| hsk field | vocab_zh |
+|---|---|
+| `v` (1 or 2) | `v:1` |
+| `w[hanzi]` `{r,w,s,prov,d}` | `w[wordId]`, fields verbatim |
+| `s[zh]` `{r,w,s}` | `s[sentId]` |
+| `sets{1..4}` | `sets{"1".."4"}` |
+| `lessons`, `sessions`, `theme`, `placedOnce`, `soundsOpened` | same |
+| `c[hanzi]` | `chars.c[unitId]` |
+| `mixChars`, `charsAfterHsk4`, `charsChoiceSeen` | `chars.mix`, `chars.defer`, `chars.choiceSeen` |
+| `showChars`, `dismissedSoundsHint` | dropped. `showPron` gets the pack default (see question 1). |
+
+- **Once:** at boot, only if `vocab_zh` is absent and `hsk_pinyin` validates. It writes `vocab_zh` plus `vocab_zh_legacy_backup` (raw copy) and never touches `hsk_pinyin`. A second boot sees `vocab_zh` and skips. Progress import accepts hsk exports through the same function.
+- **Unmapped keys** are listed and kept in the backup. Acceptance requires none.
+- **Proof:** `tools/diff_hsk_migration.js <snapshot.json>` migrates a real Progress → Export file, reverse-maps it and diffs every record and flag. It also compares derived views, hsk `pinyin_core.js` on the old record against `core.js` on the new: per-level learned and mastered, current stage, stage fractions, choice-card state, sentence availability. The diff must be empty.
+
+## 5. Parity checklist and rollback
+Walk `dist/zh.html`, then the hsk branch build, at 390, 360 and desktop, light and dark.
+
+- [ ] Fresh load, offline reload, and the old `hsk_pinyin.html` URL (question 4).
+- [ ] The migration diff is empty on the real snapshot. After boot, Today shows the same session number, learned count, strip fractions and current stage as hsk.
+- [ ] Seeds A–E from hsk `PINYIN_SPEC.md` "Browser-verify seeds", migrated:
+  - A shows no character surface.
+  - B shows the choice card. Start teaches 10 cards and a 20-item drill and records 10 units. Skip teaches HSK 4 set 1, and 字 moves after HSK 4.
+  - C gives a 20-item Review with both kinds and charRecall in Recall, and Characters N runs. The mix chip changes the sentence tiers.
+  - D is a v1 record that migrates.
+  - E puts the deferred stage after HSK 4.
+- [ ] The learning-order chips flip the path, and a running session is unaffected.
+- [ ] Today runs all 5 steps before characters: Review 15, Learn, Listen 12, Recall 8 and Sentences 8.
+- [ ] Placement works from the hint and on retake, and a placement past HSK 3 lands on the choice card.
+- [ ] Sounds: lessons open, and lesson progress is kept.
+- [ ] Words: search, the set pager and "Drill this set".
+- [ ] Test: Placement, Listen, Recall, Sentences and Characters.
+- [ ] Progress: export, import of an old hsk export, and reset.
+- [ ] Each tap plays exactly one utterance.
+- [ ] The Samsung notice shows with a spoofed user agent, and the no-voice notice shows with voices stubbed out.
+- [ ] No overflow at 360px.
+- [ ] The user has signed off the known losses: questions 1 and 2.
+
+**Rollback:** reset hsk `main` to 3aeecc4 and republish. `hsk_pinyin` is never modified, so the old build resumes at the pre-switch state; post-switch progress stays in `vocab_zh`.
+
+## 6. Implementation briefs
+Every brief carries the test gate: `node tests/engine_checks.js`, `node tests/characters_checks.js` and `python3 tools/validate_pack.py packs/zh` all pass, and the flag-off snapshot check passes.
+
+**Flag-off proof.** Literal `dist` bytes must change, since engine code is inlined and `sw.js` carries the build id. The proof is instead:
+1. Flag-off pack sources and generated `.js` are unchanged (`git diff` empty).
+2. `defaultProg`, `normalizeProg`, `stagePath` and the plan builders deep-equal B0 goldens under a seeded random generator.
+3. The [23] fake-DOM boot, seeded, renders Today, Words, Test, Progress, Read and the first item of every Today step for 3 progress seeds, plus the saved progress string. All must be byte-identical to goldens captured on the pre-merge engine.
+
+Flag-off packs: zh with `characters` stripped, the synthetic packs, and each sibling repo's `pack/` when present.
+
+| id | brief | files | tests added | depends | model |
+|---|---|---|---|---|---|
+| B0 | Flag-off golden harness, captured on the unmodified engine | `tests/flagoff_snapshot.js`, `tests/golden/` | the proof above | none | Sonnet |
+| B1 | Schema and tooling: `characters` block, `characters.json`, `sentences[].ruby`, legacy file; validator, jsonify and build.sh; dev loader | `docs/PACK_SCHEMA.md`, `tools/validate_pack.py`, `tools/jsonify_pack.py`, `build.sh`, app.html loader lines | validator cases for bad stages, dangling ids and overlapping ruby; build with and without `characters.js` | B0 | Sonnet |
+| B2 | Core logic (§2.4–2.6, 3): stages, sets, gate, choice, tiers, options, unified plans, `prog.chars` | `engine/core.js` | new `tests/characters_checks.js`: hsk checks 20–31 ported onto a synthetic zh-like and ja-like pack, plus the unified plans equal the current output when there is no pool | B0 | Opus |
+| B3 | zh data: `pack_from_hsk.py` emits `characters.json`, `ruby`, `pack.characters`, `legacy.json`; rebuild `packs/zh` | `tools/pack_from_hsk.py`, `packs/zh/*` | determinism by running twice; 1193 units; ruby covers every sentence token | B1 | Sonnet |
+| B4 | App part 1: strip, Learn per stage, teach cards, 4 item renderers, choice card, snapshot, unified Review and Recall wiring | `engine/app.html` | [23]-style boot: seed B shows the choice card, seed C builds a 20-item Review with units | B2, B3 | Opus |
+| B5 | App part 2: Test Characters, Progress rows, order and mix chips, import and reset, ruby tier rendering | `engine/app.html` | boot checks for the order flip, mix off and deferred path | B4 | Opus |
+| B6 | Migration: `migrateLegacy`, boot hook, import path, `tools/diff_hsk_migration.js` | `engine/core.js` (a separate section), `engine/app.html` boot, a new tool | seeds A–E and v1, v2 and v2.2 records; idempotence; unmapped list | B2, B3. The app hook goes after B5. | Opus |
+| B7 | ja consumer: emit per-token `ruby` and kanji-word `characters.json`; ja `pack.characters` | `tools/packbuilder/langs/ja.py`, packbuilder writer, packbuilder tests | ruby offsets match `t`, readings are kana, units contain kanji | B1 | Opus |
+| B8 | Opus review of B2–B6, then a browser walk of `dist/zh.html` and the ja build | none (read-only) | the parity list excluding hsk-only rows | B5, B6 | Opus, plus a browser worker |
+
+**Parallel:** B0 first. Then B1 and B2 together; B3 and B7 once B1 lands. B4 then B5 serially (same file). B6 core alongside B4, its app hook after B5. Each brief touches 1–3 files.
+
+**Question 1 gates B4.** For hsk parity, add brief BP (`pack.pronFirst`: the reading replaces `w` until a unit reaches `bare`, about half a day of Opus) between B4 and B5. The hsk switch (TODO item d) runs last, on an hsk branch, against §5.
+
+## 7. Open questions
+1. **Pinyin-first vs word-first.** hsk shows pinyin only and hides characters by default, and its characters stage assumes that. The engine is word-first, so zh learners see hanzi from day one, and the stage becomes "read without pinyin". The switch would change hsk's core pedagogy, and the parity list cannot pass without a decision. The options are to accept word-first, or to build BP.
+2. **Other pre-fork losses** recorded in TODO "Behaviour differences": tone colouring, typed pinyin and Extras, the pinyin chart, per-word tap in sentences, and `showChars`. Are these accepted for the switch?
+3. **ja unlock point.** The TODO says "after A1/A2". The design assumes the first stage comes after A2. Kanji-word units are used because single-glyph units would need KANJIDIC-type data and its licence.
+4. **The `hsk_pinyin.html` URL** after the switch. `build.sh` writes one `sw.js` per page name, so the options are a redirect stub or a single page.
+5. **Recall order.** The design uses the engine's weakest-first, where hsk picks at random in unified mode. The random choice was a brief artefact, not a finding.
+6. **Real snapshot source.** The user needs to export `hsk_pinyin` from the device they actually use.
+7. **The brief's "10 new / 16 drilled".** That is v2.2 (b5b5f24). hsk HEAD replaced it with sets of 10 and a 20-item drill, and this design follows HEAD.
