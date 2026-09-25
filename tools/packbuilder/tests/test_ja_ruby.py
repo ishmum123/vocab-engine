@@ -30,9 +30,12 @@ def u16slice(t, a, b):
 
 
 class Ruby(unittest.TestCase):
-    def ruby(self, text, surfaces, segs, where, words=None):
+    def ruby(self, text, surfaces, segs, where, words=None, readings=None, sudachi=None):
         sp = ja()
         sp._kana_pieces[1] = segs
+        sp._span_reading = lambda x: (readings or {}).get(x, x)       # no Sudachi needed
+        sp._pack_rd = {}
+        sp._passage_segments = lambda t, en: (sudachi or {})[t]
         rec = {"t": text, "words": words or sorted({w[3] for w in where})}
         return sp, sp.sentence_ruby(1, rec, surfaces, where)
 
@@ -64,26 +67,41 @@ class Ruby(unittest.TestCase):
         self.assertEqual(ruby, [[1, 2, "かね", "w1"], [3, 4, "と", "w2"], [6, 7, "い", "w3"]])
         self.check(text, ruby)
 
-    def test_segment_across_token_boundary_is_skipped(self):
-        # [一人|ひとり] over the tokens 一|人: the reading cannot be cut per token
+    def test_segment_across_token_boundary_is_cut(self):
+        # [一人|ひとり] over the tokens 一|人 (人 linked): cut at the token edge, the
+        # counter keeping its tail (ひと|り); 一 is a token of no linked word
         text = "一人で来た。"
         surfaces = ["一", "人", "で", "来", "た", "。"]
         segs = [("一人", "ひとり"), ("で", None), ("来", "き"), ("た。", None)]
         where = [("tok", 1, 1, "w1"), ("tok", 3, 3, "w2")]
         sp, ruby = self.ruby(text, surfaces, segs, where)
-        self.assertEqual(ruby, [[3, 4, "き", "w2"]])
-        self.assertEqual(sp.stats["ruby: tokens skipped (reading crosses a token boundary)"], 1)
+        self.assertEqual(ruby, [[0, 1, "ひと", None], [1, 2, "り", "w1"], [3, 4, "き", "w2"]])
+        self.assertEqual(sp.stats["ruby: kana segments cut at a token edge"], 1)
+        self.assertEqual(sp.stats["ruby: kana segments cut by each side's own Sudachi reading"], 0)
+        self.check(text, ruby)
 
-    def test_digits_trimmed_and_non_kana_reading_skipped(self):
+    def test_digits_trimmed_and_kanji_without_reading_read_by_sudachi(self):
         text = "３年前、二人。"
         surfaces = ["３年", "前", "、", "二人", "。"]
         # ３年 keeps its digit (さん not written): the ruby covers 年 only;
-        # 二人 has no kana reading in the line: skipped
+        # 二人 has no kana reading in the line: Sudachi's
         segs = [("３", None), ("年", "ねん"), ("前", "まえ"), ("、", None), ("二人", None), ("。", None)]
         where = [("tok", 0, 0, "w1"), ("tok", 1, 1, "w2"), ("tok", 3, 3, "w3")]
+        sp, ruby = self.ruby(text, surfaces, segs, where, readings={"二人": "ふたり"})
+        self.assertEqual(ruby, [[1, 2, "ねん", "w1"], [2, 3, "まえ", "w2"], [4, 6, "ふたり", "w3"]])
+        self.assertEqual(sp.stats["ruby: tokens read by Sudachi (no reading in the kana line)"], 1)
+        self.check(text, ruby)
+
+    def test_unlinked_kanji_get_null_tokens(self):
+        # 田中 (a name) and 紅茶 (linked to no word) still get readings
+        text = "田中さんは紅茶を飲む。"
+        surfaces = ["田中", "さん", "は", "紅茶", "を", "飲む", "。"]
+        segs = [("田中", "たなか"), ("さんは", None), ("紅茶", "こうちゃ"), ("を", None), ("飲", "の"), ("む。", None)]
+        where = [("tok", 1, 1, "w1"), ("tok", 5, 5, "w2")]
         sp, ruby = self.ruby(text, surfaces, segs, where)
-        self.assertEqual(ruby, [[1, 2, "ねん", "w1"], [2, 3, "まえ", "w2"]])
-        self.assertEqual(sp.stats["ruby: tokens skipped (kanji without a reading)"], 1)
+        self.assertEqual(ruby, [[0, 2, "たなか", None], [5, 7, "こうちゃ", None], [8, 9, "の", "w2"]])
+        self.assertEqual(sp.stats["ruby: tokens with no linked word (wordId null)"], 2)
+        self.check(text, ruby)
 
     def test_utf16_offsets_after_astral_character(self):
         # 🍎 is two UTF-16 units: offsets after it are JavaScript string indices
@@ -103,10 +121,11 @@ class Ruby(unittest.TestCase):
         # いつ has no kanji; w9 is not in the sentence's words (a dropped link)
         where = [("tok", 0, 0, "w1"), ("tok", 1, 1, "w9")]
         _, ruby = self.ruby(text, surfaces, segs, where, words=["w1"])
-        self.assertIsNone(ruby)
-        sp, ruby = self.ruby(text, ["いつ", "行"], segs, where)
-        self.assertIsNone(ruby)         # tokens do not spell the text
-        self.assertEqual(sp.stats["ruby: sentences skipped (tokens or kana segments do not spell the text)"], 1)
+        self.assertEqual(ruby, [[2, 3, "い", None]])      # 行 still read, unlinked
+        # tokens do not spell the text: Sudachi's kana line, no links
+        sp, ruby = self.ruby(text, ["いつ", "行"], segs, where, sudachi={text: [(0, 2, None), (2, 4, "いく"), (4, 5, None)]})
+        self.assertEqual(ruby, [[2, 3, "い", None]])
+        self.assertEqual(sp.stats["ruby: sentences with tokens or kana segments not spelling the text (read by Sudachi, unlinked)"], 1)
 
     def test_chars_records_and_overlap(self):
         text = "日本語です。"
@@ -115,7 +134,7 @@ class Ruby(unittest.TestCase):
         where = [("chars", 0, 3, "w1"), ("tok", 1, 1, "w2")]
         sp, ruby = self.ruby(text, surfaces, segs, where)
         self.assertEqual(ruby, [[0, 3, "にほんご", "w1"]])
-        self.assertEqual(sp.stats["ruby: tokens skipped (overlaps the previous token's ruby)"], 1)
+        self.assertEqual(sp.stats["ruby: links overlapping the previous one (left to the first)"], 1)
 
 
 class Units(unittest.TestCase):
@@ -174,6 +193,14 @@ class Writer(unittest.TestCase):
         self.assertEqual(on_disk, units)
         self.assertEqual(sents[0]["ruby"], [[1, 2, "い", "w0002"]])
         self.assertNotIn("ruby", sents[1])
+
+    def test_non_unit_kanji_token_kept_with_null_word(self):
+        words = Units.WORDS
+        # 紅茶: a linked word with no unit, 田中: a name; の: no kanji, dropped
+        sents = [{"t": "田中の紅茶を行く", "words": ["w0002"],
+                  "ruby": [[0, 2, "たなか", None], [2, 3, "x", "w0001"], [3, 5, "こうちゃ", "w0999"], [6, 7, "い", "w0002"]]}]
+        self.run_writer(ja(), sents, words)
+        self.assertEqual(sents[0]["ruby"], [[0, 2, "たなか", None], [3, 5, "こうちゃ", None], [6, 7, "い", "w0002"]])
 
     def test_pron_first_only_with_units(self):
         sp = ja()

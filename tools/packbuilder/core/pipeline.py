@@ -1,6 +1,7 @@
 """Stage driver: prepare shared context, build words and sentences, write
 pack/*.json, attribution.json, build_stats.json and REPORT.md."""
 import json
+import re
 import time
 from collections import Counter, defaultdict
 
@@ -50,16 +51,26 @@ def build_pack_json(env, words, raw_upos):
     }
 
 
+# Han characters (CJK ideographs, iteration mark 々) for write_characters
+HAN_RE = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005]|[\U00020000-\U0003134f]")
+
+
 def write_characters(env, out_words, sentences):
     """Characters stage (docs/HSK_MERGE.md ss2.3): pack/characters.json from
-    spec.character_units, and each sentence's spec.sentence_ruby tuples cut to
-    the words that are some unit's words[0] (a ruby with no unit is never
-    rendered). No units: no file and no ruby. Returns the units."""
+    spec.character_units, and each sentence's spec.sentence_ruby tuples: a
+    token of a word that is some unit's words[0] keeps its wordId; any other
+    token over a Han character keeps its reading with wordId null (a name, a
+    word with no unit: the engine shows it by its reading until the sentence's
+    text is covered, docs/PACK_SCHEMA.md sentences.json "ruby"); a token with
+    no Han character is dropped. No units: no file and no ruby. Returns the
+    units."""
     units = env.spec.character_units(out_words) or []
     word0 = {u["words"][0] for u in units}
     for s in sentences:
         if "ruby" in s:
-            keep = [r for r in s["ruby"] if r[3] in word0]
+            t16 = s["t"].encode("utf-16-le")
+            keep = [r if r[3] in word0 else [r[0], r[1], r[2], None] for r in s["ruby"]
+                    if r[3] in word0 or HAN_RE.search(t16[2 * r[0]:2 * r[1]].decode("utf-16-le", "replace"))]
             if keep:
                 s["ruby"] = keep
             else:

@@ -295,3 +295,306 @@ class PostResolve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---- readings (Japanese.passage_ruby / text_ruby / _counter_sounds) --------------------
+from collections import Counter, defaultdict  # noqa: E402
+import re  # noqa: E402
+
+from packbuilder.langs.ja import KANJI_RE, KANA_ONLY_RE  # noqa: E402
+
+try:
+    import sudachipy  # noqa: F401
+    HAVE_SUDACHI = True
+except ImportError:
+    HAVE_SUDACHI = False
+
+
+def rspec(segs=None, readings=None, pack=None):
+    """A ja spec whose Sudachi pieces and per-span readings are fixtures."""
+    sp = spec()
+    sp.stats = Counter()
+    if segs is not None:
+        sp._passage_segments = lambda text, en: segs[text]
+    if readings is not None:
+        sp._span_reading = lambda s: readings.get(s, s)
+    sp._pack_rd = defaultdict(list, pack or {})
+    return sp
+
+
+def covered(text, ruby):
+    """Every kanji of text inside a token (ruby offsets in UTF-16 code units)."""
+    cov = set()
+    for a, b, _r, _w in ruby:
+        cov |= set(range(a, b))
+    at = 0
+    for ch in text:
+        if KANJI_RE.match(ch) and at not in cov:
+            return False
+        at += 2 if ord(ch) > 0xFFFF else 1
+    return True
+
+
+def u16(t, a, b):
+    return t.encode("utf-16-le")[2 * a:2 * b].decode("utf-16-le")
+
+
+class CounterSounds(unittest.TestCase):
+    def run_(self, pieces):
+        sp = rspec()
+        pieces = [list(p) for p in pieces]
+        sp._counter_sounds(pieces)
+        return [(b, "".join(r) if r is not None else None) for b, r in pieces]
+
+    def test_kanji_numeral_and_counter(self):
+        self.assertEqual(self.run_([["一", ["いち"]], ["杯", ["ばい"]]]), [("一", "いっ"), ("杯", "ぱい")])
+        self.assertEqual(self.run_([["一", ["いち"]], ["週間", ["しゅうかん"]]]),
+                         [("一", "いっ"), ("週間", "しゅうかん")])
+        self.assertEqual(self.run_([["三", ["さん"]], ["階", ["かい"]]]), [("三", "さん"), ("階", "がい")])
+        self.assertEqual(self.run_([["三", ["さん"]], ["本", ["ほん"]]]), [("三", "さん"), ("本", "ぼん")])
+        self.assertEqual(self.run_([["六", ["ろく"]], ["冊", ["さつ"]]]), [("六", "ろく"), ("冊", "さつ")])
+        self.assertEqual(self.run_([["六", ["ろく"]], ["回", ["かい"]]]), [("六", "ろっ"), ("回", "かい")])
+        self.assertEqual(self.run_([["十", ["じゅう"]], ["匹", ["ひき"]]]), [("十", "じゅっ"), ("匹", "ぴき")])
+        self.assertEqual(self.run_([["一", ["いち"]], ["ヶ月", ["かげつ"]]]), [("一", "いっ"), ("ヶ月", "かげつ")])
+        self.assertEqual(self.run_([["六", ["ろく"]], ["ヶ月", ["かげつ"]]]), [("六", "ろっ"), ("ヶ月", "かげつ")])
+        self.assertEqual(self.run_([["二十", ["にじゅう"]], ["冊", ["さつ"]]]), [("二十", "にじゅっ"), ("冊", "さつ")])
+
+    def test_digit_keeps_the_digit_counter_changes(self):
+        self.assertEqual(self.run_([["1", None], ["杯", ["ばい"]]]), [("1", None), ("杯", "ぱい")])
+        self.assertEqual(self.run_([["8", None], ["本", ["ほん"]]]), [("8", None), ("本", "ぽん")])
+        self.assertEqual(self.run_([["4", None], ["杯", ["はい"]]]), [("4", None), ("杯", "はい")])
+
+    def test_nan_and_native_tsu(self):
+        self.assertEqual(self.run_([["何", ["なん"]], ["本", ["ほん"]]]), [("何", "なん"), ("本", "ぼん")])
+        self.assertEqual(self.run_([["四", ["よん"]], ["つ", None]]), [("四", "よっ"), ("つ", None)])
+        self.assertEqual(self.run_([["三", ["みっ"]], ["つ", None]]), [("三", "みっ"), ("つ", None)])
+
+    def test_other_counters_untouched(self):
+        p = [["五", ["ご"]], ["時", ["じ"]], ["百", ["ひゃく"]], ["人", ["にん"]]]
+        self.assertEqual(self.run_(p), [("五", "ご"), ("時", "じ"), ("百", "ひゃく"), ("人", "にん")])
+
+
+class TextRuby(unittest.TestCase):
+    def ruby(self, text, segs, spans, readings=None, ok=lambda w: True, pack=None):
+        sp = rspec({text: segs}, readings or {}, pack)
+        log = defaultdict(list)
+        r = sp.text_ruby(text, "", spans, ok, log)
+        prev = 0
+        for a, b, rd, _w in r:                      # offsets valid, sorted, readings kana
+            self.assertTrue(prev <= a < b <= len(text.encode("utf-16-le")) // 2)
+            self.assertTrue(KANA_ONLY_RE.match(rd), rd)
+            prev = b
+        self.assertTrue(covered(text, r), r)
+        return r, log
+
+    def test_okurigana_only_over_the_stem(self):
+        r, _ = self.ruby("行く", [(0, 2, "いく")], [(0, 2, "w1")])
+        self.assertEqual(r, [[0, 1, "い", "w1"]])
+        r, _ = self.ruby("悪かった", [(0, 3, "わるかっ"), (3, 4, None)], [(0, 3, "w2")])
+        self.assertEqual(r, [[0, 1, "わる", "w2"]])
+        r, _ = self.ruby("働いて", [(0, 2, "はたらい"), (2, 3, None)], [(0, 3, "w3")])
+        self.assertEqual(r, [[0, 1, "はたら", "w3"]])
+
+    def test_digit_counter(self):
+        r, _ = self.ruby("朝6時に", [(0, 1, "あさ"), (1, 2, None), (2, 3, "じ"), (3, 4, None)],
+                         [(0, 1, "w1"), (2, 3, "w2"), (3, 4, "w3")])
+        self.assertEqual(r, [[0, 1, "あさ", "w1"], [2, 3, "じ", "w2"]])
+
+    def test_counter_whole_in_one_span_or_cut_at_a_span_edge(self):
+        segs = [(0, 1, "いっ"), (1, 3, "しゅうかん")]
+        r, _ = self.ruby("一週間", segs, [(0, 3, "w1")])
+        self.assertEqual(r, [[0, 3, "いっしゅうかん", "w1"]])
+        r, _ = self.ruby("一週間", segs, [(1, 3, "w2")])
+        self.assertEqual(r, [[0, 1, "いっ", None], [1, 3, "しゅうかん", "w2"]])
+
+    def test_segment_crossing_a_span_edge_is_split(self):
+        # one Sudachi segment 一杯 over two spans: cut where one side's reading fits
+        r, log = self.ruby("一杯", [(0, 2, "いっぱい")], [(0, 1, "w1"), (1, 2, "w2")],
+                           readings={"一": "いち", "杯": "はい"}, pack={"一": ["いっ"]})
+        self.assertEqual(r, [[0, 1, "いっ", "w1"], [1, 2, "ぱい", "w2"]])
+        self.assertFalse(log["split"][0][-1])
+        # rendaku on the right side (杯 はい ~ ぱい)
+        r, log = self.ruby("一杯", [(0, 2, "いっぱい")], [(0, 1, "w1"), (1, 2, "w2")],
+                           readings={"一": "いち", "杯": "はい"})
+        self.assertEqual(r, [[0, 1, "いっ", "w1"], [1, 2, "ぱい", "w2"]])
+        # nothing fits: each side's own reading, logged as the fallback
+        r, log = self.ruby("大人", [(0, 2, "おとな")], [(0, 1, "w1"), (1, 2, "w2")],
+                           readings={"大": "だい", "人": "じん"})
+        self.assertEqual(r, [[0, 1, "だい", "w1"], [1, 2, "じん", "w2"]])
+        self.assertTrue(log["split"][0][-1])
+
+    def test_names_and_unlinked_kanji_get_null(self):
+        r, _ = self.ruby("田中さんは", [(0, 2, "たなか"), (2, 4, None), (4, 5, None)], [(2, 4, "w59"), (4, 5, "w2")])
+        self.assertEqual(r, [[0, 2, "たなか", None]])
+
+    def test_word_id_only_when_allowed(self):
+        r, _ = self.ruby("会社", [(0, 2, "かいしゃ")], [(0, 2, "w1")], ok=lambda w: False)
+        self.assertEqual(r, [[0, 2, "かいしゃ", None]])
+
+    def test_kanji_without_a_reading_falls_back_to_sudachi(self):
+        r, log = self.ruby("鬱だ", [(0, 1, None), (1, 2, None)], [], readings={"鬱": "うつ"})
+        self.assertEqual(r, [[0, 1, "うつ", None]])
+
+    def test_utf16_offsets(self):
+        t = "😀会社"
+        r, _ = self.ruby(t, [(0, 1, None), (1, 3, "かいしゃ")], [(1, 3, "w1")])
+        self.assertEqual(r, [[2, 4, "かいしゃ", "w1"]])
+        self.assertEqual(u16(t, 2, 4), "会社")
+
+
+class StubLinker:
+    """lk.tag + lk.links_all for titles, questions and options: one span per
+    fixture word found in the text (UTF-16 == code points here)."""
+    def __init__(self, words):
+        self.words = words
+
+    def tag(self, text, en="", names=frozenset()):
+        return [[text, text, "X", ""]]
+
+    def links_all(self, toks, text, en, names=frozenset()):
+        spans = []
+        for w, wid in self.words.items():
+            i = text.find(w)
+            if i >= 0:
+                spans.append([i, i + len(w), wid])
+        return [s[2] for s in spans], [], sorted(spans), set()
+
+
+class PassageRuby(unittest.TestCase):
+    SEGS = {"会社で働きます。": [(0, 2, "かいしゃ"), (2, 3, None), (3, 5, "はたらき"), (5, 8, None)],
+            "田中の会社": [(0, 2, "たなか"), (2, 3, None), (3, 5, "かいしゃ")],
+            "どこで働きますか。": [(0, 2, None), (2, 3, None), (3, 5, "はたらき"), (5, 9, None)],
+            "会社": [(0, 2, "かいしゃ")], "家": [(0, 1, "いえ")], "駅": [(0, 1, "えき")], "店": [(0, 1, "みせ")]}
+
+    def build(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "pack").mkdir()
+            (Path(d) / "pack" / "characters.json").write_text(json.dumps(
+                [{"id": "c1", "t": "会社", "words": ["w1"]}, {"id": "c2", "t": "働く", "words": ["w2"]},
+                 {"id": "c3", "t": "家", "words": ["w3"]}]))
+            sp = rspec(self.SEGS, {})
+            sp.repo = Path(d)
+            ps = [{"id": "p1", "title": "田中の会社",
+                   "sentences": [{"t": "会社で働きます。", "en": "x", "words": ["w1", "w2"],
+                                  "spans": [[0, 2, "w1"], [3, 5, "w2"]]}],
+                   "questions": [{"q": "どこで働きますか。", "en": "Where?", "type": "mc",
+                                  "options": ["会社", "家", "駅", "店"]},
+                                 {"q": "会社", "type": "tf", "options": None}]}]
+            lines = sp.passage_ruby(StubLinker({"会社": "w1", "働き": "w2", "家": "w3", "駅": "w4"}),
+                                    ps, [frozenset({"田中"})])
+            return ps, lines
+
+    def test_fields(self):
+        ps, lines = self.build()
+        p = ps[0]
+        self.assertEqual(p["sentences"][0]["ruby"], [[0, 2, "かいしゃ", "w1"], [3, 4, "はたら", "w2"]])
+        self.assertEqual(p["titleRuby"], [[0, 2, "たなか", None], [3, 5, "かいしゃ", "w1"]])
+        q = p["questions"][0]
+        self.assertEqual(q["ruby"], [[3, 4, "はたら", "w2"]])
+        # 駅 is linked but no characters.json unit's words[0]: null
+        self.assertEqual(q["optionsRuby"], [[[0, 2, "かいしゃ", "w1"]], [[0, 1, "いえ", "w3"]],
+                                            [[0, 1, "えき", None]], [[0, 1, "みせ", None]]])
+        self.assertNotIn("optionsRuby", p["questions"][1])
+        self.assertEqual(p["questions"][1]["ruby"], [[0, 2, "かいしゃ", "w1"]])
+        self.assertIn("## Readings", lines)
+        self.assertTrue(any(ln.startswith("Kanji outside every token: 0") for ln in lines))
+
+    def test_double_build_identical(self):
+        a, la = self.build()
+        b, lb = self.build()
+        self.assertEqual(json.dumps(a, ensure_ascii=False), json.dumps(b, ensure_ascii=False))
+        self.assertEqual(la, lb)
+
+    def test_no_characters_stage_no_ruby(self):
+        sp = rspec(self.SEGS, {})
+        sp.repo = Path("/nonexistent-ja-repo")
+        ps = [{"title": "会社", "sentences": [{"t": "会社", "en": "", "spans": []}], "questions": []}]
+        self.assertEqual(sp.passage_ruby(StubLinker({}), ps, [frozenset()]), [])
+        self.assertNotIn("titleRuby", ps[0])
+
+    def test_hook_called_for_a_spec_passage_ruby(self):
+        src = Path(passages.__file__).read_text()
+        self.assertIn('spec.passage_ruby(lk, passages, pnames) if hasattr(spec, "passage_ruby")', src)
+
+
+@unittest.skipUnless(HAVE_SUDACHI, "SudachiPy not installed")
+class SudachiReadings(unittest.TestCase):
+    def segs(self, text, en=""):
+        sp = spec()
+        return [(text[a:b], r) for a, b, r in sp._passage_segments(text, en)]
+
+    def test_counters(self):
+        s = self.segs("コーヒーも一杯飲みます。")
+        self.assertIn(("一", "いっ"), s)
+        self.assertIn(("杯", "ぱい"), s)
+        s = self.segs("一週間に一度")
+        self.assertIn(("一", "いっ"), s)
+        self.assertIn(("週間", "しゅうかん"), s)
+        s = self.segs("旅行は4日だけでした。")
+        self.assertIn(("4日", "よっか"), s)
+        sp = spec()
+        r = sp.text_ruby("旅行は4日だけ", "", [], lambda w: True, defaultdict(list))
+        self.assertIn([3, 5, "よっか", None], r)
+        s = self.segs("朝6時に起きます。")
+        self.assertIn(("6", None), s)
+        self.assertIn(("時", "じ"), s)
+
+    def test_real_text_ruby(self):
+        sp = spec()
+        log = defaultdict(list)
+        t = "悪かったと言わないで、もう一度考えてください。"
+        r = sp.text_ruby(t, "", [], lambda w: True, log)
+        self.assertTrue(covered(t, r))
+        got = {t[a:b]: rd for a, b, rd, _w in r}
+        self.assertEqual(got["悪"], "わる")
+        self.assertEqual(got["言"], "い")
+        self.assertEqual(got["一度"], "いちど")
+        self.assertEqual(got["考"], "かんが")
+        self.assertFalse(log["fallback"])
+
+
+JA_PACK = Path(__file__).resolve().parents[4] / "japanese" / "pack"
+
+
+@unittest.skipUnless((JA_PACK / "passages.json").exists() and (JA_PACK / "characters.json").exists(),
+                     "japanese pack not beside vocab-engine")
+class RealPack(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ps = json.loads((JA_PACK / "passages.json").read_text())
+        cls.word0 = {c["words"][0] for c in json.loads((JA_PACK / "characters.json").read_text())}
+        if not any("ruby" in s for p in cls.ps for s in p["sentences"]):
+            raise unittest.SkipTest("japanese passages.json has no ruby yet")
+
+    def fields(self):
+        for p in self.ps:
+            for s in p["sentences"]:
+                yield s["t"], s.get("ruby", []), set(s["words"])
+            yield p["title"], p["titleRuby"], None
+            for q in p["questions"]:
+                yield q["q"], q["ruby"], None
+                for o, r in zip(q.get("options") or [], q.get("optionsRuby") or []):
+                    yield o, r, None
+                if q.get("options"):
+                    self.assertEqual(len(q["optionsRuby"]), len(q["options"]))
+
+    def test_every_kanji_inside_a_token(self):
+        bad = [t for t, r, _ in self.fields() if not covered(t, r)]
+        self.assertEqual(bad, [])
+
+    def test_offsets_readings_word_ids(self):
+        for t, r, ws in self.fields():
+            prev = 0
+            for a, b, rd, w in r:
+                self.assertTrue(prev <= a < b <= len(t.encode("utf-16-le")) // 2, (t, a, b))
+                self.assertTrue(KANJI_RE.search(u16(t, a, b)), (t, a, b))
+                self.assertTrue(KANA_ONLY_RE.match(rd), (t, rd))
+                self.assertTrue(w is None or (w in self.word0 and (ws is None or w in ws)), (t, w))
+                prev = b
+
+    def test_no_token_crosses_a_span_edge(self):
+        for p in self.ps:
+            for s in p["sentences"]:
+                cuts = {x for sp_ in s["spans"] for x in sp_[:2]}
+                for a, b, _rd, _w in s.get("ruby", []):
+                    self.assertFalse([c for c in cuts if a < c < b], (s["t"], a, b))
