@@ -1,0 +1,7227 @@
+{
+ "rules": {
+  "coverage": {
+   "1": 0.95,
+   "2": 0.95,
+   "3": 0.95,
+   "4": 0.93
+  },
+  "budget": {
+   "1": [
+    "2",
+    3
+   ],
+   "2": [
+    "3",
+    3
+   ],
+   "3": [
+    "4",
+    3
+   ],
+   "4": [
+    null,
+    0
+   ]
+  },
+  "words_per_passage": {
+   "1": [
+    50,
+    80
+   ],
+   "2": [
+    70,
+    100
+   ],
+   "3": [
+    90,
+    120
+   ],
+   "4": [
+    110,
+    150
+   ]
+  },
+  "questions": [
+   4,
+   5
+  ]
+ },
+ "passages": [
+  {
+   "id": "p0001",
+   "lv": "1",
+   "title": "我的家",
+   "oop": {},
+   "names": [
+    "王明"
+   ],
+   "sentences": [
+    [
+     "我叫王明，我是学生。",
+     "My name is Wang Ming. I am a student."
+    ],
+    [
+     "我家在北京。",
+     "My home is in Beijing."
+    ],
+    [
+     "我家有三个人：爸爸、妈妈和我。",
+     "There are three people in my family: Dad, Mum and me."
+    ],
+    [
+     "我爸爸是医生，他在医院工作。",
+     "My dad is a doctor. He works at a hospital."
+    ],
+    [
+     "我妈妈是汉语老师，她很喜欢她的学生。",
+     "My mum is a Chinese teacher. She likes her students very much."
+    ],
+    [
+     "我们家有狗，没有猫。",
+     "We have a dog at home, but no cat."
+    ],
+    [
+     "星期六和星期日，我们都在家。",
+     "On Saturday and Sunday we are all at home."
+    ],
+    [
+     "爸爸做菜，妈妈看书，我看电视。",
+     "Dad cooks, Mum reads and I watch TV."
+    ],
+    [
+     "下午我们去商店买水果。",
+     "In the afternoon we go to the shop to buy fruit."
+    ],
+    [
+     "我很爱我的家。",
+     "I love my family very much."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "王明的爸爸在哪儿工作？",
+     "en": "Where does Wang Ming's dad work?",
+     "type": "mc",
+     "options": [
+      "在医院",
+      "在学校",
+      "在商店",
+      "在饭馆"
+     ],
+     "answer": 0,
+     "words": [
+      "医院"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "王明的妈妈是医生。",
+     "en": "Wang Ming's mum is a doctor.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "老师"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "王明家里有狗。",
+     "en": "There is a dog in Wang Ming's home.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "狗"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "在家的时候，爸爸做什么？",
+     "en": "What does Dad do when they are at home?",
+     "type": "mc",
+     "options": [
+      "看书",
+      "做菜",
+      "看电视",
+      "睡觉"
+     ],
+     "answer": 1,
+     "words": [
+      "做",
+      "菜"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "下午他们去商店买什么？",
+     "en": "What do they buy at the shop in the afternoon?",
+     "type": "mc",
+     "options": [
+      "衣服",
+      "书",
+      "水果",
+      "茶"
+     ],
+     "answer": 2,
+     "words": [
+      "水果"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0002",
+   "lv": "1",
+   "title": "在饭馆",
+   "oop": {},
+   "names": [
+    "李文",
+    "林娜"
+   ],
+   "sentences": [
+    [
+     "中午，李文和朋友林娜去一个饭馆。",
+     "At noon Li Wen and her friend Lin Na went to a restaurant."
+    ],
+    [
+     "服务员：“你们好！请坐。你们想吃什么？”",
+     "Waiter: \"Hello! Please sit down. What would you like to eat?\""
+    ],
+    [
+     "李文：“我想吃米饭和这个菜。”",
+     "Li Wen: \"I'd like rice and this dish.\""
+    ],
+    [
+     "林娜：“我不吃米饭，我想吃这个中国菜。”",
+     "Lin Na: \"I don't eat rice. I'd like this Chinese dish.\""
+    ],
+    [
+     "服务员：“你们喝什么？我们的茶很好。”",
+     "Waiter: \"What will you drink? Our tea is very good.\""
+    ],
+    [
+     "李文：“好，我们喝茶。”",
+     "Li Wen: \"OK, we'll have tea.\""
+    ],
+    [
+     "菜很多，她们都很喜欢。",
+     "There was a lot of food, and they both liked it very much."
+    ],
+    [
+     "李文：“服务员，多少钱？”",
+     "Li Wen: \"Waiter, how much is it?\""
+    ],
+    [
+     "服务员：“八十九块。”",
+     "Waiter: \"Eighty-nine yuan.\""
+    ],
+    [
+     "林娜：“今天我请你。”",
+     "Lin Na: \"Today it's my treat.\""
+    ],
+    [
+     "李文：“谢谢你！”林娜：“不客气。”",
+     "Li Wen: \"Thank you!\" Lin Na: \"You're welcome.\""
+    ]
+   ],
+   "questions": [
+    {
+     "q": "林娜不吃什么？",
+     "en": "What does Lin Na not eat?",
+     "type": "mc",
+     "options": [
+      "苹果",
+      "中国菜",
+      "水果",
+      "米饭"
+     ],
+     "answer": 3,
+     "words": [
+      "米饭"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "她们喝了茶。",
+     "en": "They drank tea.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "喝",
+      "茶"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "她们吃的东西多少钱？",
+     "en": "How much did their meal cost?",
+     "type": "mc",
+     "options": [
+      "八十九块",
+      "九十八块",
+      "八十块",
+      "十九块"
+     ],
+     "answer": 0,
+     "words": [
+      "块"
+     ],
+     "sentence": 8
+    },
+    {
+     "q": "今天林娜请李文。",
+     "en": "Today Lin Na treats Li Wen.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "请"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0003",
+   "lv": "1",
+   "title": "天气冷了",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "女儿，你在学校好吗？",
+     "Daughter, are you well at school?"
+    ],
+    [
+     "今天北京很冷。",
+     "It's very cold in Beijing today."
+    ],
+    [
+     "我看了电视，明天会下雨。",
+     "I watched TV. It will rain tomorrow."
+    ],
+    [
+     "明天你去学校的时候，请多穿衣服。",
+     "When you go to school tomorrow, please wear more clothes."
+    ],
+    [
+     "你下午几点回家？",
+     "What time are you coming home in the afternoon?"
+    ],
+    [
+     "下午爸爸去学校，和你一起回来。",
+     "In the afternoon Dad will go to the school and come back with you."
+    ],
+    [
+     "今天我做了你喜欢的菜。",
+     "Today I made the dish you like."
+    ],
+    [
+     "回家的时候，给妈妈打电话。",
+     "When you are coming home, call Mum."
+    ],
+    [
+     "我和爸爸都很想你。",
+     "Dad and I both miss you very much."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "明天天气怎么样？",
+     "en": "What will the weather be like tomorrow?",
+     "type": "mc",
+     "options": [
+      "很热",
+      "会下雨",
+      "不冷",
+      "天气很好"
+     ],
+     "answer": 1,
+     "words": [
+      "下雨"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "妈妈请女儿明天多穿衣服。",
+     "en": "Mum asks her daughter to wear more clothes tomorrow.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "穿",
+      "衣服"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "下午谁去学校？",
+     "en": "Who is going to the school in the afternoon?",
+     "type": "mc",
+     "options": [
+      "妈妈",
+      "朋友",
+      "爸爸",
+      "老师"
+     ],
+     "answer": 2,
+     "words": [
+      "爸爸"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "妈妈今天做的菜，女儿不喜欢。",
+     "en": "The daughter does not like the dish Mum made today.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "喜欢"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "女儿回家的时候做什么？",
+     "en": "What does the daughter do when she is coming home?",
+     "type": "mc",
+     "options": [
+      "给爸爸打电话",
+      "看电视",
+      "去商店",
+      "给妈妈打电话"
+     ],
+     "answer": 3,
+     "words": [
+      "打电话"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0004",
+   "lv": "1",
+   "title": "买衣服",
+   "oop": {},
+   "names": [
+    "刘芳"
+   ],
+   "sentences": [
+    [
+     "星期六上午，刘芳和妈妈去商店买衣服。",
+     "On Saturday morning Liu Fang and her mum went to a shop to buy clothes."
+    ],
+    [
+     "商店里有很多衣服，都很漂亮。",
+     "There were lots of clothes in the shop, all very pretty."
+    ],
+    [
+     "刘芳看见一件衣服，她很喜欢。",
+     "Liu Fang saw a piece of clothing she liked very much."
+    ],
+    [
+     "她问：“小姐，这件衣服多少钱？”",
+     "She asked: \"Miss, how much is this?\""
+    ],
+    [
+     "“三百八十块。”",
+     "\"Three hundred and eighty yuan.\""
+    ],
+    [
+     "刘芳想：“太贵了！”",
+     "Liu Fang thought: \"That's too expensive!\""
+    ],
+    [
+     "妈妈看见了一件，那件一百九十块，很漂亮。",
+     "Mum saw another one. That one was 190 yuan and very pretty."
+    ],
+    [
+     "刘芳买了妈妈看见的那件。",
+     "Liu Fang bought the one Mum saw."
+    ],
+    [
+     "中午，她们在商店前面的饭馆吃了米饭。",
+     "At noon they had rice at the restaurant in front of the shop."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "刘芳和谁去商店？",
+     "en": "Who did Liu Fang go to the shop with?",
+     "type": "mc",
+     "options": [
+      "妈妈",
+      "爸爸",
+      "朋友",
+      "同学"
+     ],
+     "answer": 0,
+     "words": [
+      "妈妈"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "商店里的衣服很少。",
+     "en": "There were few clothes in the shop.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "多"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "刘芳买的衣服多少钱？",
+     "en": "How much was the clothing Liu Fang bought?",
+     "type": "mc",
+     "options": [
+      "三百八十块",
+      "一百九十块",
+      "一百八十块",
+      "三百九十块"
+     ],
+     "answer": 1,
+     "words": [
+      "块"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "中午她们在一个饭馆吃了米饭。",
+     "en": "At noon they ate rice at a restaurant.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "饭馆"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0005",
+   "lv": "1",
+   "title": "明天看电影吗？",
+   "oop": {},
+   "names": [
+    "林娜",
+    "陈杰",
+    "王丽"
+   ],
+   "sentences": [
+    [
+     "林娜：陈杰，明天是星期六，你想去看电影吗？",
+     "Lin Na: Chen Jie, tomorrow is Saturday. Do you want to see a film?"
+    ],
+    [
+     "陈杰：想！什么电影？",
+     "Chen Jie: Yes! Which film?"
+    ],
+    [
+     "林娜：一个中国电影，很多人都喜欢。",
+     "Lin Na: A Chinese film. Lots of people like it."
+    ],
+    [
+     "陈杰：几点的电影？",
+     "Chen Jie: What time is the film?"
+    ],
+    [
+     "林娜：下午三点。",
+     "Lin Na: Three in the afternoon."
+    ],
+    [
+     "陈杰：好。我们坐出租车去吗？",
+     "Chen Jie: OK. Shall we go by taxi?"
+    ],
+    [
+     "林娜：不坐出租车。你两点来我家，我们一起去。",
+     "Lin Na: No taxi. Come to my place at two and we'll go together."
+    ],
+    [
+     "陈杰：我的同学王丽也想去，她能和我们去吗？",
+     "Chen Jie: My classmate Wang Li wants to go too. Can she come with us?"
+    ],
+    [
+     "林娜：能！我们三个人去。",
+     "Lin Na: Sure! The three of us will go."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "他们星期几去看电影？",
+     "en": "Which day are they going to see the film?",
+     "type": "mc",
+     "options": [
+      "星期五",
+      "星期日",
+      "星期六",
+      "星期一"
+     ],
+     "answer": 2,
+     "words": [
+      "星期"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "电影是几点的？",
+     "en": "What time is the film?",
+     "type": "mc",
+     "options": [
+      "下午两点",
+      "上午三点",
+      "上午十点",
+      "下午三点"
+     ],
+     "answer": 3,
+     "words": [
+      "点"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "他们坐出租车去看电影。",
+     "en": "They take a taxi to the film.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "出租车"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "王丽也想去看电影。",
+     "en": "Wang Li wants to see the film too.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "想"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "几个人去看电影？",
+     "en": "How many people are going to the film?",
+     "type": "mc",
+     "options": [
+      "三个人",
+      "两个人",
+      "四个人",
+      "五个人"
+     ],
+     "answer": 0,
+     "words": [
+      "人"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0006",
+   "lv": "1",
+   "title": "你在哪儿？",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "爸爸：喂，儿子，你在哪儿？",
+     "Dad: Hello, son, where are you?"
+    ],
+    [
+     "儿子：喂，爸爸！我在学校。",
+     "Son: Hello, Dad! I'm at school."
+    ],
+    [
+     "爸爸：现在五点了，你怎么没回家？",
+     "Dad: It's five o'clock now. Why haven't you come home?"
+    ],
+    [
+     "儿子：我在学校和同学学习汉语呢。",
+     "Son: I'm studying Chinese with classmates at school."
+    ],
+    [
+     "爸爸：你什么时候回来？",
+     "Dad: When are you coming back?"
+    ],
+    [
+     "儿子：六点回家。",
+     "Son: I'll be home at six."
+    ],
+    [
+     "爸爸：你妈妈今天不在家，她去北京了。",
+     "Dad: Your mum isn't home today. She has gone to Beijing."
+    ],
+    [
+     "爸爸：我们去饭馆吃，怎么样？",
+     "Dad: How about we eat at a restaurant?"
+    ],
+    [
+     "儿子：太好了！我想吃中国菜。",
+     "Son: Great! I want Chinese food."
+    ],
+    [
+     "爸爸：六点我去学校，我们坐出租车去饭馆。",
+     "Dad: I'll come to the school at six, and we'll take a taxi to the restaurant."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "儿子现在在哪儿？",
+     "en": "Where is the son now?",
+     "type": "mc",
+     "options": [
+      "在家里",
+      "在学校",
+      "在饭馆",
+      "在医院"
+     ],
+     "answer": 1,
+     "words": [
+      "学校"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "儿子在学校看电影。",
+     "en": "The son is watching a film at school.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "学习"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "妈妈今天去哪儿了？",
+     "en": "Where did Mum go today?",
+     "type": "mc",
+     "options": [
+      "学校",
+      "医院",
+      "北京",
+      "商店"
+     ],
+     "answer": 2,
+     "words": [
+      "北京"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "儿子想去饭馆吃中国菜。",
+     "en": "The son wants to eat Chinese food at a restaurant.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "菜"
+     ],
+     "sentence": 8
+    },
+    {
+     "q": "他们怎么去饭馆？",
+     "en": "How are they getting to the restaurant?",
+     "type": "mc",
+     "options": [
+      "坐飞机",
+      "坐公共汽车",
+      "坐船",
+      "坐出租车"
+     ],
+     "answer": 3,
+     "words": [
+      "出租车"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0007",
+   "lv": "1",
+   "title": "我的中国同学",
+   "oop": {},
+   "names": [
+    "安娜",
+    "周婷"
+   ],
+   "sentences": [
+    [
+     "我叫安娜，现在我在北京学习汉语。",
+     "My name is Anna. I'm studying Chinese in Beijing now."
+    ],
+    [
+     "我们学校有很多中国学生。",
+     "There are many Chinese students at our school."
+    ],
+    [
+     "昨天，我认识了一个中国同学，她叫周婷。",
+     "Yesterday I met a Chinese classmate. Her name is Zhou Ting."
+    ],
+    [
+     "周婷二十一岁，她很漂亮。",
+     "Zhou Ting is twenty-one. She is very pretty."
+    ],
+    [
+     "她爸爸是医生，妈妈是老师。",
+     "Her dad is a doctor and her mum is a teacher."
+    ],
+    [
+     "下午，我们在学校后面的饭馆喝茶。",
+     "In the afternoon we drank tea at the restaurant behind the school."
+    ],
+    [
+     "我的汉语不太好，周婷说话很慢。",
+     "My Chinese isn't very good, so Zhou Ting speaks slowly."
+    ],
+    [
+     "她在我的书上写了她的名字。",
+     "She wrote her name in my book."
+    ],
+    [
+     "认识她，我很高兴。",
+     "I'm very happy to know her."
+    ],
+    [
+     "明天我们去看电影。",
+     "Tomorrow we are going to see a film."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "安娜现在在中国学习。",
+     "en": "Anna is studying in China now.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "学习"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "周婷多大？",
+     "en": "How old is Zhou Ting?",
+     "type": "mc",
+     "options": [
+      "二十一岁",
+      "二十岁",
+      "十二岁",
+      "二十七岁"
+     ],
+     "answer": 0,
+     "words": [
+      "岁"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "周婷的妈妈是医生。",
+     "en": "Zhou Ting's mum is a doctor.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "医生"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "下午她们在哪儿喝茶？",
+     "en": "Where did they drink tea in the afternoon?",
+     "type": "mc",
+     "options": [
+      "学校前面的饭馆",
+      "学校后面的饭馆",
+      "周婷的家里",
+      "火车站的饭馆"
+     ],
+     "answer": 1,
+     "words": [
+      "后面"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "周婷在安娜的书上写了什么？",
+     "en": "What did Zhou Ting write in Anna's book?",
+     "type": "mc",
+     "options": [
+      "她爸爸的名字",
+      "她的老师",
+      "她的名字",
+      "她家在哪儿"
+     ],
+     "answer": 2,
+     "words": [
+      "名字"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0008",
+   "lv": "1",
+   "title": "火车站的小商店",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我们的商店在火车站前面。",
+     "Our shop is in front of the railway station."
+    ],
+    [
+     "星期一到星期日，商店都开。",
+     "The shop is open Monday to Sunday."
+    ],
+    [
+     "上午七点开，晚上十点不开了。",
+     "It opens at seven in the morning and closes at ten at night."
+    ],
+    [
+     "我们这里有水果、茶、水和很多吃的东西。",
+     "We have fruit, tea, water and lots of things to eat."
+    ],
+    [
+     "苹果很好，三块钱一个。",
+     "The apples are very good, three yuan each."
+    ],
+    [
+     "我们没有衣服，没有书。",
+     "We don't have clothes or books."
+    ],
+    [
+     "我们这里有桌子和椅子，你能在这里喝茶、吃东西。",
+     "We have tables and chairs here, so you can drink tea and eat here."
+    ],
+    [
+     "谢谢你来我们的商店！",
+     "Thank you for coming to our shop!"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "商店在哪儿？",
+     "en": "Where is the shop?",
+     "type": "mc",
+     "options": [
+      "火车站后面",
+      "学校前面",
+      "医院后面",
+      "火车站前面"
+     ],
+     "answer": 3,
+     "words": [
+      "前面"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "这个商店星期日也开。",
+     "en": "This shop is open on Sundays too.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "星期"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "商店上午几点开？",
+     "en": "What time does the shop open in the morning?",
+     "type": "mc",
+     "options": [
+      "七点",
+      "八点",
+      "九点",
+      "十点"
+     ],
+     "answer": 0,
+     "words": [
+      "开"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "苹果多少钱一个？",
+     "en": "How much is one apple?",
+     "type": "mc",
+     "options": [
+      "五块",
+      "三块",
+      "八块",
+      "十块"
+     ],
+     "answer": 1,
+     "words": [
+      "苹果"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "在这个商店能买衣服。",
+     "en": "You can buy clothes in this shop.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "衣服"
+     ],
+     "sentence": 5
+    }
+   ]
+  },
+  {
+   "id": "p0009",
+   "lv": "1",
+   "title": "去北京",
+   "oop": {},
+   "names": [
+    "上海"
+   ],
+   "sentences": [
+    [
+     "下个月我和爸爸妈妈去北京。",
+     "Next month I'm going to Beijing with my mum and dad."
+    ],
+    [
+     "我们家在上海，我们坐飞机去。",
+     "We live in Shanghai, and we're flying there."
+    ],
+    [
+     "我们坐上午十点的飞机。",
+     "We're taking the 10 a.m. plane."
+    ],
+    [
+     "在北京，我们住在爸爸的朋友家。",
+     "In Beijing we'll stay at Dad's friend's home."
+    ],
+    [
+     "他的家在火车站后面，很大。",
+     "His home is behind the railway station. It's very big."
+    ],
+    [
+     "爸爸的朋友有一个女儿，她八岁。",
+     "Dad's friend has a daughter who is eight."
+    ],
+    [
+     "我想和她一起去看看北京的学校和商店。",
+     "I want to go and see Beijing's schools and shops with her."
+    ],
+    [
+     "北京下个月很冷，我们都要多穿衣服。",
+     "Beijing is very cold next month, so we all need to wear more clothes."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "他们坐几点的飞机？",
+     "en": "What time is their plane?",
+     "type": "mc",
+     "options": [
+      "下午两点",
+      "上午八点",
+      "上午十点",
+      "下午四点"
+     ],
+     "answer": 2,
+     "words": [
+      "飞机"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "在北京，他们住在饭馆里。",
+     "en": "In Beijing they will stay in a restaurant.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "住"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "爸爸朋友的家很大。",
+     "en": "Dad's friend's home is very big.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "大"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "爸爸朋友的女儿几岁？",
+     "en": "How old is Dad's friend's daughter?",
+     "type": "mc",
+     "options": [
+      "六岁",
+      "七岁",
+      "九岁",
+      "八岁"
+     ],
+     "answer": 3,
+     "words": [
+      "岁"
+     ],
+     "sentence": 5
+    }
+   ]
+  },
+  {
+   "id": "p0010",
+   "lv": "1",
+   "title": "我的朋友",
+   "oop": {},
+   "names": [
+    "赵强"
+   ],
+   "sentences": [
+    [
+     "我有一个好朋友，他叫赵强。",
+     "I have a good friend called Zhao Qiang."
+    ],
+    [
+     "我们是同学。",
+     "We are classmates."
+    ],
+    [
+     "赵强很喜欢猫，他家里有猫，没有狗。",
+     "Zhao Qiang loves cats. He has cats at home but no dog."
+    ],
+    [
+     "我不喜欢猫，我喜欢狗。",
+     "I don't like cats. I like dogs."
+    ],
+    [
+     "赵强会做菜，他做的中国菜很好吃。",
+     "Zhao Qiang can cook. The Chinese food he makes is delicious."
+    ],
+    [
+     "星期日中午，我去他家吃他做的菜。",
+     "At noon on Sunday I go to his home to eat the food he cooks."
+    ],
+    [
+     "下午我们在他家看电影。",
+     "In the afternoon we watch films at his home."
+    ],
+    [
+     "赵强的爸爸是老师，妈妈在一个商店工作。",
+     "Zhao Qiang's dad is a teacher, and his mum works in a shop."
+    ],
+    [
+     "我们认识十年了。",
+     "We have known each other for ten years."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "赵强和我是同学。",
+     "en": "Zhao Qiang and I are classmates.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "同学"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "赵强家里有什么？",
+     "en": "What does Zhao Qiang have at home?",
+     "type": "mc",
+     "options": [
+      "猫",
+      "狗",
+      "猫和狗",
+      "鱼"
+     ],
+     "answer": 0,
+     "words": [
+      "猫"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "星期日中午，我去赵强家做什么？",
+     "en": "What do I do at Zhao Qiang's home at noon on Sunday?",
+     "type": "mc",
+     "options": [
+      "和他看电影",
+      "吃他做的菜",
+      "和他学习汉语",
+      "看他的小猫"
+     ],
+     "answer": 1,
+     "words": [
+      "吃"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "赵强的妈妈在商店工作。",
+     "en": "Zhao Qiang's mum works in a shop.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "商店"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "我们认识几年了？",
+     "en": "How many years have we known each other?",
+     "type": "mc",
+     "options": [
+      "八年",
+      "九年",
+      "十年",
+      "六年"
+     ],
+     "answer": 2,
+     "words": [
+      "年"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0011",
+   "lv": "1",
+   "title": "看医生",
+   "oop": {},
+   "names": [
+    "王丽"
+   ],
+   "sentences": [
+    [
+     "星期一上午，王丽生病了，她去医院看医生。",
+     "On Monday morning Wang Li was ill, so she went to the hospital to see a doctor."
+    ],
+    [
+     "医生：“你好！请坐。你怎么了？”",
+     "Doctor: \"Hello! Please sit down. What's wrong?\""
+    ],
+    [
+     "王丽：“我很冷，不想吃东西。”",
+     "Wang Li: \"I feel very cold and I don't want to eat.\""
+    ],
+    [
+     "医生：“你昨天吃了什么？喝了什么？”",
+     "Doctor: \"What did you eat and drink yesterday?\""
+    ],
+    [
+     "王丽：“昨天中午我在饭馆喝了很多冷水。”",
+     "Wang Li: \"Yesterday at noon I drank lots of cold water at a restaurant.\""
+    ],
+    [
+     "医生：“没关系。你回家多喝热水，多睡觉。”",
+     "Doctor: \"It's nothing serious. Go home, drink lots of hot water and sleep a lot.\""
+    ],
+    [
+     "医生：“今天和明天不能去工作。”",
+     "Doctor: \"Don't go to work today or tomorrow.\""
+    ],
+    [
+     "医生：“星期三上午你再来看看。”",
+     "Doctor: \"Come back for a check on Wednesday morning.\""
+    ]
+   ],
+   "questions": [
+    {
+     "q": "王丽星期几去医院？",
+     "en": "Which day did Wang Li go to the hospital?",
+     "type": "mc",
+     "options": [
+      "星期二",
+      "星期三",
+      "星期四",
+      "星期一"
+     ],
+     "answer": 3,
+     "words": [
+      "医院"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "王丽很想吃东西。",
+     "en": "Wang Li really wants to eat.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "想"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "昨天中午王丽在哪儿喝了很多冷水？",
+     "en": "Where did Wang Li drink lots of cold water yesterday at noon?",
+     "type": "mc",
+     "options": [
+      "在饭馆",
+      "在家里",
+      "在学校",
+      "在医院"
+     ],
+     "answer": 0,
+     "words": [
+      "饭馆"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "王丽今天和明天都能去工作。",
+     "en": "Wang Li can go to work today and tomorrow.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "工作"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "星期三上午王丽做什么？",
+     "en": "What does Wang Li do on Wednesday morning?",
+     "type": "mc",
+     "options": [
+      "去饭馆吃菜",
+      "再来医院",
+      "在家里睡觉",
+      "去商店买药"
+     ],
+     "answer": 1,
+     "words": [
+      "再"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0012",
+   "lv": "1",
+   "title": "我的星期日",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "星期日我不去学校。",
+     "I don't go to school on Sundays."
+    ],
+    [
+     "上午九点，我在家里喝茶。",
+     "At nine in the morning I drink tea at home."
+    ],
+    [
+     "十点，我和妈妈去商店买东西。",
+     "At ten my mum and I go shopping."
+    ],
+    [
+     "我们买了苹果和茶。",
+     "We buy apples and tea."
+    ],
+    [
+     "中午十二点我们回家，妈妈做菜。",
+     "At twelve noon we go home and Mum cooks."
+    ],
+    [
+     "下午一点，我在家里睡觉。",
+     "At one in the afternoon I have a sleep at home."
+    ],
+    [
+     "下午三点，我去同学家学习汉语。",
+     "At three in the afternoon I go to a classmate's home to study Chinese."
+    ],
+    [
+     "同学的家在医院后面，很近。",
+     "My classmate's home is behind the hospital, very close."
+    ],
+    [
+     "下午六点我回家看电视。",
+     "At six in the afternoon I go home and watch TV."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "上午十点，我和谁去商店？",
+     "en": "Who do I go to the shop with at ten in the morning?",
+     "type": "mc",
+     "options": [
+      "爸爸",
+      "同学",
+      "妈妈",
+      "朋友"
+     ],
+     "answer": 2,
+     "words": [
+      "商店"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "我们在商店买了苹果。",
+     "en": "We bought apples at the shop.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "买"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "下午一点，我做什么？",
+     "en": "What do I do at one in the afternoon?",
+     "type": "mc",
+     "options": [
+      "看电视",
+      "学习汉语",
+      "做菜",
+      "睡觉"
+     ],
+     "answer": 3,
+     "words": [
+      "睡觉"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "下午三点，我去做什么？",
+     "en": "What do I go and do at three in the afternoon?",
+     "type": "mc",
+     "options": [
+      "去同学家学习",
+      "去商店买水果",
+      "去医院看医生",
+      "去学校看老师"
+     ],
+     "answer": 0,
+     "words": [
+      "学习"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "同学家在医院前面。",
+     "en": "My classmate's home is in front of the hospital.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "后面"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0013",
+   "lv": "1",
+   "title": "我学习汉语",
+   "oop": {},
+   "names": [
+    "安迪",
+    "美国"
+   ],
+   "sentences": [
+    [
+     "我叫安迪，我是美国人。",
+     "My name is Andy. I'm American."
+    ],
+    [
+     "我在北京学习汉语，我很喜欢汉语。",
+     "I'm studying Chinese in Beijing, and I like Chinese very much."
+    ],
+    [
+     "汉语的字很多，有的字很漂亮。",
+     "Chinese has a lot of characters, and some of them are very beautiful."
+    ],
+    [
+     "我的老师是北京人，她说话很好听。",
+     "My teacher is from Beijing, and her speech sounds lovely."
+    ],
+    [
+     "上午我在学校读书、写字。",
+     "In the morning I read and write characters at school."
+    ],
+    [
+     "下午我和中国朋友说话。",
+     "In the afternoon I talk with Chinese friends."
+    ],
+    [
+     "我现在能读一些汉语书了。",
+     "Now I can read some Chinese books."
+    ],
+    [
+     "我也会写我的中国名字。",
+     "I can also write my Chinese name."
+    ],
+    [
+     "我想在中国工作。",
+     "I want to work in China."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "安迪在北京工作。",
+     "en": "Andy works in Beijing.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "学习"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "上午安迪在哪儿读书、写字？",
+     "en": "Where does Andy read and write in the morning?",
+     "type": "mc",
+     "options": [
+      "在家里",
+      "在学校",
+      "在饭馆",
+      "在朋友家"
+     ],
+     "answer": 1,
+     "words": [
+      "学校"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "下午安迪做什么？",
+     "en": "What does Andy do in the afternoon?",
+     "type": "mc",
+     "options": [
+      "在学校读书",
+      "在家看电视",
+      "和朋友说话",
+      "去商店买东西"
+     ],
+     "answer": 2,
+     "words": [
+      "说话"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "现在安迪会读一点汉语书。",
+     "en": "Andy can now read a little in Chinese books.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "读"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "安迪不想在中国工作。",
+     "en": "Andy doesn't want to work in China.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "想"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0014",
+   "lv": "1",
+   "title": "这个饭馆怎么样？",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我家前面有一个小饭馆。",
+     "There is a small restaurant in front of my home."
+    ],
+    [
+     "饭馆不大，饭馆里有十张桌子。",
+     "The restaurant isn't big. It has ten tables."
+    ],
+    [
+     "这里的菜很好吃，米饭也很好吃。",
+     "The dishes here are delicious, and so is the rice."
+    ],
+    [
+     "我很喜欢这里的中国菜。",
+     "I really like the Chinese food here."
+    ],
+    [
+     "三个人吃，一百多块钱。",
+     "A meal for three costs just over a hundred yuan."
+    ],
+    [
+     "星期六和星期日，很多人来这里吃。",
+     "On Saturdays and Sundays lots of people come here to eat."
+    ],
+    [
+     "我爸爸很喜欢这里的茶，我妈妈很喜欢这里的米饭。",
+     "My dad really likes the tea here, and my mum really likes the rice."
+    ],
+    [
+     "我想，你会喜欢这个饭馆。",
+     "I think you'll like this restaurant."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "饭馆里有几张桌子？",
+     "en": "How many tables are in the restaurant?",
+     "type": "mc",
+     "options": [
+      "八张",
+      "六张",
+      "九张",
+      "十张"
+     ],
+     "answer": 3,
+     "words": [
+      "桌子"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "这个饭馆很大。",
+     "en": "This restaurant is very big.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "大"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "三个人吃，多少钱？",
+     "en": "How much does a meal for three cost?",
+     "type": "mc",
+     "options": [
+      "一百多块",
+      "两百多块",
+      "八十块",
+      "五十块"
+     ],
+     "answer": 0,
+     "words": [
+      "钱"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "星期日，很多人去这个饭馆。",
+     "en": "On Sundays lots of people go to this restaurant.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "多"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "爸爸喜欢这个饭馆的什么？",
+     "en": "What does Dad like about this restaurant?",
+     "type": "mc",
+     "options": [
+      "米饭",
+      "茶",
+      "中国菜",
+      "水果"
+     ],
+     "answer": 1,
+     "words": [
+      "茶"
+     ],
+     "sentence": 6
+    }
+   ]
+  },
+  {
+   "id": "p0015",
+   "lv": "1",
+   "title": "我的房间",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "这是我的房间。",
+     "This is my room."
+    ],
+    [
+     "房间不大，很漂亮。",
+     "The room isn't big, but it's very nice."
+    ],
+    [
+     "房间里有桌子、椅子和电脑。",
+     "There is a table, a chair and a computer in the room."
+    ],
+    [
+     "桌子上有我的电脑和一些书。",
+     "My computer and some books are on the table."
+    ],
+    [
+     "我的狗在桌子后面睡觉。",
+     "My dog is sleeping behind the table."
+    ],
+    [
+     "椅子上有我的衣服。",
+     "My clothes are on the chair."
+    ],
+    [
+     "我的杯子在电脑前面，杯子里有茶。",
+     "My cup is in front of the computer, and there is tea in it."
+    ],
+    [
+     "我在这里学习、写字、看电影。",
+     "I study, write and watch films here."
+    ],
+    [
+     "我也在这里睡觉。",
+     "I sleep here too."
+    ],
+    [
+     "我很喜欢我的房间。",
+     "I really like my room."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "桌子上有什么？",
+     "en": "What is on the table?",
+     "type": "mc",
+     "options": [
+      "电脑和茶",
+      "书和杯子",
+      "电脑和书",
+      "衣服和书"
+     ],
+     "answer": 2,
+     "words": [
+      "桌子"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "小狗在椅子上睡觉。",
+     "en": "The dog is sleeping on the chair.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "狗"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "椅子上有什么？",
+     "en": "What is on the chair?",
+     "type": "mc",
+     "options": [
+      "我的书",
+      "我的电脑",
+      "我的杯子",
+      "我的衣服"
+     ],
+     "answer": 3,
+     "words": [
+      "椅子"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "杯子里是水。",
+     "en": "There is water in the cup.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "杯子"
+     ],
+     "sentence": 6
+    }
+   ]
+  },
+  {
+   "id": "p0016",
+   "lv": "2",
+   "title": "妹妹的生日",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "今天是十月八号，是我妹妹的生日。",
+     "Today is 8 October, my younger sister's birthday."
+    ],
+    [
+     "妹妹十岁了，她非常高兴。",
+     "My sister is ten now, and she is very happy."
+    ],
+    [
+     "早上，妈妈给她做了一个大蛋糕。",
+     "In the morning Mum made her a big cake."
+    ],
+    [
+     "爸爸送了她一块红手表。",
+     "Dad gave her a red watch."
+    ],
+    [
+     "我送她一本书，因为她很喜欢读书。",
+     "I gave her a book, because she loves reading."
+    ],
+    [
+     "下午，妹妹的同学都来我们家了。",
+     "In the afternoon all my sister's classmates came to our home."
+    ],
+    [
+     "她们唱歌、跳舞，玩得非常快乐。",
+     "They sang, danced and had a wonderful time."
+    ],
+    [
+     "晚上，我们一起吃蛋糕。",
+     "In the evening we ate the cake together."
+    ],
+    [
+     "大家一起给妹妹唱歌。",
+     "Everyone sang to my sister together."
+    ],
+    [
+     "妹妹笑着告诉我们：“这是我最快乐的生日！”",
+     "My sister smiled and told us: \"This is my happiest birthday!\""
+    ],
+    [
+     "我希望妹妹每个生日都很快乐。",
+     "I hope every one of my sister's birthdays is a happy one."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "妹妹多大了？",
+     "en": "How old is the sister now?",
+     "type": "mc",
+     "options": [
+      "十岁",
+      "八岁",
+      "九岁",
+      "十一岁"
+     ],
+     "answer": 0,
+     "words": [
+      "岁"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "爸爸送了妹妹什么？",
+     "en": "What did Dad give the sister?",
+     "type": "mc",
+     "options": [
+      "一本书",
+      "一块手表",
+      "一个蛋糕",
+      "一件衣服"
+     ],
+     "answer": 1,
+     "words": [
+      "手表"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "妹妹很爱读书。",
+     "en": "The sister loves reading.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "读"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "妹妹的同学下午来了我们家。",
+     "en": "The sister's classmates came to our home in the afternoon.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "同学"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "晚上大家做什么？",
+     "en": "What does everyone do in the evening?",
+     "type": "mc",
+     "options": [
+      "一起去饭馆",
+      "一起看电影",
+      "一起吃蛋糕",
+      "一起打篮球"
+     ],
+     "answer": 2,
+     "words": [
+      "一起"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0017",
+   "lv": "2",
+   "title": "星期六打篮球",
+   "oop": {},
+   "names": [
+    "王"
+   ],
+   "sentences": [
+    [
+     "大家好！我是王老师。",
+     "Hello everyone! This is Teacher Wang."
+    ],
+    [
+     "这个星期六上午，我们一起去打篮球。",
+     "This Saturday morning we're going to play basketball together."
+    ],
+    [
+     "早上八点，请大家到教室来。",
+     "Please come to the classroom at eight in the morning."
+    ],
+    [
+     "我们从学校走去，路不远，走二十五分钟就到了。",
+     "We'll walk from the school. It isn't far, just twenty-five minutes on foot."
+    ],
+    [
+     "请大家穿白衣服。",
+     "Please wear white clothes."
+    ],
+    [
+     "请大家准备好水，那里没有卖水的商店。",
+     "Please bring water with you. There is no shop selling water there."
+    ],
+    [
+     "打篮球以后，我们去学校旁边的饭馆吃羊肉。",
+     "After basketball we'll go to the restaurant next to the school to eat lamb."
+    ],
+    [
+     "每个人三十元。",
+     "It's thirty yuan per person."
+    ],
+    [
+     "星期六下雨，我们就不去了。",
+     "If it rains on Saturday, we won't go."
+    ],
+    [
+     "想去的同学，请在星期四晚上以前告诉我。",
+     "If you want to go, please tell me before Thursday evening."
+    ],
+    [
+     "谢谢大家！",
+     "Thank you, everyone!"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "早上几点到教室？",
+     "en": "What time should they be at the classroom?",
+     "type": "mc",
+     "options": [
+      "八点",
+      "七点",
+      "九点",
+      "十点"
+     ],
+     "answer": 0,
+     "words": [
+      "教室"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "学校离那里不太远。",
+     "en": "The school isn't far from there.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "远"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "打篮球以后，他们去吃什么？",
+     "en": "What will they eat after basketball?",
+     "type": "mc",
+     "options": [
+      "鸡蛋",
+      "羊肉",
+      "鱼",
+      "西瓜"
+     ],
+     "answer": 1,
+     "words": [
+      "羊肉"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "每个人要给多少钱？",
+     "en": "How much does each person pay?",
+     "type": "mc",
+     "options": [
+      "二十元",
+      "四十元",
+      "五十元",
+      "三十元"
+     ],
+     "answer": 3,
+     "words": [
+      "元"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "想去打篮球的人，星期五告诉老师就可以。",
+     "en": "People who want to play can tell the teacher on Friday.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "告诉"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0018",
+   "lv": "2",
+   "title": "孙浩的工作日",
+   "oop": {},
+   "names": [
+    "孙浩"
+   ],
+   "sentences": [
+    [
+     "我叫孙浩，我在一个公司上班。",
+     "My name is Sun Hao. I work at a company."
+    ],
+    [
+     "星期一到星期五，我都很忙。",
+     "From Monday to Friday I'm always busy."
+    ],
+    [
+     "早上六点我就起床了。",
+     "I get up at six in the morning."
+    ],
+    [
+     "起床以后，我去公园跑步。",
+     "After I get up I go running in the park."
+    ],
+    [
+     "七点我吃鸡蛋、喝牛奶。",
+     "At seven I eat eggs and drink milk."
+    ],
+    [
+     "我家离公司很远，我坐公共汽车去上班。",
+     "My home is far from the company, so I take the bus to work."
+    ],
+    [
+     "在公共汽车上，我看报纸。",
+     "On the bus I read the newspaper."
+    ],
+    [
+     "九点我开始工作，中午在公司吃米饭。",
+     "I start work at nine and have rice at the company at noon."
+    ],
+    [
+     "晚上七点我回到家，觉得非常累。",
+     "I get home at seven in the evening and feel very tired."
+    ],
+    [
+     "我妻子已经做好了菜，我们一起吃。",
+     "My wife has already cooked, and we eat together."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "孙浩在医院上班。",
+     "en": "Sun Hao works at a hospital.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "公司"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "孙浩起床以后做什么？",
+     "en": "What does Sun Hao do after getting up?",
+     "type": "mc",
+     "options": [
+      "去游泳",
+      "看报纸",
+      "去跑步",
+      "喝咖啡"
+     ],
+     "answer": 2,
+     "words": [
+      "跑步"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "孙浩怎么去上班？",
+     "en": "How does Sun Hao get to work?",
+     "type": "mc",
+     "options": [
+      "骑自行车去",
+      "坐出租车去",
+      "走路去公司",
+      "坐公共汽车"
+     ],
+     "answer": 3,
+     "words": [
+      "公共汽车"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "孙浩在路上看报纸。",
+     "en": "Sun Hao reads the newspaper on the way.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "报纸"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "孙浩晚上几点回家？",
+     "en": "What time does Sun Hao get home in the evening?",
+     "type": "mc",
+     "options": [
+      "七点",
+      "六点",
+      "八点",
+      "九点"
+     ],
+     "answer": 0,
+     "words": [
+      "回"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0019",
+   "lv": "2",
+   "title": "火车站怎么走？",
+   "oop": {},
+   "names": [
+    "何静"
+   ],
+   "sentences": [
+    [
+     "何静第一次来北京，她想去火车站。",
+     "It is He Jing's first time in Beijing, and she wants to go to the railway station."
+    ],
+    [
+     "她不知道怎么走，所以她问路上的一个男人。",
+     "She doesn't know the way, so she asks a man in the street."
+    ],
+    [
+     "何静：“您好！请问，火车站怎么走？”",
+     "He Jing: \"Hello! Excuse me, how do I get to the railway station?\""
+    ],
+    [
+     "男人：“火车站？离这儿很远。”",
+     "Man: \"The railway station? It's a long way from here.\""
+    ],
+    [
+     "“你可以坐公共汽车，也可以坐出租车。”",
+     "\"You can take a bus or a taxi.\""
+    ],
+    [
+     "何静：“走路要多长时间？”",
+     "He Jing: \"How long does it take on foot?\""
+    ],
+    [
+     "男人：“走路要四十多分钟。”",
+     "Man: \"Over forty minutes on foot.\""
+    ],
+    [
+     "男人：“你看见前面那个大商店了吗？”",
+     "Man: \"Do you see that big shop ahead?\""
+    ],
+    [
+     "“商店右边就是公共汽车站。”",
+     "\"The bus stop is just to the right of the shop.\""
+    ],
+    [
+     "“坐十五路，五站就到火车站了。”",
+     "\"Take the number 15. It's five stops to the railway station.\""
+    ],
+    [
+     "何静：“票多少钱？”",
+     "He Jing: \"How much is the ticket?\""
+    ],
+    [
+     "男人：“两块钱。”",
+     "Man: \"Two yuan.\""
+    ],
+    [
+     "何静：“谢谢您！”男人：“不客气！”",
+     "He Jing: \"Thank you!\" Man: \"You're welcome!\""
+    ]
+   ],
+   "questions": [
+    {
+     "q": "何静问谁怎么走？",
+     "en": "Who does He Jing ask for directions?",
+     "type": "mc",
+     "options": [
+      "一个女人",
+      "一个男人",
+      "一个孩子",
+      "一个司机"
+     ],
+     "answer": 1,
+     "words": [
+      "男人"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "从这儿到火车站很近。",
+     "en": "It's close from here to the railway station.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "远"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "走路去火车站要多长时间？",
+     "en": "How long does it take to walk to the station?",
+     "type": "mc",
+     "options": [
+      "二十多分钟",
+      "一个多小时",
+      "四十多分钟",
+      "十多分钟"
+     ],
+     "answer": 2,
+     "words": [
+      "分钟"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "公共汽车站在哪儿？",
+     "en": "Where is the bus stop?",
+     "type": "mc",
+     "options": [
+      "商店左边",
+      "商店旁边",
+      "学校右边",
+      "商店右边"
+     ],
+     "answer": 3,
+     "words": [
+      "右边"
+     ],
+     "sentence": 8
+    },
+    {
+     "q": "公共汽车票两块钱。",
+     "en": "The bus ticket costs two yuan.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "钱"
+     ],
+     "sentence": 11
+    }
+   ]
+  },
+  {
+   "id": "p0020",
+   "lv": "2",
+   "title": "买西瓜",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我：“您好！西瓜怎么卖？”",
+     "Me: \"Hello! How much are the watermelons?\""
+    ],
+    [
+     "卖水果的：“西瓜三块五一公斤。”",
+     "Fruit seller: \"Watermelon is 3.5 yuan a kilo.\""
+    ],
+    [
+     "我：“太贵了！能便宜一些吗？”",
+     "Me: \"That's too expensive! Can you make it a bit cheaper?\""
+    ],
+    [
+     "卖水果的：“这是今天的新西瓜。三块钱一公斤吧。”",
+     "Fruit seller: \"These watermelons came in today. Three yuan a kilo, then.\""
+    ],
+    [
+     "我：“好，我要这个大的。”",
+     "Me: \"OK, I'll take this big one.\""
+    ],
+    [
+     "卖水果的：“这个西瓜五公斤，十五块钱。”",
+     "Fruit seller: \"This watermelon is five kilos, fifteen yuan.\""
+    ],
+    [
+     "我：“我还要两公斤苹果。”",
+     "Me: \"I'll take two kilos of apples as well.\""
+    ],
+    [
+     "卖水果的：“好的。一共二十七块。”",
+     "Fruit seller: \"OK. Twenty-seven yuan altogether.\""
+    ],
+    [
+     "我给了她三十块，她找了我三块钱。",
+     "I gave her thirty yuan and she gave me three yuan change."
+    ],
+    [
+     "西瓜真好吃！",
+     "The watermelon was really delicious!"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "开始的时候，西瓜多少钱一公斤？",
+     "en": "At first, how much was the watermelon per kilo?",
+     "type": "mc",
+     "options": [
+      "三块五",
+      "三块",
+      "六块",
+      "两块五"
+     ],
+     "answer": 0,
+     "words": [
+      "公斤"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "我买西瓜的时候，是每公斤三块。",
+     "en": "When I bought the watermelon, it was three yuan per kilo.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "公斤"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "我买的西瓜几公斤？",
+     "en": "How many kilos was the watermelon I bought?",
+     "type": "mc",
+     "options": [
+      "三公斤",
+      "五公斤",
+      "六公斤",
+      "两公斤"
+     ],
+     "answer": 1,
+     "words": [
+      "西瓜"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "我还买了什么？",
+     "en": "What else did I buy?",
+     "type": "mc",
+     "options": [
+      "三公斤苹果",
+      "两个西瓜",
+      "两公斤苹果",
+      "两公斤鸡蛋"
+     ],
+     "answer": 2,
+     "words": [
+      "还"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "卖水果的找了我五块钱。",
+     "en": "The fruit seller gave me five yuan change.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "找"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0021",
+   "lv": "2",
+   "title": "汉语考试",
+   "oop": {},
+   "names": [
+    "陈杰"
+   ],
+   "sentences": [
+    [
+     "明天有汉语考试，今天晚上我在房间里准备。",
+     "There's a Chinese exam tomorrow, so tonight I'm preparing in my room."
+    ],
+    [
+     "老师告诉我们，考试有一百个题，要两个小时。",
+     "The teacher told us the exam has a hundred questions and takes two hours."
+    ],
+    [
+     "我的朋友陈杰也在我的房间，我们一起学习。",
+     "My friend Chen Jie is in my room too, and we study together."
+    ],
+    [
+     "陈杰问我：“这个字是什么意思？”",
+     "Chen Jie asks me: \"What does this character mean?\""
+    ],
+    [
+     "我回答他：“这个字的意思是‘快乐’。”",
+     "I answer him: \"This character means 'happy'.\""
+    ],
+    [
+     "我们学习到晚上十一点，非常累。",
+     "We study until eleven at night and are very tired."
+    ],
+    [
+     "早上七点，我们起床去教室。",
+     "At seven in the morning we get up and go to the classroom."
+    ],
+    [
+     "考试的题不难。",
+     "The exam questions aren't difficult."
+    ],
+    [
+     "我觉得我只错了两个题。",
+     "I think I only got two questions wrong."
+    ],
+    [
+     "下午，老师告诉我，我的考试是第一！",
+     "In the afternoon the teacher tells me my exam result is first!"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "考试要多长时间？",
+     "en": "How long does the exam take?",
+     "type": "mc",
+     "options": [
+      "一个小时",
+      "三个小时",
+      "半个小时",
+      "两个小时"
+     ],
+     "answer": 3,
+     "words": [
+      "小时"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "陈杰和我一起学习。",
+     "en": "Chen Jie studies with me.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "一起"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "我们学习到几点？",
+     "en": "Until what time do we study?",
+     "type": "mc",
+     "options": [
+      "晚上十一点",
+      "晚上十点",
+      "晚上九点",
+      "晚上十二点"
+     ],
+     "answer": 0,
+     "words": [
+      "晚上"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "我觉得考试的题很难。",
+     "en": "I think the exam questions are hard.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "题"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "谁的考试是第一？",
+     "en": "Whose exam result is first?",
+     "type": "mc",
+     "options": [
+      "陈杰",
+      "我",
+      "我和陈杰",
+      "我们都不是"
+     ],
+     "answer": 1,
+     "words": [
+      "第一"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0022",
+   "lv": "2",
+   "title": "在机场",
+   "oop": {},
+   "names": [
+    "周婷",
+    "上海"
+   ],
+   "sentences": [
+    [
+     "星期五晚上，周婷要坐飞机去上海旅游。",
+     "On Friday evening Zhou Ting is flying to Shanghai for a trip."
+    ],
+    [
+     "她坐出租车去机场，路上出租车走得很慢。",
+     "She took a taxi to the airport, and the taxi went very slowly on the way."
+    ],
+    [
+     "到机场的时候，已经七点了。",
+     "When she reached the airport it was already seven."
+    ],
+    [
+     "她的票在手机里，但是她找不到手机了！",
+     "Her ticket was on her phone, but she couldn't find her phone!"
+    ],
+    [
+     "周婷非常着急。",
+     "Zhou Ting was very worried."
+    ],
+    [
+     "一个服务员问她：“您在找什么？”",
+     "A member of staff asked her: \"What are you looking for?\""
+    ],
+    [
+     "周婷告诉她：“我找不到我的手机了。”",
+     "Zhou Ting told her: \"I can't find my phone.\""
+    ],
+    [
+     "服务员笑着问：“这个白手机是您的吗？”",
+     "The staff member smiled and asked: \"Is this white phone yours?\""
+    ],
+    [
+     "“它在那个椅子上。”",
+     "\"It was on that chair.\""
+    ],
+    [
+     "她八点坐上了去上海的飞机。",
+     "At eight she was on the plane to Shanghai."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "周婷去上海做什么？",
+     "en": "What is Zhou Ting going to Shanghai for?",
+     "type": "mc",
+     "options": [
+      "上班",
+      "考试",
+      "旅游",
+      "找工作"
+     ],
+     "answer": 2,
+     "words": [
+      "旅游"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "周婷怎么去机场？",
+     "en": "How did Zhou Ting get to the airport?",
+     "type": "mc",
+     "options": [
+      "坐公共汽车",
+      "坐船",
+      "走路",
+      "坐出租车"
+     ],
+     "answer": 3,
+     "words": [
+      "出租车"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "周婷八点才到机场。",
+     "en": "Zhou Ting only reached the airport at eight.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "已经"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "周婷找不到什么？",
+     "en": "What couldn't Zhou Ting find?",
+     "type": "mc",
+     "options": [
+      "手机",
+      "手表",
+      "票",
+      "衣服"
+     ],
+     "answer": 0,
+     "words": [
+      "找"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "周婷的手机在一个椅子上。",
+     "en": "Zhou Ting's phone was on a chair.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "椅子"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0023",
+   "lv": "2",
+   "title": "多运动，身体好",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "很多人都知道，多运动，身体就会好。",
+     "Many people know that if you exercise more, your health will be good."
+    ],
+    [
+     "但是现在很多人工作很忙，没有时间运动。",
+     "But nowadays lots of people are busy with work and have no time to exercise."
+    ],
+    [
+     "每个星期运动三次，每次一个小时，就可以了。",
+     "Exercising three times a week, for an hour each time, is enough."
+    ],
+    [
+     "早上起床以后，你可以去跑步。",
+     "After getting up in the morning you can go running."
+    ],
+    [
+     "喜欢水的人，可以去游泳。",
+     "People who like water can go swimming."
+    ],
+    [
+     "和朋友一起打篮球，也非常快乐。",
+     "Playing basketball with friends is also great fun."
+    ],
+    [
+     "晚上不忙的时候，可以出去走走。",
+     "In the evening, when you aren't busy, you can go out for a walk."
+    ],
+    [
+     "运动的时候要多喝水。",
+     "Drink plenty of water when you exercise."
+    ],
+    [
+     "运动完了，要好好休息。",
+     "After exercise, rest well."
+    ],
+    [
+     "开始运动吧！你会觉得身体越来越好。",
+     "Start exercising! You'll feel your body getting better and better."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "为什么很多人不运动？",
+     "en": "Why do many people not exercise?",
+     "type": "mc",
+     "options": [
+      "因为身体不好",
+      "因为没有时间",
+      "因为不喜欢运动",
+      "因为很累"
+     ],
+     "answer": 1,
+     "words": [
+      "时间"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "每个星期运动几次就可以了？",
+     "en": "How many times a week is enough exercise?",
+     "type": "mc",
+     "options": [
+      "两次",
+      "五次",
+      "三次",
+      "七次"
+     ],
+     "answer": 2,
+     "words": [
+      "次"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "每次运动要三个小时。",
+     "en": "Each session of exercise should last three hours.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "小时"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "运动的时候要多做什么？",
+     "en": "What should you do more of while exercising?",
+     "type": "mc",
+     "options": [
+      "吃东西",
+      "休息",
+      "唱歌",
+      "喝水"
+     ],
+     "answer": 3,
+     "words": [
+      "喝",
+      "水"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "运动以后要好好休息。",
+     "en": "You should rest well after exercising.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "休息"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0024",
+   "lv": "2",
+   "title": "我的家人",
+   "oop": {},
+   "names": [
+    "杨",
+    "杨欣",
+    "上海"
+   ],
+   "sentences": [
+    [
+     "我姓杨，叫杨欣。",
+     "My surname is Yang, and my name is Yang Xin."
+    ],
+    [
+     "我来介绍一下我的家人。",
+     "Let me introduce my family."
+    ],
+    [
+     "我家有六个人：爸爸、妈妈、哥哥、姐姐、弟弟和我。",
+     "There are six people in my family: Dad, Mum, my older brother, older sister, younger brother and me."
+    ],
+    [
+     "爸爸在公司上班，妈妈是医生。",
+     "Dad works at a company, and Mum is a doctor."
+    ],
+    [
+     "我哥哥二十八岁，他和妻子住在上海。",
+     "My older brother is twenty-eight. He lives in Shanghai with his wife."
+    ],
+    [
+     "他的妻子很漂亮，眼睛很大。",
+     "His wife is very pretty, with big eyes."
+    ],
+    [
+     "我姐姐是汉语老师，她非常喜欢孩子。",
+     "My older sister is a Chinese teacher. She loves children."
+    ],
+    [
+     "弟弟十五岁，他很高，比我高。",
+     "My younger brother is fifteen. He's tall, taller than me."
+    ],
+    [
+     "他最喜欢打篮球和游泳。",
+     "He likes basketball and swimming best."
+    ],
+    [
+     "我是学生，我喜欢唱歌和跳舞。",
+     "I'm a student. I like singing and dancing."
+    ],
+    [
+     "星期日，哥哥和妻子会回家看我们。",
+     "On Sundays my brother and his wife come home to see us."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "杨欣家有几个人？",
+     "en": "How many people are in Yang Xin's family?",
+     "type": "mc",
+     "options": [
+      "六个",
+      "五个",
+      "四个",
+      "七个"
+     ],
+     "answer": 0,
+     "words": [
+      "人"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "杨欣的妈妈做什么工作？",
+     "en": "What does Yang Xin's mum do?",
+     "type": "mc",
+     "options": [
+      "老师",
+      "医生",
+      "在公司上班",
+      "服务员"
+     ],
+     "answer": 1,
+     "words": [
+      "医生"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "哥哥的家在上海。",
+     "en": "The older brother's home is in Shanghai.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "住"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "弟弟没有杨欣高。",
+     "en": "The younger brother is not as tall as Yang Xin.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "高"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "弟弟最喜欢什么？",
+     "en": "What does the younger brother like best?",
+     "type": "mc",
+     "options": [
+      "跑步和游泳",
+      "打篮球和跑步",
+      "打篮球和游泳",
+      "唱歌和跳舞"
+     ],
+     "answer": 2,
+     "words": [
+      "最"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0025",
+   "lv": "2",
+   "title": "明天的天气",
+   "oop": {},
+   "names": [
+    "上海",
+    "广州"
+   ],
+   "sentences": [
+    [
+     "大家好！现在我们来看看明天的天气。",
+     "Hello everyone! Now let's look at tomorrow's weather."
+    ],
+    [
+     "明天北京上午晴，下午阴，晚上可能会下雪。",
+     "Tomorrow Beijing will be sunny in the morning and cloudy in the afternoon, and it may snow at night."
+    ],
+    [
+     "明天上午不太冷，下午会冷一些。",
+     "Tomorrow morning won't be too cold, but the afternoon will be a bit colder."
+    ],
+    [
+     "晚上出门的时候，请大家多穿衣服。",
+     "If you go out in the evening, please wear extra clothes."
+    ],
+    [
+     "下雪的时候，走路要慢一些。",
+     "When it snows, walk more slowly."
+    ],
+    [
+     "上海明天上午下雨，下午晴。",
+     "Tomorrow Shanghai will have rain in the morning and sun in the afternoon."
+    ],
+    [
+     "广州明天很热，出去玩的时候，要多喝水。",
+     "Guangzhou will be hot tomorrow. Drink plenty of water when you go out."
+    ],
+    [
+     "这个星期六和星期日，北京的天气都很好，不冷也不热。",
+     "This Saturday and Sunday the weather in Beijing will be good, neither cold nor hot."
+    ],
+    [
+     "大家可以出去玩，去公园走走。",
+     "You can go out and take a walk in the park."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "明天北京下午的天气怎么样？",
+     "en": "What will Beijing's weather be like tomorrow afternoon?",
+     "type": "mc",
+     "options": [
+      "晴",
+      "下雪",
+      "下雨",
+      "阴"
+     ],
+     "answer": 3,
+     "words": [
+      "阴"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "明天晚上北京可能会下雨。",
+     "en": "It may rain in Beijing tomorrow night.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "雪"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "晚上出门的时候要做什么？",
+     "en": "What should people do when they go out in the evening?",
+     "type": "mc",
+     "options": [
+      "多穿衣服",
+      "多喝水",
+      "慢慢走",
+      "在家里休息"
+     ],
+     "answer": 0,
+     "words": [
+      "穿"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "明天上午上海不下雨。",
+     "en": "It won't rain in Shanghai tomorrow morning.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "下雨"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "广州明天天气怎么样？",
+     "en": "What will the weather be like in Guangzhou tomorrow?",
+     "type": "mc",
+     "options": [
+      "很冷",
+      "很热",
+      "下雪",
+      "阴"
+     ],
+     "answer": 1,
+     "words": [
+      "热"
+     ],
+     "sentence": 6
+    }
+   ]
+  },
+  {
+   "id": "p0026",
+   "lv": "2",
+   "title": "新饭馆",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我家旁边开了一个新饭馆。",
+     "A new restaurant has opened next to my home."
+    ],
+    [
+     "上个星期六，我和丈夫去那里吃了一次。",
+     "Last Saturday my husband and I went there to eat."
+    ],
+    [
+     "饭馆不大，但是很干净。",
+     "The restaurant isn't big, but it's very clean."
+    ],
+    [
+     "服务员都笑着欢迎我们。",
+     "The staff all welcomed us with smiles."
+    ],
+    [
+     "我们点了羊肉、鱼和米饭。",
+     "We ordered lamb, fish and rice."
+    ],
+    [
+     "羊肉非常好吃，鱼也很新鲜。",
+     "The lamb was delicious, and the fish was very fresh."
+    ],
+    [
+     "但是米饭不太好吃。",
+     "But the rice wasn't very good."
+    ],
+    [
+     "我丈夫喝了咖啡，我喝了牛奶。",
+     "My husband had coffee and I had milk."
+    ],
+    [
+     "两个人一共一百五十元，不太贵。",
+     "It was 150 yuan for two people altogether, not too expensive."
+    ],
+    [
+     "饭馆离我家很近，走路五分钟就到了。",
+     "The restaurant is close to my home, just five minutes on foot."
+    ],
+    [
+     "下次我们还会再来。",
+     "We'll come again next time."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "这个饭馆很大。",
+     "en": "This restaurant is very big.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "大"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "他们点了什么菜？",
+     "en": "What dishes did they order?",
+     "type": "mc",
+     "options": [
+      "羊肉和鸡蛋",
+      "鱼和鸡蛋",
+      "羊肉和鱼",
+      "鸡蛋和米饭"
+     ],
+     "answer": 2,
+     "words": [
+      "羊肉"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "我喝了牛奶，没喝咖啡。",
+     "en": "I drank milk, not coffee.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "牛奶"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "两个人吃了多少钱？",
+     "en": "How much did the two people spend?",
+     "type": "mc",
+     "options": [
+      "一百二十元",
+      "一百八十元",
+      "两百五十元",
+      "一百五十元"
+     ],
+     "answer": 3,
+     "words": [
+      "元"
+     ],
+     "sentence": 8
+    },
+    {
+     "q": "从我家走到饭馆要多长时间？",
+     "en": "How long does it take to walk from my home to the restaurant?",
+     "type": "mc",
+     "options": [
+      "五分钟",
+      "二十五分钟",
+      "一个小时",
+      "十五分钟"
+     ],
+     "answer": 0,
+     "words": [
+      "分钟"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0027",
+   "lv": "2",
+   "title": "怎么吃药",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "你好！这是你的药，请你看看怎么吃。",
+     "Hello! Here is your medicine. Please read how to take it."
+    ],
+    [
+     "白的药，早上、中午和晚上都要吃，每次吃两个。",
+     "Take the white tablets in the morning, at noon and in the evening, two each time."
+    ],
+    [
+     "红的药，晚上睡觉以前吃一个。",
+     "Take one red tablet in the evening before bed."
+    ],
+    [
+     "吃药的时候要多喝水，别喝咖啡。",
+     "Drink plenty of water with the medicine, and don't drink coffee."
+    ],
+    [
+     "这个星期你要多休息，别去跑步、游泳。",
+     "Rest a lot this week, and don't go running or swimming."
+    ],
+    [
+     "你可以吃米饭、鸡蛋和水果，别吃冷的东西。",
+     "You can eat rice, eggs and fruit, but don't eat cold food."
+    ],
+    [
+     "晚上十点以前要睡觉。",
+     "Go to bed before ten at night."
+    ],
+    [
+     "星期五你的身体还不好，就再来医院看看。",
+     "If you're still not well on Friday, come back to the hospital."
+    ],
+    [
+     "祝你身体健康！",
+     "I wish you good health!"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "白的药每次吃几个？",
+     "en": "How many white tablets should you take each time?",
+     "type": "mc",
+     "options": [
+      "一个",
+      "两个",
+      "三个",
+      "四个"
+     ],
+     "answer": 1,
+     "words": [
+      "药"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "红的药每次吃一个。",
+     "en": "You take one red tablet each time.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "药"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "吃药的时候别喝什么？",
+     "en": "What shouldn't you drink with the medicine?",
+     "type": "mc",
+     "options": [
+      "水",
+      "茶",
+      "咖啡",
+      "牛奶"
+     ],
+     "answer": 2,
+     "words": [
+      "咖啡"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "这个星期可以去游泳。",
+     "en": "You can go swimming this week.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "游泳"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "晚上几点以前要睡觉？",
+     "en": "Before what time should you go to bed?",
+     "type": "mc",
+     "options": [
+      "九点",
+      "十一点",
+      "十二点",
+      "十点"
+     ],
+     "answer": 3,
+     "words": [
+      "睡觉"
+     ],
+     "sentence": 6
+    }
+   ]
+  },
+  {
+   "id": "p0028",
+   "lv": "2",
+   "title": "我的新房间",
+   "oop": {},
+   "names": [
+    "林娜",
+    "何"
+   ],
+   "sentences": [
+    [
+     "林娜，你好！我已经住进新房间了。",
+     "Hi Lin Na! I've moved into my new room."
+    ],
+    [
+     "新房间离我的公司很近，走路五分钟就到了。",
+     "The new room is close to my company, just five minutes on foot."
+    ],
+    [
+     "房间不大，但是很新，门和桌子都是白的。",
+     "The room isn't big, but it's new, and the door and table are white."
+    ],
+    [
+     "我旁边的房间住着一个女人，她姓何。",
+     "A woman lives in the room next to mine. Her surname is He."
+    ],
+    [
+     "她非常好，每个星期都送我一些水果。",
+     "She's very nice and gives me some fruit every week."
+    ],
+    [
+     "我们有时候一起跑步。",
+     "Sometimes we go running together."
+    ],
+    [
+     "这个房间一个月两千元，不太贵。",
+     "This room is 2,000 yuan a month, not too expensive."
+    ],
+    [
+     "星期六和星期日我都在家，欢迎你来！",
+     "I'm home on Saturdays and Sundays. You're welcome to come!"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "新房间离公司很近。",
+     "en": "The new room is close to the company.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "近"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "房间的门是什么颜色的？",
+     "en": "What colour is the door of the room?",
+     "type": "mc",
+     "options": [
+      "白的",
+      "黑的",
+      "红的",
+      "黄的"
+     ],
+     "answer": 0,
+     "words": [
+      "白"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "我旁边住的是一个男人。",
+     "en": "The person living next to me is a man.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "女人"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "我和何小姐有时候去游泳。",
+     "en": "Ms He and I sometimes go swimming.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "跑步"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "这个房间一个月多少钱？",
+     "en": "How much is this room per month?",
+     "type": "mc",
+     "options": [
+      "一千元",
+      "两千元",
+      "三千元",
+      "两百元"
+     ],
+     "answer": 1,
+     "words": [
+      "元"
+     ],
+     "sentence": 6
+    }
+   ]
+  },
+  {
+   "id": "p0029",
+   "lv": "2",
+   "title": "手表找到了",
+   "oop": {},
+   "names": [
+    "刘芳"
+   ],
+   "sentences": [
+    [
+     "刘芳有一块手表，是她丈夫送给她的生日礼物。",
+     "Liu Fang has a watch that her husband gave her as a birthday present."
+    ],
+    [
+     "星期三早上，刘芳起床以后，找不到手表了。",
+     "On Wednesday morning, after Liu Fang got up, she couldn't find her watch."
+    ],
+    [
+     "她在房间里找了很长时间，没找到。",
+     "She searched her room for a long time but didn't find it."
+    ],
+    [
+     "她问丈夫：“你看见我的手表了吗？”",
+     "She asked her husband: \"Have you seen my watch?\""
+    ],
+    [
+     "丈夫回答：“没看见。你昨天晚上穿的衣服里呢？”",
+     "Her husband answered: \"No. What about in the clothes you wore last night?\""
+    ],
+    [
+     "刘芳找了找，衣服里没有。",
+     "Liu Fang looked, but it wasn't in the clothes."
+    ],
+    [
+     "她觉得非常难过。",
+     "She felt very upset."
+    ],
+    [
+     "晚上回家，她的儿子笑着告诉她：“妈妈，你的手表在我这儿！”",
+     "When she got home in the evening, her son smiled and told her: \"Mum, I've got your watch!\""
+    ],
+    [
+     "早上儿子在门旁边找到了手表。",
+     "That morning her son had found the watch next to the door."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "手表是谁送给刘芳的？",
+     "en": "Who gave Liu Fang the watch?",
+     "type": "mc",
+     "options": [
+      "她儿子",
+      "她妈妈",
+      "她丈夫",
+      "她朋友"
+     ],
+     "answer": 2,
+     "words": [
+      "送"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "刘芳在星期三早上开始找手表。",
+     "en": "Liu Fang started looking for her watch on Wednesday morning.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "找"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "丈夫让刘芳在哪儿找？",
+     "en": "Where did her husband suggest Liu Fang look?",
+     "type": "mc",
+     "options": [
+      "桌子上",
+      "门旁边",
+      "房间里",
+      "衣服里"
+     ],
+     "answer": 3,
+     "words": [
+      "衣服"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "刘芳的手表在衣服里。",
+     "en": "Liu Fang's watch was in the clothes.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "衣服"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "手表在哪儿找到的？",
+     "en": "Where was the watch found?",
+     "type": "mc",
+     "options": [
+      "门旁边",
+      "衣服里",
+      "桌子上",
+      "公司里"
+     ],
+     "answer": 0,
+     "words": [
+      "旁边"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0030",
+   "lv": "2",
+   "title": "去上海旅游",
+   "oop": {},
+   "names": [
+    "上海"
+   ],
+   "sentences": [
+    [
+     "去年七月，我和爸爸妈妈去上海旅游。",
+     "Last July I went to Shanghai on holiday with my mum and dad."
+    ],
+    [
+     "我们坐飞机去。",
+     "We flew there."
+    ],
+    [
+     "上海非常大，人非常多。",
+     "Shanghai is very big, with a huge number of people."
+    ],
+    [
+     "到上海的第一个晚上，我们就去坐船了。",
+     "On our first evening in Shanghai we went on a boat."
+    ],
+    [
+     "在船上，我们看见了很多高高的楼。",
+     "From the boat we saw lots of tall buildings."
+    ],
+    [
+     "星期日，我们去了很多商店，妈妈买了很多新衣服。",
+     "On Sunday we went to lots of shops, and Mum bought lots of new clothes."
+    ],
+    [
+     "爸爸觉得很累，所以他没有和我们一起去，在房间里休息。",
+     "Dad felt tired, so he didn't come with us and rested in the room."
+    ],
+    [
+     "上海菜很甜，但是很好吃。",
+     "Shanghai food is sweet but delicious."
+    ],
+    [
+     "我们在上海玩了一个星期。",
+     "We spent a week in Shanghai."
+    ],
+    [
+     "我非常快乐，希望还可以再去上海。",
+     "I was very happy, and I hope I can go to Shanghai again."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "他们怎么去上海？",
+     "en": "How did they get to Shanghai?",
+     "type": "mc",
+     "options": [
+      "坐船",
+      "坐飞机",
+      "坐公共汽车",
+      "坐出租车"
+     ],
+     "answer": 1,
+     "words": [
+      "飞机"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "上海人很少。",
+     "en": "There are few people in Shanghai.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "多"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "他们第一个晚上做什么？",
+     "en": "What did they do on the first evening?",
+     "type": "mc",
+     "options": [
+      "去商店",
+      "吃上海菜",
+      "坐船",
+      "休息"
+     ],
+     "answer": 2,
+     "words": [
+      "船"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "爸爸没有去商店，他在房间里休息。",
+     "en": "Dad didn't go to the shops; he rested in the room.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "休息"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "他们在上海玩了多长时间？",
+     "en": "How long did they spend in Shanghai?",
+     "type": "mc",
+     "options": [
+      "两个星期",
+      "五个星期",
+      "一个月",
+      "一个星期"
+     ],
+     "answer": 3,
+     "words": [
+      "星期"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0031",
+   "lv": "3",
+   "title": "搬家",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "上个月，我们家搬到了一个新地方。",
+     "Last month our family moved to a new place."
+    ],
+    [
+     "新家在一个很高的楼里，我们住在十二层。",
+     "Our new home is in a tall building. We live on the twelfth floor."
+    ],
+    [
+     "楼里有电梯，所以上下楼很方便。",
+     "The building has a lift, so going up and down is easy."
+    ],
+    [
+     "新家比以前的家大，有三个房间和一个很大的厨房。",
+     "The new home is bigger than the old one, with three rooms and a very big kitchen."
+    ],
+    [
+     "搬家的时候，爸爸找了几个朋友来帮忙。",
+     "When we moved, Dad got a few friends to help."
+    ],
+    [
+     "他们把冰箱、空调和桌子都搬上了楼。",
+     "They carried the fridge, the air conditioner and the tables upstairs."
+    ],
+    [
+     "妈妈在新厨房里给大家做了面条。",
+     "Mum made noodles for everyone in the new kitchen."
+    ],
+    [
+     "我们的邻居是一位老奶奶，她非常热情。",
+     "Our neighbour is an old lady, and she is very warm and friendly."
+    ],
+    [
+     "她送给我们一些自己做的面包。",
+     "She gave us some bread she had made herself."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "新家在几层？",
+     "en": "Which floor is the new home on?",
+     "type": "mc",
+     "options": [
+      "十二层",
+      "十层",
+      "二十层",
+      "二层"
+     ],
+     "answer": 0,
+     "words": [
+      "层"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "这个楼上下很方便，因为有电梯。",
+     "en": "Going up and down this building is easy because there is a lift.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "电梯"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "新家有几个房间？",
+     "en": "How many rooms does the new home have?",
+     "type": "mc",
+     "options": [
+      "两个",
+      "三个",
+      "四个",
+      "五个"
+     ],
+     "answer": 1,
+     "words": [
+      "房间"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "搬家的时候，谁来帮忙了？",
+     "en": "Who came to help with the move?",
+     "type": "mc",
+     "options": [
+      "邻居",
+      "妈妈的同事",
+      "爸爸的朋友",
+      "爷爷奶奶"
+     ],
+     "answer": 2,
+     "words": [
+      "帮忙"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "邻居送的面包是在超市买的。",
+     "en": "The bread the neighbour gave was bought at a supermarket.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "面包"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0032",
+   "lv": "3",
+   "title": "周末去爬山",
+   "oop": {},
+   "names": [
+    "徐伟"
+   ],
+   "sentences": [
+    [
+     "这个周末天气很好，我和同事徐伟一起去爬山。",
+     "The weather was lovely this weekend, so my colleague Xu Wei and I went hiking in the hills."
+    ],
+    [
+     "我们早上七点坐地铁，一个多小时就到了。",
+     "We took the underground at seven in the morning and got there in just over an hour."
+    ],
+    [
+     "出门以前，我们准备了很多东西：水、面包、香蕉和照相机。",
+     "Before leaving we got lots of things ready: water, bread, bananas and a camera."
+    ],
+    [
+     "开始爬山的时候，我们觉得很容易。",
+     "When we started climbing we found it easy."
+    ],
+    [
+     "但是一个小时以后，我们又累又渴。",
+     "But an hour later we were tired and thirsty."
+    ],
+    [
+     "我们在树下休息了一会儿，喝了很多水。",
+     "We rested under a tree for a while and drank lots of water."
+    ],
+    [
+     "徐伟把面包和香蕉拿出来，我们一边吃一边看地图。",
+     "Xu Wei took out the bread and bananas, and we ate while looking at the map."
+    ],
+    [
+     "下午一点，我们终于到了最高的地方。",
+     "At one in the afternoon we finally reached the highest point."
+    ],
+    [
+     "我们决定下个月再去一次。",
+     "We decided to go again next month."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "他们怎么去爬山的地方？",
+     "en": "How did they get to the hiking spot?",
+     "type": "mc",
+     "options": [
+      "坐公共汽车",
+      "骑自行车",
+      "坐出租车",
+      "坐地铁"
+     ],
+     "answer": 3,
+     "words": [
+      "地铁"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "他们带了面包和香蕉。",
+     "en": "They brought bread and bananas.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "面包"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "爬山一个小时以后，他们觉得怎么样？",
+     "en": "How did they feel after an hour of climbing?",
+     "type": "mc",
+     "options": [
+      "又累又渴",
+      "又饿又冷",
+      "很舒服",
+      "非常高兴"
+     ],
+     "answer": 0,
+     "words": [
+      "渴"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "他们一边吃东西，一边看地图。",
+     "en": "They looked at the map while eating.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "地图"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "他们几点到了最高的地方？",
+     "en": "What time did they reach the highest point?",
+     "type": "mc",
+     "options": [
+      "上午十点",
+      "下午一点",
+      "中午十二点",
+      "下午三点"
+     ],
+     "answer": 1,
+     "words": [
+      "终于"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0033",
+   "lv": "3",
+   "title": "我的爱好",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我最大的爱好是音乐。",
+     "My biggest hobby is music."
+    ],
+    [
+     "我从小就喜欢听音乐，也喜欢唱歌。",
+     "I've loved listening to music since I was little, and I like singing too."
+    ],
+    [
+     "我还喜欢画画，我画的熊猫很可爱，我的朋友都很喜欢。",
+     "I also like drawing. The pandas I draw are cute, and my friends all like them."
+    ],
+    [
+     "以前我也很喜欢玩电脑游戏，周末一玩就是五六个小时。",
+     "I used to love computer games too. At weekends I'd play for five or six hours at a time."
+    ],
+    [
+     "妈妈很生气，她认为游戏对眼睛不好。",
+     "Mum got angry. She thinks games are bad for the eyes."
+    ],
+    [
+     "最近我对体育也有了兴趣。",
+     "Recently I've also become interested in sport."
+    ],
+    [
+     "每个星期六，我都和同学去打篮球。",
+     "Every Saturday I play basketball with my classmates."
+    ],
+    [
+     "下个月学校要举行比赛，我们班也会参加。",
+     "Next month the school is holding a competition, and our class will take part."
+    ],
+    [
+     "练习的时候我非常认真，因为我希望我们班能赢。",
+     "I practise very seriously because I hope our class can win."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "我最大的爱好是什么？",
+     "en": "What is my biggest hobby?",
+     "type": "mc",
+     "options": [
+      "画画",
+      "游戏",
+      "音乐",
+      "体育"
+     ],
+     "answer": 2,
+     "words": [
+      "爱好"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "我画的熊猫，朋友都很喜欢。",
+     "en": "My friends all like the pandas I draw.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "画"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "妈妈为什么很生气？",
+     "en": "Why did Mum get angry?",
+     "type": "mc",
+     "options": [
+      "我应该多学习",
+      "唱歌的声音太大",
+      "画画没有意思",
+      "游戏对眼睛不好"
+     ],
+     "answer": 3,
+     "words": [
+      "生气"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "每个星期六，我做什么？",
+     "en": "What do I do every Saturday?",
+     "type": "mc",
+     "options": [
+      "去打篮球",
+      "去唱歌",
+      "在家画画",
+      "玩游戏"
+     ],
+     "answer": 0,
+     "words": [
+      "打篮球"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "我们班不参加下个月的比赛。",
+     "en": "Our class isn't taking part in next month's competition.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "参加"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0034",
+   "lv": "3",
+   "title": "感冒了",
+   "oop": {},
+   "names": [
+    "何静"
+   ],
+   "sentences": [
+    [
+     "何静感冒了，还有一点发烧。",
+     "He Jing has a cold and a slight fever."
+    ],
+    [
+     "星期二下午，她去医院检查身体。",
+     "On Tuesday afternoon she went to the hospital for a check-up."
+    ],
+    [
+     "医生问她哪里不舒服，何静回答：“我的鼻子不舒服，脚和腿也很疼。”",
+     "The doctor asked her what was wrong. He Jing answered: \"My nose feels bad, and my feet and legs ache too.\""
+    ],
+    [
+     "医生检查以后，告诉她：“你感冒了，没什么大问题。”",
+     "After the examination the doctor told her: \"You have a cold. It's nothing serious.\""
+    ],
+    [
+     "“这个药每次吃两个，早上一次，晚上一次。”",
+     "\"Take two of these tablets each time, once in the morning and once in the evening.\""
+    ],
+    [
+     "“你要多喝水，多休息，最近别去锻炼了。”",
+     "\"Drink plenty of water, rest a lot, and don't exercise for now.\""
+    ],
+    [
+     "“如果还发烧，你就马上回来。”",
+     "\"If you still have a fever, come back straight away.\""
+    ],
+    [
+     "何静问：“我明天可以去上班吗？”",
+     "He Jing asked: \"Can I go to work tomorrow?\""
+    ],
+    [
+     "医生回答：“你应该在家里休息，别去上班。”",
+     "The doctor answered: \"You should rest at home and not go to work.\""
+    ],
+    [
+     "星期五，她的感冒终于好了。",
+     "On Friday her cold was finally better."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "何静星期几去医院？",
+     "en": "Which day did He Jing go to the hospital?",
+     "type": "mc",
+     "options": [
+      "星期一",
+      "星期二",
+      "星期三",
+      "星期五"
+     ],
+     "answer": 1,
+     "words": [
+      "检查"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "何静的鼻子没有问题。",
+     "en": "He Jing's nose is fine.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "鼻子"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "药每次吃几个？",
+     "en": "How many tablets should she take each time?",
+     "type": "mc",
+     "options": [
+      "一个",
+      "三个",
+      "两个",
+      "四个"
+     ],
+     "answer": 2,
+     "words": [
+      "药"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "医生同意何静去上班。",
+     "en": "The doctor agrees that He Jing can go to work.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "应该"
+     ],
+     "sentence": 8
+    },
+    {
+     "q": "何静的感冒星期几好了？",
+     "en": "On which day did He Jing's cold get better?",
+     "type": "mc",
+     "options": [
+      "星期四",
+      "星期三",
+      "星期六",
+      "星期五"
+     ],
+     "answer": 3,
+     "words": [
+      "终于"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0035",
+   "lv": "3",
+   "title": "图书馆的新要求",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "大家好！从下个星期一开始，学校图书馆有一些新要求。",
+     "Hello everyone! From next Monday the school library has some new rules."
+    ],
+    [
+     "图书馆的时间是早上八点到晚上十点，周末下午五点关门。",
+     "The library is open from 8 a.m. to 10 p.m., and closes at 5 p.m. at weekends."
+    ],
+    [
+     "每个学生一次可以借十本书，借书时间是一个月。",
+     "Each student can borrow ten books at a time, for one month."
+    ],
+    [
+     "书借了一个月以后，必须还给图书馆。",
+     "After a month, borrowed books must be returned to the library."
+    ],
+    [
+     "字典和历史书只能在图书馆里看，不能借回家。",
+     "Dictionaries and history books can only be read in the library and cannot be taken home."
+    ],
+    [
+     "图书馆里必须安静，请不要打电话，也请把手机的声音关了。",
+     "The library must be quiet. Please don't make phone calls, and please turn your phone's sound off."
+    ],
+    [
+     "不能在图书馆里吃东西，但是可以喝水。",
+     "No eating in the library, but you may drink water."
+    ],
+    [
+     "还有，图书馆二层有电脑，大家可以在那里上网。",
+     "Also, there are computers on the second floor where you can go online."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "星期六图书馆几点关门？",
+     "en": "What time does the library close on Saturdays?",
+     "type": "mc",
+     "options": [
+      "下午五点",
+      "晚上十点",
+      "下午六点",
+      "晚上八点"
+     ],
+     "answer": 0,
+     "words": [
+      "关"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "每个学生一次可以借几本书？",
+     "en": "How many books can each student borrow at a time?",
+     "type": "mc",
+     "options": [
+      "五本",
+      "十本",
+      "八本",
+      "二十本"
+     ],
+     "answer": 1,
+     "words": [
+      "借"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "字典可以借回家。",
+     "en": "Dictionaries can be taken home.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "字典"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "在图书馆里可以喝水。",
+     "en": "You may drink water in the library.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "喝"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "在图书馆的几层可以上网？",
+     "en": "On which floor of the library can you go online?",
+     "type": "mc",
+     "options": [
+      "一层",
+      "三层",
+      "二层",
+      "四层"
+     ],
+     "answer": 2,
+     "words": [
+      "上网"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0036",
+   "lv": "3",
+   "title": "下班以后去超市",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "你下班以后能去一下超市吗？",
+     "Could you pop into the supermarket after work?"
+    ],
+    [
+     "冰箱里没什么东西了。",
+     "There's hardly anything left in the fridge."
+    ],
+    [
+     "请你给我买一些面包、鸡蛋和牛奶。",
+     "Please buy me some bread, eggs and milk."
+    ],
+    [
+     "还有，明天是儿子的生日，请你买一个蛋糕。",
+     "Also, tomorrow is our son's birthday, so please buy a cake."
+    ],
+    [
+     "他喜欢巧克力蛋糕，不要太甜的。",
+     "He likes chocolate cake, but not one that's too sweet."
+    ],
+    [
+     "水果也要买一些：香蕉和葡萄。",
+     "Get some fruit too: bananas and grapes."
+    ],
+    [
+     "超市旁边就是银行，你可以去那里取一些钱。",
+     "The bank is right next to the supermarket, so you can take out some money there."
+    ],
+    [
+     "我们下个星期去旅游，需要用钱。",
+     "We're going travelling next week and will need money."
+    ],
+    [
+     "还有，别忘记买一些果汁。",
+     "And don't forget to buy some juice."
+    ],
+    [
+     "如果你太累了，就告诉我，我自己去。",
+     "If you're too tired, tell me and I'll go myself."
+    ],
+    [
+     "我在家做你爱吃的鱼。",
+     "I'm at home making the fish you love."
+    ],
+    [
+     "七点以前回来，好吗？谢谢你！",
+     "Can you be back before seven? Thank you!"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "妻子让丈夫买什么？",
+     "en": "What does the wife ask her husband to buy?",
+     "type": "mc",
+     "options": [
+      "面包、鸡蛋和咖啡",
+      "面条、鸡蛋和牛奶",
+      "面包、鱼和牛奶",
+      "面包、鸡蛋和牛奶"
+     ],
+     "answer": 3,
+     "words": [
+      "面包"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "儿子喜欢什么蛋糕？",
+     "en": "What kind of cake does the son like?",
+     "type": "mc",
+     "options": [
+      "巧克力蛋糕",
+      "水果蛋糕",
+      "很甜的蛋糕",
+      "大蛋糕"
+     ],
+     "answer": 0,
+     "words": [
+      "巧克力"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "丈夫可以在银行取钱。",
+     "en": "The husband can take out money at the bank.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "银行"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "他们这个星期去旅游。",
+     "en": "They are going travelling this week.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "旅游"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "妻子希望丈夫几点以前回家？",
+     "en": "Before what time does the wife want her husband home?",
+     "type": "mc",
+     "options": [
+      "六点",
+      "七点",
+      "八点",
+      "九点"
+     ],
+     "answer": 1,
+     "words": [
+      "以前"
+     ],
+     "sentence": 11
+    }
+   ]
+  },
+  {
+   "id": "p0037",
+   "lv": "3",
+   "title": "西红柿鸡蛋面条",
+   "oop": {
+    "切": "cut; the pack has no verb for cutting, needed in a recipe"
+   },
+   "names": [],
+   "sentences": [
+    [
+     "西红柿鸡蛋面条是一个简单的中国菜。",
+     "Tomato and egg noodles are a simple Chinese dish."
+    ],
+    [
+     "你需要：两个鸡蛋、两个西红柿、一些面条、一点盐和糖。",
+     "You need: two eggs, two tomatoes, some noodles, and a little salt and sugar."
+    ],
+    [
+     "先把西红柿洗干净，切好，放在盘子里。",
+     "First wash the tomatoes, cut them up and put them on a plate."
+    ],
+    [
+     "然后把鸡蛋放在碗里，再放一点盐。",
+     "Then put the eggs in a bowl and add a little salt."
+    ],
+    [
+     "先做鸡蛋，做好以后放在盘子里。",
+     "Cook the eggs first. When they're done, put them on a plate."
+    ],
+    [
+     "再做西红柿，西红柿做好以后，放一点糖，会更好吃。",
+     "Then cook the tomatoes. When they're done, add a little sugar to make them tastier."
+    ],
+    [
+     "面条放在热水里，做八分钟就可以了。",
+     "Put the noodles in hot water and cook them for eight minutes."
+    ],
+    [
+     "然后把西红柿鸡蛋和面条放在一个碗里。",
+     "Then put the tomato and egg and the noodles in a bowl."
+    ],
+    [
+     "这个菜又简单又好吃，很多中国人都会做。",
+     "This dish is simple and tasty, and lots of Chinese people can make it."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "做这个菜需要几个鸡蛋？",
+     "en": "How many eggs does this dish need?",
+     "type": "mc",
+     "options": [
+      "一个",
+      "三个",
+      "两个",
+      "四个"
+     ],
+     "answer": 2,
+     "words": [
+      "鸡蛋"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "西红柿要先洗干净。",
+     "en": "The tomatoes need washing first.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "洗"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "做西红柿的时候放什么？",
+     "en": "What do you add when cooking the tomatoes?",
+     "type": "mc",
+     "options": [
+      "盐",
+      "水",
+      "果汁",
+      "糖"
+     ],
+     "answer": 3,
+     "words": [
+      "糖"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "面条要在热水里做半个小时。",
+     "en": "The noodles need half an hour in hot water.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "面条"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "这个菜怎么样？",
+     "en": "What is this dish like?",
+     "type": "mc",
+     "options": [
+      "又简单又好吃",
+      "又难又不好吃",
+      "很简单但是不好吃",
+      "很好吃但是很难做"
+     ],
+     "answer": 0,
+     "words": [
+      "简单"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0038",
+   "lv": "3",
+   "title": "在宾馆",
+   "oop": {},
+   "names": [
+    "李"
+   ],
+   "sentences": [
+    [
+     "服务员：您好！欢迎来到我们宾馆。",
+     "Receptionist: Hello! Welcome to our hotel."
+    ],
+    [
+     "服务员：请给我看一下您的护照。",
+     "Receptionist: May I see your passport, please?"
+    ],
+    [
+     "服务员：您的房间在八层，电梯在您的左边。",
+     "Receptionist: Your room is on the eighth floor. The lift is on your left."
+    ],
+    [
+     "李先生：房间里有空调吗？",
+     "Mr Li: Does the room have air conditioning?"
+    ],
+    [
+     "服务员：有，每个房间都有空调和冰箱。",
+     "Receptionist: Yes, every room has air conditioning and a fridge."
+    ],
+    [
+     "李先生：宾馆附近有没有好吃的饭馆？",
+     "Mr Li: Are there any good restaurants near the hotel?"
+    ],
+    [
+     "服务员：宾馆旁边就有一个，那里的面条非常有名。",
+     "Receptionist: There's one right next to the hotel. Its noodles are very famous."
+    ],
+    [
+     "半个小时以后，李先生给服务员打电话。",
+     "Half an hour later Mr Li phoned the receptionist."
+    ],
+    [
+     "李先生：你好，我房间的空调坏了，房间里非常热。",
+     "Mr Li: Hello, the air conditioning in my room is broken, and the room is very hot."
+    ],
+    [
+     "服务员：对不起！我马上找人去检查一下。",
+     "Receptionist: I'm sorry! I'll get someone to check it straight away."
+    ],
+    [
+     "服务员：如果还是不好，我们给您换一个房间。",
+     "Receptionist: If it still doesn't work, we'll give you another room."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "李先生住在几层？",
+     "en": "Which floor is Mr Li staying on?",
+     "type": "mc",
+     "options": [
+      "六层",
+      "八层",
+      "十层",
+      "三层"
+     ],
+     "answer": 1,
+     "words": [
+      "层"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "电梯在右边。",
+     "en": "The lift is on the right.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "左边"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "每个房间都有冰箱。",
+     "en": "Every room has a fridge.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "冰箱"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "宾馆旁边的饭馆什么最有名？",
+     "en": "What is the restaurant next to the hotel famous for?",
+     "type": "mc",
+     "options": [
+      "米饭",
+      "羊肉",
+      "面条",
+      "鱼"
+     ],
+     "answer": 2,
+     "words": [
+      "有名"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "李先生的房间有什么问题？",
+     "en": "What is wrong with Mr Li's room?",
+     "type": "mc",
+     "options": [
+      "冰箱坏了",
+      "电梯坏了",
+      "灯坏了",
+      "空调坏了"
+     ],
+     "answer": 3,
+     "words": [
+      "空调"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0039",
+   "lv": "3",
+   "title": "我的城市",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我住的城市在中国北方，这十年变化非常大。",
+     "The city I live in is in northern China, and it has changed enormously in the last ten years."
+    ],
+    [
+     "现在城市里有了很多高楼，街道也比以前干净多了。",
+     "Now the city has lots of tall buildings, and the streets are much cleaner than before."
+    ],
+    [
+     "以前城市里没有地铁，大家都骑自行车或者坐公共汽车。",
+     "There used to be no underground, so everyone rode bikes or took the bus."
+    ],
+    [
+     "现在有了五条地铁，去哪儿都很方便。",
+     "Now there are five underground lines, and it's easy to get anywhere."
+    ],
+    [
+     "城市里还有很多新公园，公园里有花、有草、有树，环境越来越好。",
+     "The city also has lots of new parks with flowers, grass and trees, and the environment keeps getting better."
+    ],
+    [
+     "很多老人早上在公园里锻炼身体。",
+     "Many older people exercise in the parks in the morning."
+    ],
+    [
+     "北方的冬天非常冷，夏天很热。",
+     "Winters in the north are very cold, and summers are hot."
+    ],
+    [
+     "秋天不冷也不热，是这里最好的季节。",
+     "Autumn is neither cold nor hot. It's the best season here."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "这个城市在北方。",
+     "en": "This city is in the north.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "北方"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "以前大家怎么出门？",
+     "en": "How did people get around before?",
+     "type": "mc",
+     "options": [
+      "骑自行车",
+      "坐地铁",
+      "坐出租车",
+      "坐飞机"
+     ],
+     "answer": 0,
+     "words": [
+      "骑"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "现在这个城市有几条地铁？",
+     "en": "How many underground lines does the city have now?",
+     "type": "mc",
+     "options": [
+      "三条",
+      "五条",
+      "四条",
+      "六条"
+     ],
+     "answer": 1,
+     "words": [
+      "条"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "老人一般晚上去公园锻炼身体。",
+     "en": "Older people usually exercise in the park in the evening.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "锻炼"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "我觉得哪个季节最好？",
+     "en": "Which season do I think is best?",
+     "type": "mc",
+     "options": [
+      "春天",
+      "夏天",
+      "秋天",
+      "冬天"
+     ],
+     "answer": 2,
+     "words": [
+      "季节"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0040",
+   "lv": "3",
+   "title": "新同事",
+   "oop": {},
+   "names": [
+    "郑明"
+   ],
+   "sentences": [
+    [
+     "我们办公室来了一个新同事，他叫郑明。",
+     "A new colleague has joined our office. His name is Zheng Ming."
+    ],
+    [
+     "他很年轻，才二十三岁。",
+     "He's very young, only twenty-three."
+    ],
+    [
+     "经理介绍他的时候，他有一点害怕，脸都红了。",
+     "When the manager introduced him, he was a bit nervous and went red in the face."
+    ],
+    [
+     "郑明工作非常认真，他总是第一个到办公室，从来不迟到。",
+     "Zheng Ming works very conscientiously. He's always first in the office and is never late."
+    ],
+    [
+     "有一次，我的电脑坏了，我非常着急，因为下午要开会。",
+     "Once my computer broke down, and I was very worried because I had a meeting that afternoon."
+    ],
+    [
+     "郑明看了一下，只用了一会儿就把电脑修好了。",
+     "Zheng Ming took a look and fixed it in no time."
+    ],
+    [
+     "我谢谢他的时候，他笑着回答：“没关系，这是很简单的问题。”",
+     "When I thanked him, he smiled and answered: \"No problem, it was a simple issue.\""
+    ],
+    [
+     "大家都很喜欢他。",
+     "Everyone likes him."
+    ],
+    [
+     "经理也很满意，他认为郑明是一个聪明、努力的年轻人。",
+     "The manager is very pleased too. He thinks Zheng Ming is a clever, hard-working young man."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "郑明多大？",
+     "en": "How old is Zheng Ming?",
+     "type": "mc",
+     "options": [
+      "三十二岁",
+      "二十二岁",
+      "三十三岁",
+      "二十三岁"
+     ],
+     "answer": 3,
+     "words": [
+      "年轻"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "经理介绍郑明的时候，他一点都不害怕。",
+     "en": "When the manager introduced Zheng Ming, he wasn't nervous at all.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "害怕"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "我的电脑坏了的时候，谁帮助了我？",
+     "en": "Who helped me when my computer broke?",
+     "type": "mc",
+     "options": [
+      "郑明",
+      "经理",
+      "一个司机",
+      "我的邻居"
+     ],
+     "answer": 0,
+     "words": [
+      "坏"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "郑明修电脑修得很快。",
+     "en": "Zheng Ming fixed the computer quickly.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "一会儿"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "经理认为郑明怎么样？",
+     "en": "What does the manager think of Zheng Ming?",
+     "type": "mc",
+     "options": [
+      "年轻、漂亮",
+      "聪明、努力",
+      "热情、可爱",
+      "认真、安静"
+     ],
+     "answer": 1,
+     "words": [
+      "聪明"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0041",
+   "lv": "3",
+   "title": "去看熊猫",
+   "oop": {
+    "竹子": "bamboo; what pandas eat, the pack has no word for it"
+   },
+   "names": [
+    "成都"
+   ],
+   "sentences": [
+    [
+     "上个周末，我和女儿去成都看熊猫。",
+     "Last weekend my daughter and I went to Chengdu to see the pandas."
+    ],
+    [
+     "我们早上八点就到了，那里的人已经很多了。",
+     "We got there at eight in the morning, and there were already lots of people."
+    ],
+    [
+     "有的熊猫在树上睡觉，有的在草地上玩。",
+     "Some pandas were sleeping in the trees, and some were playing on the grass."
+    ],
+    [
+     "有一只小熊猫从树上下来，走得很慢，非常可爱。",
+     "A little panda climbed down from a tree. It walked very slowly and was very cute."
+    ],
+    [
+     "女儿问我：“熊猫最喜欢吃什么？”",
+     "My daughter asked me: \"What do pandas like to eat most?\""
+    ],
+    [
+     "我告诉她：“熊猫吃竹子，也吃一些水果。”",
+     "I told her: \"Pandas eat bamboo, and some fruit too.\""
+    ],
+    [
+     "那里的一位阿姨告诉我们，熊猫一般很少运动，很爱睡觉。",
+     "A woman who worked there told us that pandas usually move very little and love sleeping."
+    ],
+    [
+     "回家以后，女儿把熊猫的照片给她的朋友看。",
+     "After we got home, my daughter showed the panda photos to her friends."
+    ],
+    [
+     "她告诉我，她长大以后想照顾熊猫。",
+     "She told me that when she grows up she wants to look after pandas."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "我和谁去看熊猫？",
+     "en": "Who did I go to see the pandas with?",
+     "type": "mc",
+     "options": [
+      "儿子",
+      "妻子",
+      "女儿",
+      "朋友"
+     ],
+     "answer": 2,
+     "words": [
+      "女儿"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "我们到的时候，那里的人很少。",
+     "en": "When we arrived, there were few people there.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "多"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "小熊猫是从哪儿下来的？",
+     "en": "Where did the little panda climb down from?",
+     "type": "mc",
+     "options": [
+      "草地上",
+      "房间里",
+      "河里",
+      "树上"
+     ],
+     "answer": 3,
+     "words": [
+      "树"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "熊猫只吃竹子。",
+     "en": "Pandas eat only bamboo.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "水果"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "女儿长大以后想做什么？",
+     "en": "What does the daughter want to do when she grows up?",
+     "type": "mc",
+     "options": [
+      "照顾熊猫",
+      "去成都工作",
+      "画熊猫",
+      "写熊猫的故事"
+     ],
+     "answer": 0,
+     "words": [
+      "照顾"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0042",
+   "lv": "3",
+   "title": "奶奶的故事",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我的奶奶已经八十岁了，但是她的身体还很健康。",
+     "My grandma is eighty, but she is still very healthy."
+    ],
+    [
+     "我还很小的时候，奶奶经常给我讲故事。",
+     "When I was very small, Grandma often told me stories."
+    ],
+    [
+     "我最喜欢听她讲她和爷爷的故事。",
+     "My favourite was the story of her and Grandpa."
+    ],
+    [
+     "很多年以前，奶奶家在一条小河旁边。",
+     "Many years ago Grandma's home was beside a little river."
+    ],
+    [
+     "有一次，奶奶在河旁边洗衣服，她的帽子掉进了河里。",
+     "Once, while Grandma was washing clothes by the river, her hat fell into the water."
+    ],
+    [
+     "一个年轻人看见了，马上进了河里，把帽子拿了回来。",
+     "A young man saw it, went straight into the river and brought the hat back."
+    ],
+    [
+     "那个年轻人就是我的爷爷。",
+     "That young man was my grandpa."
+    ],
+    [
+     "一年以后，他们结婚了。",
+     "A year later they got married."
+    ],
+    [
+     "奶奶讲这个故事的时候，总是笑得很高兴。",
+     "Whenever Grandma tells this story, she laughs happily."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "奶奶多大了？",
+     "en": "How old is Grandma?",
+     "type": "mc",
+     "options": [
+      "七十岁",
+      "八十岁",
+      "九十岁",
+      "六十岁"
+     ],
+     "answer": 1,
+     "words": [
+      "岁"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "奶奶的身体很好。",
+     "en": "Grandma is in good health.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "健康"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "奶奶的帽子掉进了哪里？",
+     "en": "Where did Grandma's hat fall?",
+     "type": "mc",
+     "options": [
+      "树上",
+      "房间里",
+      "河里",
+      "公园里"
+     ],
+     "answer": 2,
+     "words": [
+      "河"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "把帽子拿回来的人是奶奶的哥哥。",
+     "en": "The person who brought the hat back was Grandma's older brother.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "爷爷"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "他们什么时候结婚的？",
+     "en": "When did they get married?",
+     "type": "mc",
+     "options": [
+      "两年以后",
+      "一个月以后",
+      "三年以后",
+      "一年以后"
+     ],
+     "answer": 3,
+     "words": [
+      "结婚"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0043",
+   "lv": "3",
+   "title": "买了一双新鞋",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "上个星期，我在学校附近的一个商店买了一双新鞋。",
+     "Last week I bought a new pair of shoes at a shop near the school."
+    ],
+    [
+     "商店里的阿姨非常热情。",
+     "The woman in the shop was very warm and friendly."
+    ],
+    [
+     "我试了三双鞋，选择了一双黑的。",
+     "I tried on three pairs and chose a black pair."
+    ],
+    [
+     "这双鞋一百五十块，不太贵。",
+     "These shoes were 150 yuan, not too expensive."
+    ],
+    [
+     "但是回家以后，我发现鞋有点小，穿着脚疼。",
+     "But when I got home I found they were a little small and hurt my feet."
+    ],
+    [
+     "周末我又去了那个商店。",
+     "At the weekend I went back to the shop."
+    ],
+    [
+     "阿姨马上给我换了一双大一点的，她还一直向我道歉。",
+     "The woman immediately swapped them for a bigger pair and kept apologising."
+    ],
+    [
+     "现在这双鞋我穿着非常舒服。",
+     "Now these shoes are very comfortable."
+    ],
+    [
+     "这个商店让我很满意。",
+     "I'm very satisfied with this shop."
+    ],
+    [
+     "它在学校旁边的街道上，离地铁站很近。",
+     "It's on the street next to the school, close to the underground station."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "我在哪儿买的鞋？",
+     "en": "Where did I buy the shoes?",
+     "type": "mc",
+     "options": [
+      "学校附近",
+      "银行旁边",
+      "地铁站里",
+      "超市旁边"
+     ],
+     "answer": 0,
+     "words": [
+      "附近"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "商店里的阿姨不太热情。",
+     "en": "The woman in the shop wasn't very friendly.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "热情"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "我一共试了几双鞋？",
+     "en": "How many pairs of shoes did I try on?",
+     "type": "mc",
+     "options": [
+      "两双",
+      "三双",
+      "四双",
+      "五双"
+     ],
+     "answer": 1,
+     "words": [
+      "鞋"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "回家以后，我发现了什么问题？",
+     "en": "What problem did I find when I got home?",
+     "type": "mc",
+     "options": [
+      "鞋有点大",
+      "鞋太贵了",
+      "鞋有点小",
+      "鞋坏了"
+     ],
+     "answer": 2,
+     "words": [
+      "发现"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "阿姨给我换了一双更大的鞋。",
+     "en": "The woman swapped them for a bigger pair.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "换"
+     ],
+     "sentence": 6
+    }
+   ]
+  },
+  {
+   "id": "p0044",
+   "lv": "3",
+   "title": "骑自行车",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我十岁的时候，爸爸开始教我骑自行车。",
+     "When I was ten, Dad started teaching me to ride a bike."
+    ],
+    [
+     "开始的时候，我非常害怕，总是让爸爸在后面帮助我。",
+     "At first I was very scared and always had Dad helping me from behind."
+    ],
+    [
+     "我骑了一会儿，突然发现爸爸没有在后面！",
+     "After riding for a while, I suddenly realised Dad wasn't behind me!"
+    ],
+    [
+     "我一着急，就从自行车上掉了下来。",
+     "I panicked and fell off the bike."
+    ],
+    [
+     "我的腿很疼，我哭了。",
+     "My leg hurt a lot, and I cried."
+    ],
+    [
+     "爸爸马上来到我旁边，检查了我的腿，还好没有大问题。",
+     "Dad came straight over and checked my leg. Luckily it was nothing serious."
+    ],
+    [
+     "他笑着问我：“你刚才自己骑了多长时间，你知道吗？”",
+     "He smiled and asked me: \"Do you know how long you just rode on your own?\""
+    ],
+    [
+     "我这时候才知道，我已经自己骑了五分钟！",
+     "Only then did I realise I had ridden on my own for five minutes!"
+    ],
+    [
+     "一个月以后，我终于能骑得又快又好了。",
+     "A month later I could finally ride fast and well."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "爸爸什么时候开始教我骑自行车？",
+     "en": "When did Dad start teaching me to ride a bike?",
+     "type": "mc",
+     "options": [
+      "我八岁的时候",
+      "我十二岁的时候",
+      "我六岁的时候",
+      "我十岁的时候"
+     ],
+     "answer": 3,
+     "words": [
+      "教"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "开始的时候，我一点都不害怕。",
+     "en": "At first I wasn't scared at all.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "害怕"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "我从自行车上掉下来以后，腿很疼。",
+     "en": "After I fell off the bike, my leg hurt.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "腿"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "我自己骑了多长时间？",
+     "en": "How long did I ride on my own?",
+     "type": "mc",
+     "options": [
+      "五分钟",
+      "一个小时",
+      "十五分钟",
+      "半个小时"
+     ],
+     "answer": 0,
+     "words": [
+      "分钟"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "我多长时间以后能骑得又快又好？",
+     "en": "How long before I could ride fast and well?",
+     "type": "mc",
+     "options": [
+      "一个星期",
+      "一个月",
+      "一年",
+      "两个月"
+     ],
+     "answer": 1,
+     "words": [
+      "终于"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0045",
+   "lv": "3",
+   "title": "中国的节日",
+   "oop": {
+    "春节": "Spring Festival; festival name, the pack lacks 节",
+    "中秋节": "Mid-Autumn Festival; festival name, the pack lacks 节"
+   },
+   "names": [],
+   "sentences": [
+    [
+     "中国有很多节日，每个节日都有自己的文化和历史。",
+     "China has many festivals, and each has its own culture and history."
+    ],
+    [
+     "春节是最重要的节日，一般在一月或者二月。",
+     "The Spring Festival is the most important festival. It usually falls in January or February."
+    ],
+    [
+     "春节的时候，很多在别的城市工作的人都要回家。",
+     "At the Spring Festival, many people who work in other cities go home."
+    ],
+    [
+     "所以那几个星期，火车站和机场的人特别多。",
+     "So for those few weeks, railway stations and airports are especially crowded."
+    ],
+    [
+     "一家人在一起吃饺子、看电视节目。",
+     "Families eat dumplings together and watch TV programmes."
+    ],
+    [
+     "爷爷奶奶会给孩子红包，红包里有钱，所以孩子都很喜欢这个节日。",
+     "Grandparents give children red envelopes with money inside, so children all love this festival."
+    ],
+    [
+     "中秋节在秋天，一般在九月或者十月。",
+     "The Mid-Autumn Festival is in autumn, usually in September or October."
+    ],
+    [
+     "中秋节的晚上，月亮又大又圆。",
+     "On the night of the Mid-Autumn Festival the moon is big and round."
+    ],
+    [
+     "大家一边看月亮，一边吃水果、喝茶。",
+     "People look at the moon while eating fruit and drinking tea."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "春节的时候，为什么火车站的人特别多？",
+     "en": "Why are railway stations so crowded at the Spring Festival?",
+     "type": "mc",
+     "options": [
+      "很多人去旅游",
+      "票比较便宜",
+      "很多人要回家",
+      "很多人去上班"
+     ],
+     "answer": 2,
+     "words": [
+      "回"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "春节的时候，火车站的人很少。",
+     "en": "At the Spring Festival there are few people at railway stations.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "特别"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "春节的时候，一家人在一起吃什么？",
+     "en": "What do families eat together at the Spring Festival?",
+     "type": "mc",
+     "options": [
+      "面条",
+      "蛋糕",
+      "面包",
+      "饺子"
+     ],
+     "answer": 3,
+     "words": [
+      "饺子"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "孩子喜欢春节，因为可以拿到红包。",
+     "en": "Children like the Spring Festival because they get red envelopes.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "喜欢"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "中秋节的晚上，大家一边看月亮，一边做什么？",
+     "en": "On the night of the Mid-Autumn Festival, what do people do while looking at the moon?",
+     "type": "mc",
+     "options": [
+      "吃水果、喝茶",
+      "唱歌、跳舞",
+      "看书、写字",
+      "吃饺子、喝茶"
+     ],
+     "answer": 0,
+     "words": [
+      "月亮"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0046",
+   "lv": "4",
+   "title": "招聘广告",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "我们是一家国际电脑公司，现在需要招聘两个翻译和三个售货员。",
+     "We are an international computer company, and we are now recruiting two translators and three sales assistants."
+    ],
+    [
+     "翻译的要求：研究生毕业，专业是语言或者国际关系。",
+     "Requirements for translators: a postgraduate degree in languages or international relations."
+    ],
+    [
+     "除了中文，还要会一种别的语言，而且能流利地交流。",
+     "Besides Chinese, you must know another language and be able to communicate in it fluently."
+    ],
+    [
+     "最好有两年的工作经验。",
+     "Two years of work experience is preferred."
+    ],
+    [
+     "售货员的要求：年龄是二十岁到三十五岁，性别没有要求。",
+     "Requirements for sales assistants: aged 20 to 35, any gender."
+    ],
+    [
+     "性格要活泼、热情，有耐心，愿意和顾客交流。",
+     "You should be lively, warm and patient, and willing to talk with customers."
+    ],
+    [
+     "工资：翻译每个月八千元，售货员每个月五千元，另外还有奖金。",
+     "Pay: translators 8,000 yuan a month, sales assistants 5,000 yuan a month, plus bonuses."
+    ],
+    [
+     "工作时间：星期一到星期五，早上九点到下午五点半，一般不用加班。",
+     "Working hours: Monday to Friday, 9 a.m. to 5:30 p.m., usually with no overtime."
+    ],
+    [
+     "如果你对这份工作有兴趣，请在我们的网站上申请。",
+     "If you're interested in this job, please apply on our website."
+    ],
+    [
+     "申请的最后时间是这个月三十号。",
+     "The deadline for applications is the 30th of this month."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "公司要招聘几个售货员？",
+     "en": "How many sales assistants is the company recruiting?",
+     "type": "mc",
+     "options": [
+      "两个",
+      "三个",
+      "五个",
+      "四个"
+     ],
+     "answer": 1,
+     "words": [
+      "售货员"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "翻译需要是研究生毕业。",
+     "en": "Translators need a postgraduate degree.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "研究生"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "售货员的年龄要求是多少？",
+     "en": "What is the age requirement for sales assistants?",
+     "type": "mc",
+     "options": [
+      "二十五岁到三十岁",
+      "十八岁到三十岁",
+      "二十岁到三十五岁",
+      "三十岁到四十五岁"
+     ],
+     "answer": 2,
+     "words": [
+      "年龄"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "售货员每个月的工资比翻译高。",
+     "en": "Sales assistants are paid more per month than translators.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "工资"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "怎么申请这个工作？",
+     "en": "How do you apply for this job?",
+     "type": "mc",
+     "options": [
+      "到公司里申请",
+      "给公司写信",
+      "给公司发传真",
+      "在网站上申请"
+     ],
+     "answer": 3,
+     "words": [
+      "网站"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0047",
+   "lv": "4",
+   "title": "找工作",
+   "oop": {},
+   "names": [
+    "周",
+    "吴磊"
+   ],
+   "sentences": [
+    [
+     "周经理：你好，请坐。先简单介绍一下你自己吧。",
+     "Manager Zhou: Hello, please sit down. First, briefly introduce yourself."
+    ],
+    [
+     "吴磊：您好！我叫吴磊，二十六岁，去年硕士毕业，专业是经济管理。",
+     "Wu Lei: Hello! I'm Wu Lei, twenty-six. I finished my master's last year in economics and management."
+    ],
+    [
+     "毕业以后，我在一家银行工作了一年，主要负责调查顾客的需要。",
+     "After graduating I worked at a bank for a year, mainly researching customers' needs."
+    ],
+    [
+     "周经理：你为什么离开那家银行？",
+     "Manager Zhou: Why did you leave that bank?"
+    ],
+    [
+     "吴磊：那里的工作很轻松，但是我觉得自己还年轻，想获得更多的经验。",
+     "Wu Lei: The work there was easy, but I feel I'm still young and want to gain more experience."
+    ],
+    [
+     "周经理：你觉得你有哪些优点和缺点？",
+     "Manager Zhou: What do you see as your strengths and weaknesses?"
+    ],
+    [
+     "吴磊：我做事情很认真，也有耐心。我的缺点是有时候太着急，不过我正在努力改变。",
+     "Wu Lei: I'm conscientious and patient. My weakness is that I'm sometimes too impatient, but I'm working on changing that."
+    ],
+    [
+     "周经理：我们这个工作压力比较大，经常要加班，还要出差，你能接受吗？",
+     "Manager Zhou: This job is quite stressful, with frequent overtime and business trips. Can you accept that?"
+    ],
+    [
+     "吴磊：没问题，我能适应。周经理：好。你对工资有什么要求？",
+     "Wu Lei: No problem, I can adapt. Manager Zhou: Good. What are your salary expectations?"
+    ],
+    [
+     "吴磊：我希望每个月至少有八千元。",
+     "Wu Lei: I'd hope for at least 8,000 yuan a month."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "吴磊是什么专业的？",
+     "en": "What did Wu Lei study?",
+     "type": "mc",
+     "options": [
+      "经济管理",
+      "国际关系",
+      "语言",
+      "法律"
+     ],
+     "answer": 0,
+     "words": [
+      "专业"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "吴磊在银行工作了三年。",
+     "en": "Wu Lei worked at the bank for three years.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "银行"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "吴磊为什么离开银行？",
+     "en": "Why did Wu Lei leave the bank?",
+     "type": "mc",
+     "options": [
+      "觉得工资太低",
+      "想要更多经验",
+      "觉得工作太累",
+      "觉得经理太严格"
+     ],
+     "answer": 1,
+     "words": [
+      "经验"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "吴磊认为自己有时候太着急。",
+     "en": "Wu Lei thinks he is sometimes too impatient.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "缺点"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "吴磊希望每个月的工资至少是多少？",
+     "en": "What is the minimum monthly salary Wu Lei hopes for?",
+     "type": "mc",
+     "options": [
+      "五千元",
+      "六千元",
+      "八千元",
+      "一万元"
+     ],
+     "answer": 2,
+     "words": [
+      "至少"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0048",
+   "lv": "4",
+   "title": "保护环境，从小事情开始",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "地球是我们共同的家，保护环境是每个人的责任。",
+     "The Earth is our shared home, and protecting the environment is everyone's responsibility."
+    ],
+    [
+     "但是现在，环境污染越来越严重。",
+     "But these days environmental pollution is getting worse and worse."
+    ],
+    [
+     "很多城市的空气质量不好，河里的水也越来越脏。",
+     "Air quality is poor in many cities, and river water is getting dirtier."
+    ],
+    [
+     "首先，要节约用水，离开房间的时候，记得关灯和空调。",
+     "First, save water, and remember to switch off the lights and air conditioning when you leave a room."
+    ],
+    [
+     "其次，去超市购物的时候，最好少用塑料袋。",
+     "Second, when shopping at the supermarket, it's best to use fewer plastic bags."
+    ],
+    [
+     "另外，不要到处扔东西，要扔进垃圾桶里。",
+     "Also, don't drop litter everywhere; put it in the bin."
+    ],
+    [
+     "出门的时候，可以多骑自行车，多坐地铁和公共汽车。",
+     "When you go out, cycle more and take the underground and buses more."
+    ],
+    [
+     "这不仅可以减少污染，而且对身体也有好处。",
+     "This not only reduces pollution but is also good for your health."
+    ],
+    [
+     "保护环境其实不难，关键是要坚持。",
+     "Protecting the environment isn't actually hard. The key is to keep it up."
+    ],
+    [
+     "如果每个人都从小事情开始，我们的地球就会越来越美丽。",
+     "If everyone starts with small things, our planet will become more and more beautiful."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "现在的污染问题没有以前严重了。",
+     "en": "Pollution is less serious now than before.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "污染"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "离开房间的时候，要记得做什么？",
+     "en": "What should you remember to do when leaving a room?",
+     "type": "mc",
+     "options": [
+      "关门和窗户",
+      "关电视和电脑",
+      "开一下窗户",
+      "关灯和空调"
+     ],
+     "answer": 3,
+     "words": [
+      "灯"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "去超市购物的时候最好怎么做？",
+     "en": "What is best to do when shopping at the supermarket?",
+     "type": "mc",
+     "options": [
+      "少用塑料袋",
+      "多买一些东西",
+      "骑自行车去",
+      "带很多钱去"
+     ],
+     "answer": 0,
+     "words": [
+      "塑料袋"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "作者认为多骑自行车对身体有好处。",
+     "en": "The writer thinks cycling more is good for your health.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "好处"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "作者认为保护环境的关键是什么？",
+     "en": "What does the writer think is the key to protecting the environment?",
+     "type": "mc",
+     "options": [
+      "钱",
+      "坚持",
+      "技术",
+      "法律"
+     ],
+     "answer": 1,
+     "words": [
+      "关键"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0049",
+   "lv": "4",
+   "title": "在网站上买沙发",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "上个月，我在一个购物网站上买了一个沙发。",
+     "Last month I bought a sofa on a shopping website."
+    ],
+    [
+     "这个网站的东西价格比商店便宜，而且经常打折。",
+     "Prices on this website are lower than in shops, and there are often discounts."
+    ],
+    [
+     "我选择了一个蓝的沙发，原来三千元，打折以后两千元就可以买到。",
+     "I chose a blue sofa. It was originally 3,000 yuan, but after the discount it was only 2,000."
+    ],
+    [
+     "一个星期以后，沙发到了。",
+     "A week later the sofa arrived."
+    ],
+    [
+     "但是看到沙发以后，我非常失望。",
+     "But when I saw the sofa, I was very disappointed."
+    ],
+    [
+     "沙发的颜色比照片上的深很多，而且有一个地方破了。",
+     "The sofa was much darker than in the photos, and one part was torn."
+    ],
+    [
+     "我马上联系了网站，告诉他们这个情况。",
+     "I contacted the website at once and told them what had happened."
+    ],
+    [
+     "他们很有礼貌地向我道歉，并且同意给我换一个新的。",
+     "They apologised to me very politely and agreed to replace it with a new one."
+    ],
+    [
+     "我觉得这个网站的东西便宜，而且他们对顾客的态度也很好。",
+     "I think this website's goods are cheap, and they treat customers well too."
+    ],
+    [
+     "但是买大的家具以前，最好先去商店看一看。",
+     "But before buying big furniture, it's best to look at it in a shop first."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "在商店买东西比在这个网站便宜。",
+     "en": "Things are cheaper in shops than on this website.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "价格"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "沙发打折以后多少钱？",
+     "en": "How much was the sofa after the discount?",
+     "type": "mc",
+     "options": [
+      "三千元",
+      "两千五百元",
+      "两千元",
+      "一千元"
+     ],
+     "answer": 2,
+     "words": [
+      "打折"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "沙发到了以后有什么问题？",
+     "en": "What was wrong with the sofa when it arrived?",
+     "type": "mc",
+     "options": [
+      "沙发太小",
+      "价格太贵",
+      "送得太慢",
+      "沙发破了"
+     ],
+     "answer": 3,
+     "words": [
+      "破"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "网站给我换了一个新沙发。",
+     "en": "The website replaced the sofa with a new one.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "换"
+     ],
+     "sentence": 7
+    },
+    {
+     "q": "作者觉得买大的家具以前最好做什么？",
+     "en": "What does the writer think is best to do before buying big furniture?",
+     "type": "mc",
+     "options": [
+      "去商店看看",
+      "问问朋友",
+      "多看看照片",
+      "等等打折"
+     ],
+     "answer": 0,
+     "words": [
+      "家具"
+     ],
+     "sentence": 9
+    }
+   ]
+  },
+  {
+   "id": "p0050",
+   "lv": "4",
+   "title": "请假",
+   "oop": {},
+   "names": [
+    "王",
+    "李文",
+    "孙浩"
+   ],
+   "sentences": [
+    [
+     "王经理，您好！很抱歉晚上打扰您。",
+     "Hello, Manager Wang! Sorry to disturb you in the evening."
+    ],
+    [
+     "我从昨天下午开始咳嗽，晚上又发烧了，现在还是很难受。",
+     "I started coughing yesterday afternoon and got a fever in the evening. I still feel awful."
+    ],
+    [
+     "今天早上我去医院看了大夫，大夫告诉我需要打针，这个星期最好不要去上班。",
+     "This morning I saw a doctor at the hospital. The doctor told me I need an injection and had better not go to work this week."
+    ],
+    [
+     "所以我想请假，星期四和星期五在家休息。",
+     "So I'd like to take leave and rest at home on Thursday and Friday."
+    ],
+    [
+     "这个星期的任务我已经完成了一大部分。",
+     "I've already finished most of this week's tasks."
+    ],
+    [
+     "剩下的材料，我已经整理好了，放在办公室的桌子上。",
+     "I've organised the remaining materials and left them on the desk in the office."
+    ],
+    [
+     "星期四上午的会议我不能参加了，我已经请同事李文代替我参加。",
+     "I can't attend Thursday morning's meeting, so I've asked my colleague Li Wen to go in my place."
+    ],
+    [
+     "如果有什么重要的事情，您可以直接联系我，我会马上回答您。",
+     "If anything important comes up, you can contact me directly, and I'll reply straight away."
+    ],
+    [
+     "给大家带来麻烦，真的非常抱歉。",
+     "I'm really very sorry for the trouble this causes everyone."
+    ],
+    [
+     "星期一我会按时回来上班。",
+     "I'll be back at work on time on Monday."
+    ],
+    [
+     "谢谢您的理解！孙浩",
+     "Thank you for your understanding! Sun Hao"
+    ]
+   ],
+   "questions": [
+    {
+     "q": "孙浩的身体怎么了？",
+     "en": "What is wrong with Sun Hao?",
+     "type": "mc",
+     "options": [
+      "肚子疼",
+      "咳嗽、发烧",
+      "眼睛疼",
+      "皮肤不舒服"
+     ],
+     "answer": 1,
+     "words": [
+      "咳嗽"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "大夫认为孙浩需要打针。",
+     "en": "The doctor thinks Sun Hao needs an injection.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "打针"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "孙浩想星期几在家休息？",
+     "en": "Which days does Sun Hao want to rest at home?",
+     "type": "mc",
+     "options": [
+      "星期三和星期四",
+      "星期一和星期二",
+      "星期四和星期五",
+      "星期五和星期六"
+     ],
+     "answer": 2,
+     "words": [
+      "请假"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "孙浩的任务一点都没有完成。",
+     "en": "Sun Hao hasn't finished any of his tasks.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "任务"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "谁代替孙浩参加会议？",
+     "en": "Who will attend the meeting in Sun Hao's place?",
+     "type": "mc",
+     "options": [
+      "王经理",
+      "一位新同事",
+      "没有人",
+      "李文"
+     ],
+     "answer": 3,
+     "words": [
+      "代替"
+     ],
+     "sentence": 6
+    }
+   ]
+  },
+  {
+   "id": "p0051",
+   "lv": "4",
+   "title": "城市举办乒乓球比赛",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "上个周末，我们城市举办了一场乒乓球比赛。",
+     "Last weekend our city held a table tennis tournament."
+    ],
+    [
+     "这次比赛由几家公司共同组织，一共有两百多人报名参加。",
+     "The tournament was organised jointly by several companies, and over two hundred people signed up."
+    ],
+    [
+     "参加比赛的人里，年龄最小的只有八岁，最大的已经七十多岁了。",
+     "Among the players, the youngest was only eight and the oldest was over seventy."
+    ],
+    [
+     "最精彩的是星期日下午的最后一场比赛。",
+     "The most exciting was the final match on Sunday afternoon."
+    ],
+    [
+     "一个十六岁的学生和一位四十岁的老师比赛了一个多小时。",
+     "A sixteen-year-old student played a forty-year-old teacher for over an hour."
+    ],
+    [
+     "最后，这个年轻的学生赢了，观众都站起来为他鼓掌。",
+     "In the end the young student won, and the crowd stood up to applaud him."
+    ],
+    [
+     "记者问他赢了以后有什么感觉。",
+     "A reporter asked him how it felt to win."
+    ],
+    [
+     "他回答：“我非常激动，我要感谢我的父亲，是他一直鼓励我坚持练习。”",
+     "He answered: \"I'm thrilled. I want to thank my father. He always encouraged me to keep practising.\""
+    ]
+   ],
+   "questions": [
+    {
+     "q": "这次比赛一共有多少人报名？",
+     "en": "How many people signed up for the tournament?",
+     "type": "mc",
+     "options": [
+      "两百多人",
+      "一百多人",
+      "三百多人",
+      "两千多人"
+     ],
+     "answer": 0,
+     "words": [
+      "报名"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "年龄最小的人只有八岁。",
+     "en": "The youngest player was only eight.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "年龄"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "最后一场比赛是谁和谁？",
+     "en": "Who played in the final match?",
+     "type": "mc",
+     "options": [
+      "两个学生",
+      "一个学生和一位老师",
+      "两位老师",
+      "一位老师和一个记者"
+     ],
+     "answer": 1,
+     "words": [
+      "比赛"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "那个学生输了。",
+     "en": "The student lost.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "赢"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "学生最感谢谁？",
+     "en": "Who does the student thank?",
+     "type": "mc",
+     "options": [
+      "他的母亲",
+      "他的老师",
+      "他的父亲",
+      "那位负责人"
+     ],
+     "answer": 2,
+     "words": [
+      "父亲"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0052",
+   "lv": "4",
+   "title": "我的留学生活",
+   "oop": {},
+   "names": [
+    "玛丽",
+    "法国",
+    "林娜"
+   ],
+   "sentences": [
+    [
+     "我叫玛丽，是从法国来中国留学的，来中国已经一年了。",
+     "My name is Marie. I came from France to study in China, and I've been here for a year."
+    ],
+    [
+     "刚刚来中国的时候，我遇到了很多困难。",
+     "When I first came to China, I ran into lots of difficulties."
+    ],
+    [
+     "首先是语言，虽然我在法国学习了两年中文，但是中国人说话太快了，我经常听不懂。",
+     "First there was the language. Although I'd studied Chinese for two years in France, people spoke too fast and I often couldn't understand."
+    ],
+    [
+     "其次是吃的方面，中国菜很好吃，但是有的菜太辣了，我的肚子受不了。",
+     "Then there was food. Chinese food is delicious, but some dishes were too spicy for my stomach."
+    ],
+    [
+     "后来，我认识了一个中国朋友，她叫林娜。",
+     "Later I met a Chinese friend called Lin Na."
+    ],
+    [
+     "她想去法国留学，所以我们经常互相帮助。",
+     "She wants to study in France, so we often help each other."
+    ],
+    [
+     "我给她介绍法国文化，她帮助我练习中文。",
+     "I tell her about French culture, and she helps me practise Chinese."
+    ],
+    [
+     "现在我的中文比以前流利多了，也交了很多中国朋友。",
+     "Now my Chinese is much more fluent than before, and I've made lots of Chinese friends."
+    ],
+    [
+     "留学不仅提高了我的语言水平，而且让我认识了一个不一样的世界。",
+     "Studying abroad has not only improved my language level but also shown me a different world."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "玛丽来中国已经两年了。",
+     "en": "Marie has been in China for two years.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "已经"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "玛丽刚刚来中国的时候，语言上有什么问题？",
+     "en": "What language problem did Marie have when she first came to China?",
+     "type": "mc",
+     "options": [
+      "看不懂",
+      "写不好",
+      "读不好",
+      "听不懂"
+     ],
+     "answer": 3,
+     "words": [
+      "懂"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "为什么有的中国菜玛丽受不了？",
+     "en": "Why couldn't Marie cope with some Chinese dishes?",
+     "type": "mc",
+     "options": [
+      "太辣了",
+      "太咸了",
+      "太甜了",
+      "太酸了"
+     ],
+     "answer": 0,
+     "words": [
+      "辣"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "林娜想去法国留学。",
+     "en": "Lin Na wants to study in France.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "留学"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "现在玛丽的中文怎么样？",
+     "en": "How is Marie's Chinese now?",
+     "type": "mc",
+     "options": [
+      "没有变化",
+      "流利多了",
+      "还是很差",
+      "不太流利"
+     ],
+     "answer": 1,
+     "words": [
+      "流利"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0053",
+   "lv": "4",
+   "title": "租房间",
+   "oop": {},
+   "names": [
+    "陈杰"
+   ],
+   "sentences": [
+    [
+     "陈杰：阿姨您好，我在网站上看到您的房间要出租，我想来看一下。",
+     "Chen Jie: Hello, I saw on a website that your room is for rent, and I'd like to have a look."
+    ],
+    [
+     "阿姨：请进。这个房间不太大，但是很安静，阳光很好。",
+     "Landlady: Come in. The room isn't very big, but it's quiet and gets lots of sunlight."
+    ],
+    [
+     "陈杰：房间里有什么家具？",
+     "Chen Jie: What furniture is in the room?"
+    ],
+    [
+     "阿姨：有沙发、桌子和椅子，厨房里还有冰箱和洗衣机。",
+     "Landlady: There's a sofa, a table and chairs, and the kitchen has a fridge and a washing machine."
+    ],
+    [
+     "陈杰：这里离地铁站远吗？",
+     "Chen Jie: Is it far from the underground station?"
+    ],
+    [
+     "阿姨：不远，走路五分钟就到了，附近还有超市和银行，交通和购物都很方便。",
+     "Landlady: Not far, five minutes on foot. There's also a supermarket and a bank nearby, so transport and shopping are easy."
+    ],
+    [
+     "陈杰：租一个月多少钱？",
+     "Chen Jie: How much is it per month?"
+    ],
+    [
+     "阿姨：三千五百元。空调和水的钱另外算。",
+     "Landlady: 3,500 yuan. Air conditioning and water are extra."
+    ],
+    [
+     "陈杰：价格能不能便宜一点？我是学生，收入不高。",
+     "Chen Jie: Could the price be a bit lower? I'm a student and don't earn much."
+    ],
+    [
+     "阿姨：如果你租一年，每个月我可以给你便宜两百元。",
+     "Landlady: If you rent for a year, I can take 200 yuan a month off."
+    ],
+    [
+     "陈杰：好，那我今天晚上就决定。",
+     "Chen Jie: OK, then I'll decide this evening."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "厨房里有什么？",
+     "en": "What is in the kitchen?",
+     "type": "mc",
+     "options": [
+      "冰箱和空调",
+      "沙发和桌子",
+      "冰箱和洗衣机",
+      "洗衣机和空调"
+     ],
+     "answer": 2,
+     "words": [
+      "洗衣机"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "房间离地铁站很近。",
+     "en": "The room is close to the underground station.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "远"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "租一个月多少钱？",
+     "en": "How much is the rent per month?",
+     "type": "mc",
+     "options": [
+      "三千元",
+      "两千五百元",
+      "四千元",
+      "三千五百元"
+     ],
+     "answer": 3,
+     "words": [
+      "租"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "如果租一年，每个月可以便宜两百元。",
+     "en": "If you rent for a year, it's 200 yuan a month cheaper.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "便宜"
+     ],
+     "sentence": 9
+    },
+    {
+     "q": "陈杰什么时候决定？",
+     "en": "When will Chen Jie decide?",
+     "type": "mc",
+     "options": [
+      "今天晚上",
+      "明天早上",
+      "下个星期",
+      "一年以后"
+     ],
+     "answer": 0,
+     "words": [
+      "决定"
+     ],
+     "sentence": 10
+    }
+   ]
+  },
+  {
+   "id": "p0054",
+   "lv": "4",
+   "title": "怎么解决堵车问题",
+   "oop": {
+    "车": "vehicle, car; the pack has only 堵车 and 出租车, and the traffic topic needs the bare noun"
+   },
+   "names": [],
+   "sentences": [
+    [
+     "现在城市里的车越来越多，堵车成为了一个大问题。",
+     "There are more and more vehicles in cities now, and traffic jams have become a big problem."
+    ],
+    [
+     "特别是上下班的时间，路上经常堵车，有时候一公里要走半个小时。",
+     "Especially at rush hour the roads are often jammed, and sometimes one kilometre takes half an hour."
+    ],
+    [
+     "为了解决这个问题，城市做了很多努力。",
+     "The city has made a lot of effort to solve this problem."
+    ],
+    [
+     "首先，修了更多的地铁，地铁速度快，而且很准时。",
+     "First, it has built more underground lines, which are fast and punctual."
+    ],
+    [
+     "其次，增加了公共汽车的数量，还规定有的路只允许公共汽车和出租车走。",
+     "Second, it has increased the number of buses, and some roads are now for buses and taxis only."
+    ],
+    [
+     "另外，城市里到处都有可以租的自行车，用手机就能租，非常方便。",
+     "Also, there are rental bikes all over the city that you can hire with your phone, which is very convenient."
+    ],
+    [
+     "很多年轻人现在骑自行车上下班，不仅节约时间，而且能锻炼身体。",
+     "Many young people now cycle to work, which both saves time and gives them exercise."
+    ],
+    [
+     "警察也提醒大家，开车的时候一定要注意安全，不要开得太快。",
+     "The police also remind everyone to drive safely and not too fast."
+    ],
+    [
+     "如果能坐地铁，就最好不要开车。",
+     "If you can take the underground, it's best not to drive."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "什么时候路上经常堵车？",
+     "en": "When are the roads often jammed?",
+     "type": "mc",
+     "options": [
+      "中午",
+      "上下班的时间",
+      "周末",
+      "晚上十点以后"
+     ],
+     "answer": 1,
+     "words": [
+      "堵车"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "地铁的速度很慢。",
+     "en": "The underground is slow.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "速度"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "现在的公共汽车比以前多了。",
+     "en": "There are more buses now than before.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "增加"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "很多年轻人为什么骑自行车上下班？",
+     "en": "Why do many young people cycle to work?",
+     "type": "mc",
+     "options": [
+      "价格便宜",
+      "比较安全",
+      "节约时间",
+      "地铁太贵"
+     ],
+     "answer": 2,
+     "words": [
+      "节约"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "警察提醒大家开车不要太快。",
+     "en": "The police remind everyone not to drive too fast.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "提醒"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0055",
+   "lv": "4",
+   "title": "父亲的生日",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "上个月是我父亲六十岁的生日。",
+     "Last month was my father's sixtieth birthday."
+    ],
+    [
+     "父亲当了三十多年的司机。",
+     "My father has been a driver for over thirty years."
+    ],
+    [
+     "他平时很节约，从来不给自己买新衣服。",
+     "He's usually very thrifty and never buys new clothes for himself."
+    ],
+    [
+     "我们决定送他一块好手表，还要请所有的亲戚来家里，一起为他过生日。",
+     "We decided to give him a good watch and invite all our relatives home to celebrate his birthday together."
+    ],
+    [
+     "这件事情我们都没有告诉父亲。",
+     "We didn't tell Father any of this."
+    ],
+    [
+     "生日的晚上，父亲下班回到家，一开门，就看见了很多亲戚。",
+     "On the evening of his birthday, Father came home from work, opened the door, and saw lots of relatives."
+    ],
+    [
+     "母亲做了很多他喜欢吃的菜，有饺子、鱼，还有汤。",
+     "Mother had made lots of his favourite dishes: dumplings, fish and soup."
+    ],
+    [
+     "我们把手表送给他的时候，父亲激动得流泪了。",
+     "When we gave him the watch, Father was so moved that he cried."
+    ],
+    [
+     "他告诉我们，这是他过得最幸福的一个生日。",
+     "He told us it was the happiest birthday he had ever had."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "父亲多少岁了？",
+     "en": "How old is Father?",
+     "type": "mc",
+     "options": [
+      "五十岁",
+      "七十岁",
+      "六十五岁",
+      "六十岁"
+     ],
+     "answer": 3,
+     "words": [
+      "父亲"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "父亲经常买新衣服。",
+     "en": "Father often buys new clothes.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "节约"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "我们送给父亲什么礼物？",
+     "en": "What present did we give Father?",
+     "type": "mc",
+     "options": [
+      "一块手表",
+      "一件衣服",
+      "一本书",
+      "一个蛋糕"
+     ],
+     "answer": 0,
+     "words": [
+      "手表"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "父亲提前知道了我们的计划。",
+     "en": "Father knew about our plan in advance.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "告诉"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "父亲收到手表的时候怎么了？",
+     "en": "What happened when Father received the watch?",
+     "type": "mc",
+     "options": [
+      "生气了",
+      "流泪了",
+      "笑了",
+      "没有说话"
+     ],
+     "answer": 1,
+     "words": [
+      "流泪"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0056",
+   "lv": "4",
+   "title": "第一次看京剧",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "上个周末，我和朋友去看了一场京剧演出。",
+     "Last weekend a friend and I went to a Peking opera performance."
+    ],
+    [
+     "这是我第一次看京剧，以前只在电视上看过。",
+     "It was my first time at Peking opera. Before, I'd only seen it on TV."
+    ],
+    [
+     "演出晚上七点半开始，我们提前半个小时就到了。",
+     "The show started at 7:30 p.m., and we arrived half an hour early."
+    ],
+    [
+     "京剧是一种很有名的中国艺术，已经有两百多年的历史了。",
+     "Peking opera is a famous Chinese art form with a history of over two hundred years."
+    ],
+    [
+     "演员的衣服颜色非常丰富，非常漂亮。",
+     "The actors' costumes were colourful and beautiful."
+    ],
+    [
+     "他们的动作也很特别，每一个动作都有自己的意思。",
+     "Their movements were special too; every movement has its own meaning."
+    ],
+    [
+     "其实，演员表演的很多内容我都听不懂。",
+     "Actually, I couldn't understand much of what the actors performed."
+    ],
+    [
+     "但是我的朋友一直在旁边给我解释，所以我能理解故事的大概意思。",
+     "But my friend kept explaining beside me, so I could follow the general story."
+    ],
+    [
+     "我觉得这次演出非常精彩，值得一看。",
+     "I thought the performance was wonderful and well worth seeing."
+    ],
+    [
+     "票有一点贵，但是这次经历给我留下了很深的印象。",
+     "The tickets were a bit expensive, but the experience left a deep impression on me."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "作者以前在电视上看过京剧。",
+     "en": "The writer had seen Peking opera on TV before.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "以前"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "演出几点开始？",
+     "en": "What time did the show start?",
+     "type": "mc",
+     "options": [
+      "七点",
+      "八点",
+      "七点半",
+      "八点半"
+     ],
+     "answer": 2,
+     "words": [
+      "开始"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "京剧有多长的历史？",
+     "en": "How long is the history of Peking opera?",
+     "type": "mc",
+     "options": [
+      "一百多年",
+      "三百多年",
+      "五十多年",
+      "两百多年"
+     ],
+     "answer": 3,
+     "words": [
+      "历史"
+     ],
+     "sentence": 3
+    },
+    {
+     "q": "作者能听懂演员表演的所有内容。",
+     "en": "The writer could understand everything the actors performed.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "内容"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "作者觉得这次演出怎么样？",
+     "en": "What did the writer think of the performance?",
+     "type": "mc",
+     "options": [
+      "非常精彩",
+      "没有意思",
+      "太长了",
+      "太贵了"
+     ],
+     "answer": 0,
+     "words": [
+      "精彩"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0057",
+   "lv": "4",
+   "title": "去长城",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "上个月，我和几个朋友找了一位导游，一起去了长城。",
+     "Last month some friends and I hired a guide and went to the Great Wall."
+    ],
+    [
+     "长城是中国最著名的地方之一，已经有两千多年的历史了。",
+     "The Great Wall is one of China's most famous places, with a history of over two thousand years."
+    ],
+    [
+     "我们到的时候是早上九点，但是长城上的人已经很多了。",
+     "We arrived at nine in the morning, but there were already lots of people on the Wall."
+    ],
+    [
+     "导游告诉我们，长城很长，一共有两万多公里。",
+     "The guide told us the Great Wall is very long, over twenty thousand kilometres in total."
+    ],
+    [
+     "我们去的那一段比较难走，很多地方又高又窄，走起来很累。",
+     "The section we visited was quite hard going, with many high, narrow parts that were tiring to walk."
+    ],
+    [
+     "朋友一直鼓励我：“坚持一下，前面的风景更美丽！”",
+     "My friends kept encouraging me: \"Keep going, the view ahead is even better!\""
+    ],
+    [
+     "我们终于到了最高的地方，风景果然非常美丽。",
+     "We finally reached the highest point, and the view really was beautiful."
+    ],
+    [
+     "虽然很累，但是这次旅游让我对中国的历史有了更多的了解。",
+     "Although it was tiring, the trip taught me much more about Chinese history."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "他们几点到长城？",
+     "en": "What time did they reach the Great Wall?",
+     "type": "mc",
+     "options": [
+      "早上八点",
+      "早上九点",
+      "中午十二点",
+      "下午两点"
+     ],
+     "answer": 1,
+     "words": [
+      "早上"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "他们到的时候，长城上的人很少。",
+     "en": "When they arrived, there were few people on the Wall.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "已经"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "他们去的那一段怎么样？",
+     "en": "What was the section they visited like?",
+     "type": "mc",
+     "options": [
+      "非常好走",
+      "人非常少",
+      "比较难走",
+      "没有风景"
+     ],
+     "answer": 2,
+     "words": [
+      "段"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "朋友鼓励我继续走。",
+     "en": "My friends encouraged me to keep walking.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "鼓励"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "这次旅游让作者对什么有了更多了解？",
+     "en": "What did the trip teach the writer more about?",
+     "type": "mc",
+     "options": [
+      "中国的森林",
+      "中国的导游",
+      "中国的语言",
+      "中国的历史"
+     ],
+     "answer": 3,
+     "words": [
+      "了解"
+     ],
+     "sentence": 7
+    }
+   ]
+  },
+  {
+   "id": "p0058",
+   "lv": "4",
+   "title": "好的学习方法",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "很多学生学习很努力，但是成绩一直不太理想。",
+     "Many students study hard, but their grades are never quite what they hope."
+    ],
+    [
+     "首先，上课以前要预习。",
+     "First, prepare before class."
+    ],
+    [
+     "预习的时候，可以把不懂的地方写在笔记本上，上课的时候就知道重点在哪里了。",
+     "When preparing, write down what you don't understand in a notebook; then in class you'll know where to focus."
+    ],
+    [
+     "其次，上课的时候要认真听，积极回答老师的问题。",
+     "Second, listen carefully in class and actively answer the teacher's questions."
+    ],
+    [
+     "下课以后要及时复习，因为人很容易忘记刚刚学习过的知识。",
+     "Review promptly after class, because people easily forget what they have just learned."
+    ],
+    [
+     "另外，要养成阅读的好习惯。",
+     "Also, develop a good reading habit."
+    ],
+    [
+     "阅读不仅能帮助我们积累词语，而且能让我们了解更多的知识。",
+     "Reading not only helps us build vocabulary but also lets us learn more."
+    ],
+    [
+     "如果遇到困难，千万不要放弃，可以去问老师和同学。",
+     "If you run into difficulties, never give up; ask your teachers and classmates."
+    ],
+    [
+     "最后，要注意休息，保证每个晚上至少有七个小时的睡觉时间。",
+     "Finally, make sure you rest, with at least seven hours of sleep every night."
+    ],
+    [
+     "只要方法正确，并且能坚持，你的成绩一定会提高。",
+     "As long as your method is right and you keep at it, your grades will certainly improve."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "作者讲的第一个方法是什么？",
+     "en": "What is the first method the writer describes?",
+     "type": "mc",
+     "options": [
+      "预习",
+      "复习",
+      "阅读",
+      "休息"
+     ],
+     "answer": 0,
+     "words": [
+      "预习"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "作者认为，预习的时候不用写东西。",
+     "en": "The writer thinks you don't need to write anything when preparing.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "笔记本"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "为什么下课以后要及时复习？",
+     "en": "Why should you review promptly after class?",
+     "type": "mc",
+     "options": [
+      "老师会检查",
+      "人很容易忘记",
+      "考试快到了",
+      "下课以后很无聊"
+     ],
+     "answer": 1,
+     "words": [
+      "复习"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "多阅读，词语也会越来越多。",
+     "en": "If you read more, your vocabulary will keep growing.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "阅读"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "每个晚上的睡觉时间至少要几个小时？",
+     "en": "At least how many hours of sleep should you get each night?",
+     "type": "mc",
+     "options": [
+      "五个",
+      "八个",
+      "七个",
+      "六个"
+     ],
+     "answer": 2,
+     "words": [
+      "保证"
+     ],
+     "sentence": 8
+    }
+   ]
+  },
+  {
+   "id": "p0059",
+   "lv": "4",
+   "title": "航班推迟了",
+   "oop": {},
+   "names": [
+    "周婷"
+   ],
+   "sentences": [
+    [
+     "我们非常抱歉地通知大家：由于北京下大雪，今天下午三点去北京的航班需要推迟起飞。",
+     "We are very sorry to announce that because of heavy snow in Beijing, this afternoon's three o'clock flight to Beijing will be delayed."
+    ],
+    [
+     "现在我们还不知道飞机什么时候能起飞。",
+     "We don't yet know when the plane will be able to take off."
+    ],
+    [
+     "估计至少要推迟两个小时。",
+     "We estimate a delay of at least two hours."
+    ],
+    [
+     "请大家不要离开机场，注意听广播。",
+     "Please don't leave the airport, and listen for announcements."
+    ],
+    [
+     "机场会为大家免费提供饮料和饼干。",
+     "The airport will provide free drinks and biscuits."
+    ],
+    [
+     "如果您想换其他时间的航班，可以去五号台问一下我们的服务员。",
+     "If you'd like to change to a flight at another time, please ask our staff at desk number five."
+    ],
+    [
+     "给大家带来麻烦，我们非常抱歉。谢谢您的理解和支持！",
+     "We apologise for the inconvenience. Thank you for your understanding and support!"
+    ],
+    [
+     "听完广播，周婷马上用手机联系了她的丈夫。",
+     "After hearing the announcement, Zhou Ting immediately contacted her husband on her phone."
+    ],
+    [
+     "“我的航班推迟了，可能晚上七点以后才能到北京。”",
+     "\"My flight's delayed. I might not get to Beijing until after seven this evening.\""
+    ],
+    [
+     "“你别来机场接我了，我自己坐出租车回家。”",
+     "\"Don't come to the airport to pick me up. I'll take a taxi home.\""
+    ],
+    [
+     "丈夫回答：“没关系，路上下雪，很危险，还是我去接你吧。”",
+     "Her husband answered: \"It's fine. It's snowing and the roads are dangerous, so I'd better come and get you.\""
+    ]
+   ],
+   "questions": [
+    {
+     "q": "航班为什么推迟？",
+     "en": "Why is the flight delayed?",
+     "type": "mc",
+     "options": [
+      "飞机有问题",
+      "机场人太多",
+      "司机迟到了",
+      "北京下大雪"
+     ],
+     "answer": 3,
+     "words": [
+      "由于"
+     ],
+     "sentence": 0
+    },
+    {
+     "q": "航班估计推迟一个小时。",
+     "en": "The flight is expected to be delayed by an hour.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "估计"
+     ],
+     "sentence": 2
+    },
+    {
+     "q": "机场会免费提供什么？",
+     "en": "What will the airport provide for free?",
+     "type": "mc",
+     "options": [
+      "饮料和饼干",
+      "饮料和面包",
+      "咖啡和饼干",
+      "果汁和蛋糕"
+     ],
+     "answer": 0,
+     "words": [
+      "免费"
+     ],
+     "sentence": 4
+    },
+    {
+     "q": "周婷可能几点以后到北京？",
+     "en": "After what time might Zhou Ting reach Beijing?",
+     "type": "mc",
+     "options": [
+      "下午五点",
+      "晚上七点",
+      "下午三点",
+      "晚上十点"
+     ],
+     "answer": 1,
+     "words": [
+      "可能"
+     ],
+     "sentence": 8
+    },
+    {
+     "q": "丈夫同意周婷坐出租车回家。",
+     "en": "Her husband agrees that Zhou Ting should take a taxi home.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "接"
+     ],
+     "sentence": 10
+    }
+   ]
+  },
+  {
+   "id": "p0060",
+   "lv": "4",
+   "title": "健康地减肥",
+   "oop": {},
+   "names": [],
+   "sentences": [
+    [
+     "现在，很多年轻人都想减肥。",
+     "Nowadays many young people want to lose weight."
+    ],
+    [
+     "有的人为了让自己瘦一些，几乎不吃东西。",
+     "Some people barely eat anything to get thinner."
+    ],
+    [
+     "其实，这种方法对身体很不好。",
+     "In fact, this approach is very bad for your health."
+    ],
+    [
+     "医生认为，减肥最重要的是吃得健康，还要多运动。",
+     "Doctors say the most important thing in losing weight is to eat healthily and exercise more."
+    ],
+    [
+     "首先，要少吃甜的东西，例如巧克力、蛋糕和饼干。",
+     "First, eat fewer sweet things, such as chocolate, cake and biscuits."
+    ],
+    [
+     "饮料里一般有很多糖，所以最好多喝水，少喝饮料。",
+     "Soft drinks usually contain a lot of sugar, so it's best to drink more water and fewer soft drinks."
+    ],
+    [
+     "其次，菜不要太咸，也不要太辣，盐要少放。",
+     "Second, food shouldn't be too salty or too spicy; use less salt."
+    ],
+    [
+     "可以多吃水果、鸡蛋和鱼。",
+     "You can eat more fruit, eggs and fish."
+    ],
+    [
+     "另外，吃东西的速度不要太快，吃到七八分饱就停止。",
+     "Also, don't eat too fast, and stop when you're about 70 to 80 percent full."
+    ],
+    [
+     "除了注意吃，还要坚持锻炼，例如跑步、游泳或者散步。",
+     "Besides watching what you eat, keep exercising, for example running, swimming or walking."
+    ],
+    [
+     "减肥需要时间，不能太着急。",
+     "Losing weight takes time, so don't be impatient."
+    ],
+    [
+     "只有吃得健康、多运动，才能真正又瘦又健康。",
+     "Only by eating well and exercising more can you become truly slim and healthy."
+    ]
+   ],
+   "questions": [
+    {
+     "q": "有的年轻人减肥的时候，吃得非常少。",
+     "en": "Some young people eat very little when dieting.",
+     "type": "tf",
+     "options": null,
+     "answer": true,
+     "words": [
+      "几乎"
+     ],
+     "sentence": 1
+    },
+    {
+     "q": "为什么最好少喝饮料？",
+     "en": "Why is it best to drink fewer soft drinks?",
+     "type": "mc",
+     "options": [
+      "太贵了",
+      "太冷了",
+      "太辣了",
+      "糖太多"
+     ],
+     "answer": 3,
+     "words": [
+      "饮料"
+     ],
+     "sentence": 5
+    },
+    {
+     "q": "做菜的时候可以多放盐。",
+     "en": "You can add plenty of salt when cooking.",
+     "type": "tf",
+     "options": null,
+     "answer": false,
+     "words": [
+      "盐"
+     ],
+     "sentence": 6
+    },
+    {
+     "q": "吃到几分饱就应该停止？",
+     "en": "How full should you be when you stop eating?",
+     "type": "mc",
+     "options": [
+      "五六分",
+      "八九分",
+      "七八分",
+      "六七分"
+     ],
+     "answer": 2,
+     "words": [
+      "停止"
+     ],
+     "sentence": 8
+    },
+    {
+     "q": "作者认为减肥的时候不能怎么样？",
+     "en": "What does the writer say you must not be when losing weight?",
+     "type": "mc",
+     "options": [
+      "太着急",
+      "多运动",
+      "多喝水",
+      "吃水果"
+     ],
+     "answer": 0,
+     "words": [
+      "着急"
+     ],
+     "sentence": 10
+    }
+   ]
+  }
+ ]
+}
