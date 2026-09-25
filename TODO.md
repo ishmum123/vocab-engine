@@ -89,6 +89,7 @@ where the rebuilt pack differs (id map recorded at pack build), copies the
 characters-stage fields, and writes `vocab_zh`.
 
 ### 1. Merge hsk's post-fork state into the engine, then (last task) move hsk onto the engine
+STATUS 2026-09-25 16:00: design docs/HSK_MERGE.md; briefs B0–B7 merged on main (characters stage core + app, zh characters.json/ruby/legacy map, ja ruby + kanji units, migration core + boot hook + tools/diff_hsk_migration.js, flag-off golden harness); B8 review + browser walk done (no blockers), polish round in progress. Remaining: polish merge, republish wave of live languages, Japanese rebuild with kanji stage, then the final switch (needs the user's real hsk_pinyin export and the pinyin-first decision).
 hsk (`../hsk`, read-only until the user says go) kept evolving after the
 2026-09-23 extraction: characters stage (v2.2/v2.3, 10 new / 16 drilled per
 day, unlocks after HSK 3), learning-order switch (characters before/after
@@ -106,6 +107,7 @@ list of what hsk would gain: `hsk/TODO.md`. Do this BEFORE the B2 expansion
 so every pack is rebuilt once, on the merged engine.
 
 ### 1b. Chinese reading passages (user 2026-09-25, right after item 1)
+DONE 2026-09-25 16:00 (a5de0e0): 60 passages, 15 per HSK level, two QA rounds; zh passage hooks (dictionary segmenter, phrase units, 没有 rule) + span display glosses (packs/zh/gloss_display.json, 4-element spans) + report self-checks for all languages. Ships to learners with the hsk switch. Residual: 走路 as a phrase unit; Italian numeral keys (Ventisette) not exempt in the self-check.
 Author 60 passages for the engine's zh pack the same way as the other
 languages (unspaced linking as in `langs/ja.py`; rules in any repo's
 `tools/passages_src.json`; one Opus authoring pass + two QA rounds). They
