@@ -132,6 +132,16 @@ def doc_tokens(sp, doc, fields, row):
     return sp.fix_sentence(toks, row, doc)
 
 
+def tag_rows(sp, rows, truecase_counts):
+    """Tag a few rows outside the cached corpus (spec.example_rows): truecased
+    with the corpus counts, spec.tag_text, the spec's tagger, doc_tokens.
+    Returns [[sid, toks]] like iter_tagged."""
+    low, cap = truecase_counts
+    texts = [sp.tag_text(truecase(r[1], low, cap, sp.word_re)) for r in rows]
+    docs, fields = tag_docs(sp, texts, n_process=1)
+    return [[r[0], doc_tokens(sp, doc, fields, r)] for r, doc in zip(rows, docs)]
+
+
 def stage_tag(env, corpus):
     sp = env.spec
     out, desc = tagged_path(env, corpus_path(env))

@@ -2,6 +2,7 @@
 and the linked-sentence -rsi gate."""
 import re
 from collections import Counter, defaultdict
+from itertools import chain
 
 from .lexicon import CONTENT_GROUPS, SKIP_UPOS
 from .tag import iter_tagged
@@ -255,7 +256,7 @@ def build_sentences(env, ctx, words, top3000):
             lemma_ids.setdefault(w["_key"][0], w["id"])
     rsi_ids = {w["id"] for w in words if w.get("_base")}
     refl_by_sid = {}
-    rows = ctx["rows_by_sid"]
+    rows = {**ctx["rows_by_sid"], **ctx.get("example_rows", {})}
     key_to_id = {w["_key"]: w["id"] for w in words}
     lv_of = {w["id"]: w["lv"] for w in words}
     allowed = {w["lemma"] for w in words} | top3000
@@ -275,7 +276,7 @@ def build_sentences(env, ctx, words, top3000):
     rank_pen = {}      # (sid, word level) -> spec.sentence_rank penalty
     cands = defaultdict(list)
     tok_forms = {}     # sid -> folded token surfaces (example_shows_word only)
-    for sid, toks in iter_tagged(ctx["tagged"]):
+    for sid, toks in chain(iter_tagged(ctx["tagged"]), ctx.get("example_tagged", ())):
         text = rows[sid][1]
         if sp.untranslated_rows and not rows[sid][3]:
             continue            # tagged for evidence only: no English translation
@@ -303,6 +304,10 @@ def build_sentences(env, ctx, words, top3000):
         if links is None:
             st["content_lemma_outside_pack_top3000"] += 1
             continue
+        fixed = sp.fix_links(rows[sid], toks, links, key_to_id)     # links only: freq/word list untouched
+        if fixed != links:
+            st["links_fixed_by_spec"] += 1
+            links = fixed
         if not links:
             continue
         if sp.drop_all_levels is not None and (sp.drop_all_levels.search(text) or

@@ -29,7 +29,7 @@ import json
 import re
 from collections import Counter
 
-from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS, drop_all_re
 
 DAYS = "senin selasa rabu kamis jumat sabtu minggu".split()
 MONTHS = "januari februari maret april mei juni juli agustus september oktober november desember".split()
@@ -218,6 +218,7 @@ SENSITIVE_ID = (r"bunuh\w*|membunuh\w*|dibunuh|terbunuh|pembunuh\w*|pembunuhan|t
                 r"explosion\w*|explosive\w*|poison\w*|blood\w*|bleed\w*|corpses?")
 # removed at every level (cross-pack policy): rape, sexual abuse, child abuse
 DROP_ALL_ID = (r"perkosa\w*|memperkosa\w*|diperkosa|pemerkosa\w*|pelecehan seksual|cabul\w*|pencabulan|"
+               r"kekerasan seksual|bunuh diri|"
                r"rape[ds]?|raping|rapist\w*|molest\w*|sexual(?:ly)? abus\w*|child abuse|pedophil\w*|paedophil\w*")
 
 
@@ -385,7 +386,7 @@ class Indonesian(LanguageSpec):
 
     bad_text_re = re.compile(UNTAUGHT_SLANG_RE.pattern + "|^(?:" + "|".join(re.escape(t) for t in BAD_TEXTS) + ")$",
                              re.I)
-    drop_all_levels = re.compile(r"(?<![A-Za-z])(" + DROP_ALL_ID + r")(?![A-Za-z])", re.I)
+    drop_all_levels = drop_all_re(r"(?<![A-Za-z])(" + DROP_ALL_ID + r")(?![A-Za-z])")
     sensitive_re = re.compile(r"(?<![A-Za-z])(" + SENSITIVE_ID + "|" + SENSITIVE_EN + r")(?![A-Za-z])", re.I)
     sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)    # vulgar senses never lead
     # kill/murder/rape glosses stay out of A1/A2 (clean ";"-segments kept, else the word moves to B1)

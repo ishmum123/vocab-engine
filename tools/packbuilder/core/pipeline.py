@@ -11,7 +11,7 @@ from .lexicon import Lexicon, FUNCTION_UPOS
 from .report import write_report
 from .sentences import build_sentences
 from .sources import ensure_downloaded, stage_corpus, audio_recorders
-from .tag import stage_tag, truecase_stats, iter_tagged
+from .tag import stage_tag, truecase_stats, iter_tagged, tag_rows
 from .util import STATS, log, stat, dump_json, write_json
 from .words import build_words, apply_gloss_display
 
@@ -83,6 +83,11 @@ def prepare(env, ctx):
     ctx["en_bg"], ctx["en_bgn"] = bg, len(en_rows)
     stat("corpus", {k: v for k, v in corpus.items() if k != "rows"})
     ctx["tagged"] = stage_tag(env, corpus)
+    # sentences written as examples only (spec.example_rows): tagged apart from
+    # the corpus, so no frequency, gloss or lemma evidence ever sees them
+    ex = env.spec.example_rows(env)
+    ctx["example_rows"] = {r[0]: r for r in ex}
+    ctx["example_tagged"] = tag_rows(env.spec, ex, ctx["truecase"]) if ex else []
     ctx["lexicon"] = Lexicon(stage_lex(env), env.spec)
     if env.spec.lemma_tiebreak_corpus:
         ctx["lexicon"].count_lemma_votes(iter_tagged(ctx["tagged"]))

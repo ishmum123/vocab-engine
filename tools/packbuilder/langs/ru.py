@@ -17,7 +17,7 @@ import hashlib
 import json
 import re
 
-from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS, drop_all_re
 
 STRESS = "\u0301\u0300"
 VOWELS = "аеёиоуыэюя"
@@ -201,11 +201,13 @@ class Russian(LanguageSpec):
         r"оружи\w*|пистолет\w*|ружь\w*|винтовк\w*|(?:вы|за|при|под|по|от|пере|на)?стрел(?!к)\w*|насили\w*|"
         r"kill\w*|murder\w*|shot|weapon\w*|guns?|pistol\w*|rifle\w*|"
         + SENSITIVE_EN + r")(?![а-яёa-z])", re.I)
-    # removed at every level: rape, sexual abuse, child abuse
-    drop_all_levels = re.compile(
+    # removed at every level: rape, sexual abuse, child abuse, suicide, self-harm
+    drop_all_levels = drop_all_re(re.compile(
         r"(?<![а-яёa-z])(изнасил\w*|насилова\w*|насилуе\w*|растл\w*|педофил\w*|"
+        r"сексуальн\w* насили\w*|самоубийств\w*|суицид\w*|покончи\w* с собой|"
+        r"(?:уби(?:ть|л|ла|ли|вать|вает|ваю|ю)|убью|убьёт|убьет) себя|"
         r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*|paedophil\w*|pedophil\w*)(?![а-яёa-z])",
-        re.I)
+        re.I))
     sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)
     # lex: diminutive / female-equivalent senses are words of their own, not
     # inflections (столик is not a form of стол, принцесса not of принц)

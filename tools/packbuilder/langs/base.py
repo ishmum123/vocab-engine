@@ -26,6 +26,35 @@ SENSITIVE_EN = (r"sex|sexy|sexual\w*|rape[ds]?|raping|rapist|porn\w*|naked|nude|
 SENSITIVE_GLOSS_EN = (r"fuck\w*|bullshit\w*|shit\w*|bitch\w*|asshole\w*|arsehole\w*|dick|pussy|cunt|whore\w*|"
                       r"slut\w*|bastard\w*|wank\w*|jerk off|blow ?job|fellat\w*|masturbat\w*|orgasm\w*|"
                       r"have sex|sexual intercourse|copulat\w*|screw around|fornicat\w*|vulgar|slur")
+# Shared English half of the drop-everywhere filter (spec.drop_all_levels): a
+# sentence matching it, in its English or its own text, ships at no level.
+# Cross-pack policy: rape, sexual assault/abuse, child abuse, suicide and
+# self-harm. Each spec merges its own-language terms with drop_all_re(). It is
+# also run on the target text, so no stem may be a Romance word (molest- only
+# as English forms: es/it molestar(e) "to bother" stays).
+DROP_ALL_EN = (r"rape[ds]?|raping|rapist\w*|molest(?:s|ed|ing|ers?|ation)?|sexual(?:ly)? abus\w*|sexual(?:ly)? assault\w*|"
+               r"child abuse|pedophil\w*|paedophil\w*|incest\w*|"
+               r"suicid\w*|self-harm\w*|self-injur\w*|"
+               r"kill(?:s|ed|ing)? (?:myself|yourself|himself|herself|themselves|ourselves|oneself)|"
+               r"(?:hang|hangs|hanged|hanging|hung) (?:myself|himself|herself|themselves|oneself)|"
+               r"cut(?:s|ting)? myself|"
+               r"(?:take|takes|took|taken|taking) (?:my|his|her|their|your|one's) own life|"
+               r"end(?:s|ed|ing)? (?:my|his|her|their|your|one's) (?:own )?life|"
+               r"overdos(?:e|ed|es|ing)")
+
+
+def drop_all_re(own=None, flags=re.I):
+    """spec.drop_all_levels: the shared DROP_ALL_EN (whole Latin words) plus a
+    spec's own-language pattern `own` (a compiled regex or pattern string, kept
+    exactly as the spec wrote it, with its own boundaries)."""
+    eng = r"(?<![A-Za-z])(?:" + DROP_ALL_EN + r")(?![A-Za-z])"
+    if own is None:
+        return re.compile(eng, flags)
+    if isinstance(own, re.Pattern):
+        own, flags = own.pattern, own.flags
+    return re.compile(r"(?:" + own + r")|" + eng, flags)
+
+
 TATOEBA_AUDIO = ("audio.tar.bz2", "https://downloads.tatoeba.org/exports/sentences_with_audio.tar.bz2")
 
 # UD (corpus) POS -> Wiktionary POS headers, in preference order. The first is
@@ -238,7 +267,7 @@ class LanguageSpec:
     homograph_cues = {}         # (lemma, pos) -> extra English cue words for homograph_by_translation
     sensitive_gloss_re = None   # a sense matching it never leads a gloss; check fails on an A1/A2 match
     sensitive_re = None         # sentences matching (text or English) are kept to the top level
-    drop_all_levels = None      # sentences matching (text or English) are removed at every level (rape, child abuse)
+    drop_all_levels = None      # sentences matching (text or English) are removed at every level; build with drop_all_re(own-language terms)
     lower_level_gloss_re = None # a below-top-level gloss matching it keeps its clean ";"-segments or moves to the top level
 
     strict_pronominal_links = False  # a verb shown with its reflexive pronoun links only sentences that have it
@@ -368,6 +397,14 @@ class LanguageSpec:
     untranslated_rows = False    # corpus: also tag target sentences with no English link (english ""), never shipped
     extra_corpus_files = ()      # repo-relative files read by extra_corpus_rows (part of the corpus cache key)
 
+    def example_rows(self, env):
+        """Corpus-format rows [sid, text, user, english, audio, licence] written
+        as example sentences only (fa: tools/generated_examples.tsv). They are
+        tagged apart from the corpus and join only sentence choice, never the
+        frequency pass, glosses or lemma votes, so adding one cannot re-rank
+        words. sids must not collide with corpus sids. Default: none."""
+        return []
+
     def extra_corpus_rows(self, env):
         """Extra corpus rows [sid, text, user, english, audio_id, licence]
         appended after the Tatoeba rows (fa: sentences written for the pack)."""
@@ -440,6 +477,13 @@ class LanguageSpec:
         link). id: the lemma's only pack entry when the tagged reading's
         glosses share a word with it (semua PRON -> semua DET)."""
         return None
+
+    def fix_links(self, row, toks, links, key_to_id):
+        """Correct one sentence's word links (ids, in order) after sentence_links,
+        for sentences.json and example choice only. The frequency pass, word
+        list and passages never see it, so a fix here cannot re-rank words.
+        `row` is the corpus row, `toks` its tagged tokens. Default: unchanged."""
+        return links
 
     def post_resolve(self, toks, out):
         """Resolve time, whole sentence: [(lemma, group) | None] per token,

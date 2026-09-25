@@ -28,7 +28,7 @@ import hashlib
 import json
 import re
 
-from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS, SENSITIVE_EN, SENSITIVE_GLOSS_EN
+from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS, SENSITIVE_EN, SENSITIVE_GLOSS_EN, drop_all_re
 
 ZWNJ = "\u200c"
 LET = "ء-غف-يٱ-ۓۺ-ۿ"
@@ -112,6 +112,7 @@ COLLOQ_RAFTAN = {"برم", "بری", "بره", "بریم", "برن", "میرم",
 TOKEN_PUNCT = "،؛؟!.:«»\"'()…"
 PART_ADJ = {"پیچیده", "گسترده", "پخته", "سوخته", "یخزده"}   # participles taught as adjectives
 GEN_SID_BASE = 90_000_000          # corpus sids of sentences written for the pack
+EXAMPLE_SID_BASE = 95_000_000      # sids of example-only written sentences (example_rows)
 
 
 FINAL_HAMZA_RE = re.compile("اء(?![\u0600-\u06ff])")
@@ -686,11 +687,12 @@ class Persian(LanguageSpec):
     min_corpus_tokens = 3     # subtitle fragments (ال, ری), names, web-only words (زیرنویس, اوکی)
     profanity = set(PROFANE) | {"گه", "ریدن"}
     bad_text_re = re.compile("(?<![" + LET + "])(?:" + "|".join(PROFANE) + ")|" + "|".join(map(re.escape, BAD_SENTENCES)), re.I)
-    # removed at every level: rape, sexual abuse, child abuse
-    drop_all_levels = re.compile(
+    # removed at every level: rape, sexual abuse, child abuse, suicide, self-harm
+    drop_all_levels = drop_all_re(re.compile(
         "(?<![" + LET + "a-z])(?:تجاوز\\w*|آزار\\s*جنسی|کودک\u200c?آزاری|بچه\u200c?بازی|"
+        "خودکشی|خودزنی|"
         "rape[ds]?|raping|rapist\\w*|molest\\w*|child abuse|sexual(?:ly)? abuse\\w*|paedophil\\w*|pedophil\\w*)"
-        "(?![" + LET + "a-z])", re.I)
+        "(?![" + LET + "a-z])", re.I))
     sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)
     # A1/A2 tier: sexual content, threats/violence, dying/death wishes, weapons
     sensitive_re = re.compile(
@@ -1284,6 +1286,64 @@ class Persian(LanguageSpec):
 
     SHARED_STEM = {("کشیدن", "کشتن"), ("کشتن", "کشیدن"), ("شدن", "شستن")}
 
+    # کمکم is کم‌کم "gradually" or کمک + م "help me". The corpus count keeps the
+    # joined spelling as کم‌کم (a corpus rule re-ranked 864 words), so the
+    # sentence links alone are corrected: after به, or before a form of کردن, it
+    # is "help me" (the clitic links nothing, as in کمکشان).
+    KAMKAM_HELP_RE = re.compile("^(?:نمی|می|ن|ب)?(?:کن|کرد)[" + LET + "]*$")
+    FUTURE_AUX_RE = re.compile("^ن?خواه(?:م|ی|د|یم|ید|ند)$")    # کمکم نخواهد کرد
+
+    def fix_links(self, row, toks, links, key_to_id):
+        surf = [fold(t[0]) for t in toks]      # کُمکَم, Arabic kaf: folded
+        if "کمکم" not in surf:
+            return links
+        if row is not None and "کمکم" not in MARKS_RE.sub("", row[1].translate(CHAR_MAP)):
+            return links                       # only ZWNJ-written کم‌کم: "gradually" (tokens lose the ZWNJ)
+        kam = key_to_id.get(("کمکم", "ADV"))
+        if kam not in links:
+            return links
+        noun, compound, kardan = (key_to_id.get(("کمک", "NOUN")), key_to_id.get(("کمک کردن", "VERB")),
+                                  key_to_id.get(("کردن", "VERB")))
+        help_noun = help_verb = gradual = 0
+        used_kardan = set()
+        for i in range(len(toks)):
+            if surf[i] != "کمکم":
+                continue
+            j = i + 1
+            while j < len(toks) and self.FUTURE_AUX_RE.match(surf[j]):
+                j += 1
+            if j < len(toks) and self.KAMKAM_HELP_RE.match(surf[j]):
+                help_verb += 1                 # کمکم کند, کمکم کن, کمکم نخواهد کرد: کمک کردن
+                used_kardan.add(j)
+            elif i and surf[i - 1] == "به":
+                help_noun += 1                 # به کمکم آمد: the noun کمک
+            else:
+                gradual += 1
+        if not (help_noun or help_verb):
+            return links
+        other_kardan = any(self.KAMKAM_HELP_RE.match(x) for j, x in enumerate(surf) if j not in used_kardan)
+        return self._kamkam_relink(links, kam, noun if help_noun else None, compound if help_verb else None,
+                                   None if other_kardan else kardan, gradual > 0)
+
+    @staticmethod
+    def _kamkam_relink(links, kam, noun, compound, kardan, keep_kam):
+        """links with کم‌کم replaced in place by the help readings (noun, then the
+        کمک کردن compound), کم‌کم kept when a token still reads "gradually", and
+        کردن dropped when the compound took its only token."""
+        out = []
+        for wid in links:
+            if wid == kam:
+                if keep_kam:
+                    out.append(wid)
+                for x in (noun, compound):
+                    if x and x not in out and x not in links:
+                        out.append(x)
+            elif wid == kardan and compound:
+                continue
+            elif wid not in out:
+                out.append(wid)
+        return out
+
     # ---- resolution ----------------------------------------------------------------
     def post_resolve(self, toks, out):
         """Light-verb compounds: a light verb with its noun/adjective up to 3
@@ -1464,6 +1524,20 @@ class Persian(LanguageSpec):
                 continue
             fa, en = line.split("\t")[:2]
             rows.append([GEN_SID_BASE + len(rows), fa.strip(), "", en.strip(), None, None])
+        return rows
+
+    def example_rows(self, env):
+        # tools/generated_examples.tsv: written examples that must not move the
+        # frequency pass (کم‌کم, whose only corpus examples are کمک + م)
+        p = env.repo / "tools" / "generated_examples.tsv"
+        rows = []
+        if not p.exists():
+            return rows
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            fa, en = line.split("\t")[:2]
+            rows.append([EXAMPLE_SID_BASE + len(rows), fa.strip(), "", en.strip(), None, None])
         return rows
 
     def sentence_fields(self, row):

@@ -7,7 +7,7 @@ repo's tools/.
 """
 import re
 
-from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO, drop_all_re
 
 VOWELS = "aeiouáéíóúü"
 STRONG = "aeoáéó"
@@ -54,7 +54,7 @@ SENSITIVE_RE = re.compile(
     + SENSITIVE_EN + r"|die|dies|died|dying|weapons?|guns?|knife|knives|serial killer)\b", re.I)
 
 # removed at every level: rape, sexual and child abuse (violar la ley is kept)
-DROP_ALL_LEVELS_RE = re.compile(
+DROP_ALL_LEVELS_RE = drop_all_re(re.compile(
     r"\b(viol(ar|ó|a|an|ado|ada|ados|adas|aron|aba\w*|ar[áé]\w*|ando|e|en)"
     r"(?! (la|las|el|los|una|un|sus|su|esta|este|nuestr\w+)\s?(ley|leyes|norma\w*|regla\w*|contrato\w*|promesa\w*|"
     r"acuerdo\w*|tratado\w*|derecho\w*|frontera\w*|espacio|secreto\w*|domicilio|intimidad|privacidad|"
@@ -63,7 +63,10 @@ DROP_ALL_LEVELS_RE = re.compile(
     r"frontera\w*|espacio|código\w*|reglamento\w*|privacidad|intimidad))|violador\w*|"
     r"abuso sexual|abusos sexuales|abus(ó|ar|aron|ado|ada) sexualmente|pederast\w*|pedófil\w*|incesto|"
     r"rape[ds]?|raping|rapist\w*|molest(ed|ing|er\w*|ation)|child abuse|sexual(?:ly)? abuse\w*|"
-    r"paedophil\w*|pedophil\w*)\b", re.I)
+    r"paedophil\w*|pedophil\w*|agresi(?:ón|ones) sexual(?:es)?|agredid[oa]s? sexualmente|"
+    # suicide and self-harm (shared English half in base.DROP_ALL_EN); "va a matarme" is a threat, kept
+    r"suicid\w*|quitarse la vida|(?:me|se|te) quit\w* la vida|matarse|se mató|"
+    r"(?:voy a|quiero|quería|quise|intenté|traté de|pensé en) matarme|autolesi\w*)\b", re.I))
 
 # unaccented spellings a frequency list may use for an accented word
 ACCENT_PAIRS = {"si": ["sí"], "el": ["él"], "tu": ["tú"], "mi": ["mí"], "se": ["sé"], "mas": ["más"],

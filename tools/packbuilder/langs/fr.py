@@ -11,7 +11,7 @@ lg 99.7%; word after the subject tagged VERB/AUX: sm 88.8%, lg 96.9%;
 import math
 import re
 
-from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, drop_all_re
 
 LETTERS = "a-zàâäçéèêëîïôöùûüÿœæ"
 VOWELS = "aeiouàâäéèêëîïôöùûüœæ"      # y counts as a consonant for elision (le yaourt)
@@ -371,14 +371,18 @@ class French(LanguageSpec):
         r"tir(er|e|es|ent|é|ez|ons|ait|aient|era\w*) sur|"
         r"(t'es|tu es|vous êtes|il est|t'êtes) (un homme )?mort|te (veux|voudrais) mort|"
         + SENSITIVE_EN + r"|die|dies|died|dying|weapons?|guns?|knife|knives|serial killer)\b", re.I)
-    # removed at every level: rape, sexual/child abuse
-    drop_all_levels = re.compile(
+    # removed at every level: rape, sexual/child abuse, suicide, self-harm
+    drop_all_levels = drop_all_re(re.compile(
         r"\b(viol|viols|viol(er|é|ée|és|ées|ait|aient|ent|eur\w*|era\w*)"
         r"(?! (la|les|une|un|ses|son|sa|leur|leurs|cette|ce|des|nos|vos|l')\s?(loi|lois|règle\w*|contrat\w*|"
         r"promesse\w*|accord\w*|traité\w*|droit\w*|frontière\w*|espace|secret\w*|domicile|intimité|vie privée))|abus sexuels?|abus(é|ée) sexuellement|"
         r"attouchements?|pédophil\w*|inceste|"
-        r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*|paedophil\w*|pedophil\w*)\b",
-        re.I)
+        r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*|paedophil\w*|pedophil\w*|"
+        r"agressions? sexuelles?|"
+        # suicide ("il va me tuer" is a threat, kept to the sensitive tier)
+        r"suicid\w*|se tuer|(?:je vais|je veux|je voulais|j'ai voulu|j'ai essayé de|j'ai pensé à) me tuer|"
+        r"(?:mettre|met|mis|mit|mettra\w*) fin à (?:ses|mes|tes|leurs|nos|vos) jours|automutil\w*)\b",
+        re.I))
     sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)   # vulgar senses never lead
     lower_level_gloss_re = re.compile(r"\b(" + SENSITIVE_EN + r"|die|dies|died|dying|weapons?|guns?)\b", re.I)
     # tokens of these (lemma, group) keys link to the forced entry instead

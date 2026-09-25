@@ -6,7 +6,7 @@ frozen v1 id map live in the italian repo (tools/).
 """
 import re
 
-from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, SENSITIVE_EN, SENSITIVE_GLOSS_EN
+from .base import LanguageSpec, TATOEBA_ENG, TATOEBA_LINKS, TATOEBA_AUDIO, SENSITIVE_EN, SENSITIVE_GLOSS_EN, drop_all_re
 
 # sensitive topics kept out of A1/A2 sentences (Italian text or English
 # translation; cross-pack policy, same tiers as de/es): sexual content, suicide,
@@ -48,13 +48,15 @@ SENSITIVE_RE = re.compile(
 
 # removed at every level: rape, sexual assault and abuse, child abuse (violento/violenta,
 # "violent", stay: only the unambiguous forms of violentare are listed)
-DROP_ALL_LEVELS_RE = re.compile(
+DROP_ALL_LEVELS_RE = drop_all_re(re.compile(
     r"\b(stupr\w*|violentat[oaie]|violentar\w*|violentò|violentarono|violentava\w*|violenter[àò]\w*|"
     r"abus(o|i|at[oaie]|are|ava\w*|ò) sessual\w*|abusat[oaie] sessualmente|molesti[ae] sessual\w*|"
     r"molestat[oaie] sessualmente|pedofil\w*|pederast\w*|incesto|"
     r"(violenz[ae]|aggression[ei]) sessual\w*|sexual(?:ly)? assault\w*|"
     r"rape[ds]?|raping|rapist\w*|molest(ed|ing|ers?|ation)|child abuse|sexual(?:ly)? abuse\w*|"
-    r"paedophil\w*|pedophil\w*)\b", re.I)
+    r"paedophil\w*|pedophil\w*|"
+    # suicide and self-harm (shared English half in base.DROP_ALL_EN)
+    r"suicid\w*|uccider(?:si|mi|ti)|si (?:è|era) uccis[oa]|farla finita(?! con)|togliersi la vita|autolesion\w*)\b", re.I))
 
 VOWELS = "aeiouàèéìíòóùú"
 

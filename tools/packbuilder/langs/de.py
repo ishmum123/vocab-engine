@@ -21,7 +21,7 @@ The A1 core list and gloss overrides live in the german repo's tools/.
 """
 import re
 
-from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO, drop_all_re
 from ..core.lexicon import GROUP_OF
 
 DAYS = "Montag Dienstag Mittwoch Donnerstag Freitag Samstag Sonntag".split()
@@ -75,10 +75,14 @@ SENSITIVE_RE = re.compile(
     + SENSITIVE_EN + r")\b", re.I)
 
 # removed at every level: rape, sexual abuse, child abuse
-DROP_ALL_LEVELS_RE = re.compile(
+DROP_ALL_LEVELS_RE = drop_all_re(re.compile(
     r"\b(vergewaltig\w*|sexuell(e[nmrs]?)? missbrauch\w*|sexuell missbraucht\w*|kindesmissbrauch\w*|"
     r"kinderschänder\w*|pädophil\w*|paedophil\w*|pedophil\w*|"
-    r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*)\b", re.I)
+    r"rape[ds]?|raping|rapist\w*|molest\w*|child abuse|sexual(?:ly)? abuse\w*|"
+    r"sexuell\w* übergriff\w*|missbrauch|"
+    # suicide and self-harm (shared English half in base.DROP_ALL_EN)
+    r"selbstmord\w*|suizid\w*|selbstverletz\w*|(?:sich|mich|dich) (?:\w+ )?umzubringen|(?:sich|mich|dich) umbringen|"
+    r"(?:bring|brach)\w* (?:sich|mich|dich) um(?=\s*[.,!?;]|$)|(?:sich|mir|dir) das leben (?:\w+ )?(?:nehmen|genommen|nahm|nimmt))\b", re.I))
 
 PHRASES = {"auf Wiedersehen": "goodbye", "guten Morgen": "good morning", "guten Tag": "hello, good day",
            "guten Abend": "good evening", "gute Nacht": "good night"}

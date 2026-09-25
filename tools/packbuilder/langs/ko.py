@@ -36,7 +36,7 @@ import math
 import re
 from collections import Counter, defaultdict
 
-from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS
+from .base import LanguageSpec, SENSITIVE_EN, SENSITIVE_GLOSS_EN, TATOEBA_ENG, TATOEBA_AUDIO, DEFAULT_GROUP_KPOS, drop_all_re
 
 # =============================================================================
 # Hangul and the eojeol analyser
@@ -1330,7 +1330,7 @@ class Korean(LanguageSpec):
                  ("드리다", "VERB"): ("주다", "VERB"), ("도와드리다", "VERB"): ("돕다", "VERB")}   # names, 발렌타인 데이
 
     bad_text_re = re.compile(VULGAR_KO)
-    drop_all_levels = re.compile(r"(?:" + DROP_ALL_KO + r")|(?<![A-Za-z])(?:" + DROP_ALL_KO_EN + r")(?![A-Za-z])", re.I)
+    drop_all_levels = drop_all_re(r"(?:" + DROP_ALL_KO + r")|(?<![A-Za-z])(?:" + DROP_ALL_KO_EN + r")(?![A-Za-z])")
     sensitive_re = re.compile(r"(?:" + SENSITIVE_KO + r")|(?<![A-Za-z])(?:" + SENSITIVE_EN + "|" + SENSITIVE_KO_EN +
                               r")(?![A-Za-z])", re.I)
     sensitive_gloss_re = re.compile(r"\b(" + SENSITIVE_GLOSS_EN + r")\b", re.I)
