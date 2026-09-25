@@ -76,7 +76,11 @@ Production drill using Web Speech API `SpeechRecognition` (Chrome/Edge/Safari; F
 Order: (a) live-language follow-ups + Japanese/Korean live with passages,
 (b) merge hsk's post-fork features INTO the engine (section 1 below, minus the
 final switch), (c) Arabic, Hindi, Urdu, (d) switch hsk onto the engine
-submodule as the LAST task (needs explicit user go: hsk is read-only),
+submodule as the LAST task (user 2026-09-25: go ahead without asking IF
+nothing breaks — meaning: hsk branch first, full browser walk incl.
+characters stage + learning-order switch, progress migration proven on a
+real `hsk_pinyin` snapshot by diff, parity list ticked, rollback hash
+recorded; otherwise stop and ask),
 (e) B2 expansion. Progress is kept across the switch: hsk stores it under
 localStorage `hsk_pinyin`, the engine under `vocab_<key>`; the switch ships
 a one-time migration that reads `hsk_pinyin` on first load, remaps word ids
