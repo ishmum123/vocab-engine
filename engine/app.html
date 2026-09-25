@@ -20,16 +20,19 @@
     /* pack.fontFamily, when set, is prepended at boot: --wfont = <pack font>, var(--wbase). */
     --wfont: var(--wbase);
     --safe-b: env(safe-area-inset-bottom, 0px);
+    --t1:#3B6E99;--t2:#3E8B5C;--t3:#9C6B2E;--t4:#B33F3F;--t5:#8A8378;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
       --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+      --t1:#6FA8D8;--t2:#6FC08C;--t3:#D0A059;--t4:#E07A6E;--t5:#A39C8E;
     }
   }
   :root[data-theme="dark"]{
     --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
     --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+    --t1:#6FA8D8;--t2:#6FC08C;--t3:#D0A059;--t4:#E07A6E;--t5:#A39C8E;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--font)}
@@ -173,6 +176,19 @@
   .gloss{position:sticky;top:0;z-index:2;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:6px 0;font-size:15px;text-align:start}
   .gloss .gw{font-size:19px;font-weight:500}
   .gloss .gp,.gloss .ge,.wk .gp,.wk .ge{color:var(--mute)}
+  /* Pronunciation aids (docs/PACK_SCHEMA.md): syllable colours (pack.tones), word taps in
+     sentences (.tk, popover .tokgloss, sentence speaker .ssay), the Sounds Reference card. */
+  .t1{color:var(--t1)} .t2{color:var(--t2)} .t3{color:var(--t3)} .t4{color:var(--t4)} .t5{color:var(--t5)}
+  .sent.tks{cursor:auto}
+  .tk{border-bottom:1px dotted var(--line);cursor:pointer}
+  .tk.on{background:var(--ok-bg);border-bottom-color:var(--ok)}
+  .gloss.tokgloss{position:static;margin:6px 0 2px;font-family:var(--font)}
+  .ssay{width:32px;height:32px;margin:0 0 0 6px;vertical-align:middle;padding:0;display:inline-flex;align-items:center;justify-content:center}
+  .refcard{margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--card)}
+  .refcard summary{cursor:pointer;font-weight:500}
+  .refh{color:var(--mute);font-size:13px;margin:10px 0 4px}
+  .refcells{display:flex;flex-wrap:wrap;gap:6px}
+  .refcells button{min-width:48px;min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:transparent;font-size:16px;color:var(--ink)}
   mark{background:var(--ok-bg);color:inherit;border-radius:4px;padding:0 2px}
   .wk{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:10px 0;border-bottom:1px solid var(--line);font-size:15px;min-height:44px}
   .wk input{width:20px;height:20px;flex:0 0 auto}
@@ -264,7 +280,7 @@ const CHAR_CTX = { units: CHAR_LIST, words: WORDS, byId: WORDS_BY_ID }; // VC.ch
 const LEGACY_MAP = (typeof LEGACY !== "undefined" && LEGACY && typeof LEGACY === "object") ? LEGACY : null;
 const HAS_LEGACY = !!(PACK.legacy && typeof PACK.legacy === "object" && typeof PACK.legacy.key === "string" && PACK.legacy.key) && !!LEGACY_MAP;
 const SENT_INDEX = new Map(SENTENCES.map((s,i)=>[s, i]));
-const TYPING = VC.typingEnabled(PACK);
+const TYPING = VC.typingEnabled(PACK) && !VC.pronTypingOn(PACK); // typing the written word (pack.typing object)
 const levelLabel = lv => VC.levelLabel(PACK, lv);
 document.title = PACK.name;
 // Target-language markup (pack.rtl / langTag / fontFamily / fonts / lineHeight). TA goes on
@@ -460,23 +476,41 @@ const dispWord = e => VC.displayForm(e, CHAR_LIST, prog, PACK);
 const showWrittenBtn = written => `<button type="button" class="showw" data-showw="${escapeHtml(written)}" aria-label="Show written form">show written</button>`;
 // A word's display markup: its written form, or its reading plus the show-written tap
 // (tap false: no tap, for places that are themselves tap targets).
-function wordFormHTML(e, tap){ const d = dispWord(e); return d.isPron ? `${escapeHtml(d.text)}${tap === false ? "" : showWrittenBtn(d.written)}` : escapeHtml(d.text); }
+function wordFormHTML(e, tap){ const d = dispWord(e); return d.isPron ? `${readingHTML(d.text)}${tap === false ? "" : showWrittenBtn(d.written)}` : escapeHtml(d.text); }
 // The pron line beside a word: none when the word is already shown by its reading.
 const pronBeside = e => dispWord(e).isPron ? "" : pronOf(e);
+// ---- pronunciation aids (docs/PACK_SCHEMA.md "Pronunciation aids"); each is off unless the
+// pack sets its field, and then every helper below renders the markup it had before.
+// pack.tones: every displayed reading goes through readingHTML, which wraps each syllable
+// in <span class="t1".."t5"> (VC.toneHTML); off, it is escapeHtml.
+const TONES = VC.tonesOn(PACK);
+const readingHTML = s => TONES ? VC.toneHTML(s) : escapeHtml(s);
+const twReading = s => TONES ? `<bdi${TA}>${VC.toneHTML(s)}</bdi>` : tw(s); // tw() for a reading
+// pack.typing "pron": the production slot types the word's reading (pronTypeItem).
+const PRON_TYPING = VC.pronTypingOn(PACK);
+// Reading of one written character (a single-character unit's reading), for tap spans
+// longer than their word (VC.composeSpanReading). First unit in file order wins.
+const CHAR_READING = new Map();
+CHAR_LIST.forEach(u => { const t = String((u && u.t) || ""); if([...t].length === 1 && !CHAR_READING.has(t)){ const r = VC.unitReading(u, WORDS_BY_ID); if(r) CHAR_READING.set(t, r); } });
+const charReading = c => CHAR_READING.get(c) || "";
+// pack.soundsReference: a Reference card in the Sounds tab built from the lesson rows.
+const SOUNDS_REF = PACK.soundsReference === true && HAS_LESSONS;
 function bigWordHTML(entry){
   const p = pronBeside(entry);
-  return `<div class="big wd"${TA}>${wordFormHTML(entry)}</div>${p ? `<div class="pron">${escapeHtml(p)}</div>` : ""}`;
+  return `<div class="big wd"${TA}>${wordFormHTML(entry)}</div>${p ? `<div class="pron">${readingHTML(p)}</div>` : ""}`;
 }
 // Option label for word-choice items (recall/gap): the word (its reading under
 // pronFirst below mastered), plus its pron when shown and not already the label.
 // byKey maps each option value to its word; written (optional) gives the written label
 // for a value that is not itself the label (recall keys options by word id).
 function wordOptHtml(byKey, written){
-  return o => { const e = byKey[o]; const d = e ? dispWord(e) : null; const p = e ? pronBeside(e) : ""; return `${d && d.isPron ? tw(d.text) : tw(written ? written(o) : o)}${p ? `<span class="op"><bdi>${escapeHtml(p)}</bdi></span>` : ""}`; };
+  return o => { const e = byKey[o]; const d = e ? dispWord(e) : null; const p = e ? pronBeside(e) : ""; return `${d && d.isPron ? twReading(d.text) : tw(written ? written(o) : o)}${p ? `<span class="op"><bdi>${readingHTML(p)}</bdi></span>` : ""}`; };
 }
 
 // ===================== generic drill runner =====================
 // item: {kind:'mc'|'type', label, html, opts?, a?, optHtml?, reveal, onAnswer?, mount?, check?, onReveal?}
+// type items may add: placeholder (input hint), inputTA (input attributes instead of TA),
+// feedback(value) (extra reveal HTML after the answer, e.g. a partial-credit note).
 function drill(items, onDone, summary){ D = { q: shuffle(items.slice()), right:0, seen:0, miss:[], onDone, summary }; dnext(); }
 function setScore(answered, total){
   const left = total ? Math.max(0, total - answered) : 0;
@@ -552,7 +586,7 @@ function renderMcItem(it){
 function renderTypeItem(it){
   const P = $("panel");
   P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${noticeFor(it)}${it.html||""}
-    <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"${TA} placeholder="${SCRIPT.rtl ? "type the word" : "type the word…"}">
+    <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"${it.inputTA !== undefined ? it.inputTA : TA} placeholder="${escapeHtml(it.placeholder || (SCRIPT.rtl ? "type the word" : "type the word…"))}">
     <div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="submit">Check</button><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
   const input = $("tin"); input.focus();
@@ -563,7 +597,7 @@ function renderTypeItem(it){
     const ok = it.check(input.value);
     D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
     if(it.onAnswer) it.onAnswer(ok);
-    showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.reveal||""));
+    showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.feedback ? it.feedback(input.value) : "") + (it.reveal||""));
     if(it.onReveal) it.onReveal();
     $("nx").style.display = "block"; setScore(D.seen, D.seen + D.q.length);
   }
@@ -581,20 +615,55 @@ function renderTypeItem(it){
 // A key on a show-written button (pack.pronFirst) is the button's own (Enter/Space reveal
 // the written form); it never reaches the drill's shortcuts (Enter = Next, 1-4 = answer).
 const onShowWritten = e => !!(e && e.target && e.target.closest && e.target.closest("[data-showw]"));
-document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e)) drillKeyHandler(e); });
+document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e) && !onTok(e)) drillKeyHandler(e); });
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
+// ---- word taps inside sentences (any pack whose sentences carry ruby, or pronFirst
+// passages): a sentence token wrapped by tokTapHTML is a tap target (data-tok = word id;
+// data-ts/data-tr = a phrase span's surface and reading, tokHead). A tap shows the word's
+// popover (glossHTML, the Read-tab one) inside the nearest data-tokbox and speaks the word
+// only; the whole sentence is heard from its speaker button (sentSayHTML). No progress
+// effect. Never used inside answer buttons.
+function tokTapHTML(wordId, inner, head){
+  const h = head ? ` data-ts="${escapeHtml(head.surface)}" data-tr="${escapeHtml(head.reading)}"` : "";
+  return `<span class="tk" data-tok="${escapeHtml(wordId)}"${h} role="button" tabindex="0">${inner}</span>`;
+}
+const sentSayHTML = s => canHearSentence(s) ? `<button type="button" class="replay ssay" data-sent="${SENT_INDEX.get(s)}" aria-label="Hear the sentence">${TEACH_PLAY_SVG}</button>` : "";
+const tokHeadOf = t => t.dataset.ts !== undefined ? { surface: t.dataset.ts, reading: t.dataset.tr || "" } : null;
+function tokTap(t){
+  const w = WORDS_BY_ID[t.dataset.tok]; if(!w) return;
+  const head = tokHeadOf(t);
+  const html = glossHTML(w.id, "", head);
+  const box = t.closest("[data-tokbox]");
+  if(box){
+    box.querySelectorAll(".tk.on").forEach(x => x.classList.remove("on"));
+    t.classList.add("on");
+    let g = box.querySelector(".tokgloss");
+    if(!g){ g = document.createElement("div"); g.className = "gloss tokgloss"; if(SCRIPT.rtl) g.setAttribute("dir", "rtl"); box.appendChild(g); }
+    g.innerHTML = html; g.hidden = false;
+  }
+  announce(html);
+  say(head ? head.surface : w.w);
+}
+const onTok = e => !!(e && e.target && e.target.closest && e.target.closest("[data-tok]"));
+
 // Tap-to-hear for markup anywhere in #panel: data-sent (a SENTENCES index) speaks that
-// sentence, data-wid (a word id) speaks that word. INVARIANT: this is the only listener
+// sentence, data-wid (a word id) speaks that word, data-tok (tokTap) shows a word's popover. INVARIANT: this is the only listener
 // for these attributes and it is attached exactly once, here, at load. #panel is
 // persistent (screens replace its innerHTML), so attaching per render/reveal/drill-end
 // would accumulate one more listener each time (N taps -> N sounds). Render code just
 // emits the attributes and never wires them.
 $("panel").addEventListener("click", e => {
-  const t = e.target.closest("[data-sent],[data-wid]");
+  const t = e.target.closest("[data-tok],[data-sent],[data-wid]");
   if(!t) return;
+  if(t.dataset.tok !== undefined){ tokTap(t); return; }
   if(t.dataset.wid !== undefined){ const w = WORDS_BY_ID[t.dataset.wid]; if(w) say(w.w); return; }
   const s = SENTENCES[+t.dataset.sent]; if(s) saySentence(s);
+});
+// Keyboard for word taps (role=button): Enter/Space. Attached once, here, like the above.
+$("panel").addEventListener("keydown", e => {
+  const t = e.target && e.target.closest ? e.target.closest("[data-tok]") : null;
+  if(t && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); tokTap(t); }
 });
 
 // pack.pronFirst "show written form" tap: capture phase, so it runs before (and stops) the
@@ -634,13 +703,14 @@ function sentenceRuby(s){
 // .hasruby ruby.bare rt), so a token's width never changes across tiers and a line
 // wraps the same whether its tokens show their reading or not.
 const rubyTokHTML = (base, k) => k.tier === "bare"
-  ? `<ruby class="bare">${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`
-  : `<ruby>${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`;
+  ? `<ruby class="bare">${base}<rt>${readingHTML(k.reading)}</rt></ruby>`
+  : `<ruby>${base}<rt>${readingHTML(k.reading)}</rt></ruby>`;
 // Sentence text with ruby tokens (rubyTokHTML): below the bare tier with its reading shown,
 // at or above it hidden. entry (optional): the taught word, bolded as in
 // highlightHTML (a ruby token overlapping it is bolded whole). Offsets are UTF-16, as
 // JS string indices; a malformed token (overlapping, out of range) renders as plain text.
-function rubyTextHTML(s, toks, entry){
+// taps (optional): each token with a known word becomes a word tap (tokTapHTML).
+function rubyTextHTML(s, toks, entry, taps){
   const t = String(s.t || ""); const hits = [];
   if(entry){ let o = 0; VC.highlightParts(s, entry, WORDS_BY_ID, PACK).forEach(x => { if(x.hit) hits.push([o, o + x.text.length]); o += x.text.length; }); }
   const inHit = (a, b) => hits.some(([h0, h1]) => a < h1 && b > h0);
@@ -656,7 +726,7 @@ function rubyTextHTML(s, toks, entry){
     if(!(k.start >= pos && k.end > k.start && k.end <= t.length)) return;
     out += plain(pos, k.start);
     const base = escapeHtml(t.slice(k.start, k.end));
-    const h = rubyTokHTML(base, k);
+    const h = taps ? tokTapHTML(k.wordId, rubyTokHTML(base, k)) : rubyTokHTML(base, k);
     out += inHit(k.start, k.end) ? `<b>${h}</b>` : h;
     pos = k.end;
   });
@@ -669,38 +739,45 @@ function rubyTextHTML(s, toks, entry){
 // (ruby/bare, bare when pron is hidden), the taught word (entry) bolded, blank as ____;
 // written = the written sentence for the show-written tap (false: nothing hidden).
 // written (optional word ids): their tokens show written with ruby (VC.sentenceDisplay).
-function pfSentence(s, entry, blank, written){
+// taps (optional): each token with a known word becomes a word tap (tokTapHTML); the
+// result's `taps` says whether any was made.
+function pfSentence(s, entry, blank, written, taps){
   if(!PRON_FIRST) return null;
   const d = VC.sentenceDisplay(s, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog), blank, written);
   if(d === null) return blank ? false : null;
   if(d.mode === "text") return null;
-  if(d.mode === "pron") return { html: escapeHtml(d.text), ruby: false, written: String(s.t || "") };
+  if(d.mode === "pron") return { html: readingHTML(d.text), ruby: false, written: String(s.t || ""), taps: false };
   const hits = [];
   if(entry){ let o = 0; VC.highlightParts(s, entry, WORDS_BY_ID, PACK).forEach(x => { if(x.hit) hits.push([o, o + x.text.length]); o += x.text.length; }); }
   const inHit = (a, b) => hits.some(([h0, h1]) => a < h1 && b > h0);
-  let ruby = false, anyPron = false, bl = null;
+  let ruby = false, anyPron = false, bl = null, tapped = false;
   const html = d.pieces.map(p => {
     let h;
     if(p.kind === "blank"){ bl = p; h = `<span class="blank">____</span>`; }
     else if(p.kind === "text") h = escapeHtml(p.text);
-    else if(p.tier === "pron"){ anyPron = true; h = escapeHtml(p.text); }
+    else if(p.tier === "pron"){ anyPron = true; h = readingHTML(p.text); }
     else { ruby = true; h = rubyTokHTML(escapeHtml(p.text), showPron() ? p : Object.assign({}, p, { tier:"bare" })); }
+    if(taps && p.kind === "tok" && WORDS_BY_ID[p.wordId]){ tapped = true; h = tokTapHTML(p.wordId, h); }
     if(p.kind !== "blank" && inHit(p.start, p.end)) h = `<b>${h}</b>`;
     return escapeHtml(p.pre) + h;
   }).join("");
   const t = String(s.t || "");
-  return { html, ruby, written: anyPron ? (bl ? t.slice(0, bl.start) + "____" + t.slice(bl.end) : t) : false };
+  return { html, ruby, written: anyPron ? (bl ? t.slice(0, bl.start) + "____" + t.slice(bl.end) : t) : false, taps: tapped };
 }
 const pfWrittenTap = pf => pf.written ? showWrittenBtn(pf.written) : "";
 // entry (optional): the taught word, highlighted in the sentence. written (optional
 // word ids, pronFirst only): tokens shown written with ruby (a unit's teach card).
+// A sentence whose tokens are word taps (tokTapHTML) is itself not a tap target: it is
+// heard from its own speaker button (sentSayHTML) and is a data-tokbox for the popover.
 function sentenceRowHTML(s, entry, written){
-  const pf = pfSentence(s, entry, null, written);
+  const pf = pfSentence(s, entry, null, written, true);
+  if(pf && pf.taps) return `<div class="sent tks" data-tokbox><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${sentSayHTML(s)}${pfWrittenTap(pf)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   if(pf) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   const rt = sentenceRuby(s);
+  if(rt && rt.some(k => WORDS_BY_ID[k.wordId])) return `<div class="sent tks" data-tokbox><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry, true)}${sentSayHTML(s)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   if(rt) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   const p = pronOf(s);
-  return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st"${TA}>${entry ? highlightHTML(s, entry) : escapeHtml(s.t)}</div>${p ? `<div class="sp">${escapeHtml(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
+  return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st"${TA}>${entry ? highlightHTML(s, entry) : escapeHtml(s.t)}</div>${p ? `<div class="sp">${readingHTML(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
 }
 function exampleSentencesHTML(entry){
   const ex = wordExampleSentences(entry, 2);
@@ -710,7 +787,7 @@ function exampleSentencesHTML(entry){
 function revealBlock(entry){
   const p = pronBeside(entry);
   const icon = hasSpeech ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${hasSpeech ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${wordFormHTML(entry)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
+  return `<div${hasSpeech ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${wordFormHTML(entry)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
 }
 const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
 // hear — TTS plays the word; pick the meaning. Without speech it degrades to read.
@@ -748,7 +825,23 @@ function typeItem(entry){
     check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
 }
-const WORD_ITEM = { hear: hearItem, read: readItem, recall: recallItem, type: e => TYPING ? typeItem(e) : recallItem(e) };
+// typePron — pack.typing "pron": meaning shown (plus a replay button for the word's
+// audio); type its reading. Accepted: tone marks or numbers (VC.checkPronTyped: neutral as
+// 5, 0 or nothing; case, spaces and apostrophes ignored). The right letters without any
+// tone count as wrong, with a "tones missing" note giving the marked form. This is the
+// word's production slot (kindMix "type"), the same slot recall fills: the reading is
+// never drilled on its own. A word with no pron gets recall instead.
+function pronTypeItem(entry){
+  const hear = hasSpeech;
+  return { kind:"type", key:"w:"+entry.id, label:"Type the reading (tone marks or numbers)",
+    html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
+    placeholder: "tone marks or numbers…", inputTA: "",
+    mount: () => { if(hear){ const b = $("rp2"); b.onclick = () => speak(entry.w, b); } },
+    check: val => VC.checkPronTyped(val, entry.pron) === "ok",
+    feedback: val => VC.checkPronTyped(val, entry.pron) === "tones" ? `<div class="diff">tones missing: <span class="tpron">${readingHTML(entry.pron)}</span></div>` : "",
+    reveal: revealBlock(entry), onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
+}
+const WORD_ITEM = { hear: hearItem, read: readItem, recall: recallItem, type: e => PRON_TYPING && e.pron ? pronTypeItem(e) : TYPING ? typeItem(e) : recallItem(e) };
 const itemFromPlan = p => WORD_ITEM[p.kind](p.word);
 // One card per missed word/sentence (items carry `key`), however many question types
 // it was missed as; the most-missed first, with a count when missed more than once.
@@ -759,17 +852,19 @@ function missSummary(miss){
 
 // ===================== sentence drill items =====================
 function sentenceRevealBlock(s){
-  const pf = pfSentence(s);
+  const pf = pfSentence(s, null, null, null, true);
+  if(pf && pf.taps) return `<div data-tokbox><div class="rw${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${sentSayHTML(s)}${pfWrittenTap(pf)}</div><div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
   if(pf){
     const canHear = canHearSentence(s);
     const icon = canHear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
     return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${icon}${pfWrittenTap(pf)}</div><div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
   }
   const rt = sentenceRuby(s);
+  if(rt && rt.some(k => WORDS_BY_ID[k.wordId])) return `<div data-tokbox><div class="rw hasruby"${TA}>${rubyTextHTML(s, rt, null, true)}${sentSayHTML(s)}</div><div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
   const p = rt ? "" : pronOf(s);
   const canHear = canHearSentence(s);
   const icon = canHear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
 }
 const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
 function readSentence(s){
@@ -778,7 +873,7 @@ function readSentence(s){
   const p = rt || pf ? "" : pronOf(s);
   return { kind:"mc", key:"s:"+s.id, label:"What does it mean?", optsClass:"opts-hero",
     html: pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div>`
-      : `<div class="med wd${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
+      : `<div class="med wd${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}</div>${p ? `<div class="q">${readingHTML(p)}</div>` : ""}`,
     opts: sentenceChoices(s), a: s.en, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
     mount: () => saySentence(s), };
 }
@@ -832,7 +927,7 @@ const sayUnit = (it, btn) => { const w = WORDS_BY_ID[it.wordId]; speak(w ? w.w :
 function charRevealBlock(it){
   const tap = hasSpeech && WORDS_BY_ID[it.wordId];
   const icon = tap ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${tap ? ` data-wid="${escapeHtml(it.wordId)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(it.t)}${icon}</div>${it.reading ? `<div class="rp">${escapeHtml(it.reading)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(it.gloss)}</div></div>`;
+  return `<div${tap ? ` data-wid="${escapeHtml(it.wordId)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(it.t)}${icon}</div>${it.reading ? `<div class="rp">${readingHTML(it.reading)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(it.gloss)}</div></div>`;
 }
 function charDrillItem(kind, unit){
   const it = VC.charItem(kind, unit, CHAR_CTX);
@@ -841,11 +936,11 @@ function charDrillItem(kind, unit){
   const form = `<div class="big wd"${TA}>${escapeHtml(it.t)}</div>`;
   const formOpts = { optsClass:"opts-hero opts-w", optHtml: o => tw(o), optsT: true };
   if(kind === "charRead") return Object.assign(base, { label:"What does it mean?", optsClass:"opts-hero", html: form });
-  if(kind === "charSound") return Object.assign(base, { label:"How is it said?", optsClass:"opts-hero", html: form, optHtml: o => `<bdi>${escapeHtml(o)}</bdi>` });
+  if(kind === "charSound") return Object.assign(base, { label:"How is it said?", optsClass:"opts-hero", html: form, optHtml: o => `<bdi>${readingHTML(o)}</bdi>` });
   if(kind === "charPick"){
     const hear = it.audio && hasSpeech;
     return Object.assign(base, formOpts, { label:"How is it written?",
-      html: `${hear ? `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : ""}<div class="med" style="text-align:center">${escapeHtml(it.reading)}</div>`,
+      html: `${hear ? `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : ""}<div class="med" style="text-align:center">${readingHTML(it.reading)}</div>`,
       mount: () => { if(!hear) return; const btn = $("sp"); sayUnit(it, btn); btn.onclick = () => sayUnit(it, btn); },
       onReveal: null });
   }
@@ -1038,7 +1133,7 @@ function wordRowHTML(w, cls){
   // shrink to width:0 next to the gloss (that caused unbreakable transliterations
   // like "budan" to overlap the gloss text when the gloss was long).
   const p = pronBeside(w);
-  return `<span class="wd${dispWord(w).isPron ? " pf" : ""}"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
+  return `<span class="wd${dispWord(w).isPron ? " pf" : ""}"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${readingHTML(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
 }
 function vocabTeach(list, lv, onDrill){
   setScore(0,0);
@@ -1073,7 +1168,7 @@ function charTeach(cs, stage, onDrill){
     const w = VC.unitWord(u, WORDS_BY_ID), reading = VC.unitReading(u, WORDS_BY_ID);
     const tap = hasSpeech && w;
     const ex = w ? wordExampleSentences(w, 1) : [];
-    return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${escapeHtml(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w, u.words)).join("")}</div>`;
+    return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${readingHTML(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w, u.words)).join("")}</div>`;
   }).join("");
   P.innerHTML = `<p class="q">${tw(stage.label)}, set ${cs.index+1} of ${cs.total}: the written form of words you already know.${hint}</p>
     <div id="ctl">${cards}</div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
@@ -1091,7 +1186,7 @@ function lessonTeach(lesson, onDone, onBack){
   (lesson.cards||[]).forEach(c => {
     const el = document.createElement("div"); el.className = "card-teach";
     el.innerHTML = `<h3>${escapeHtml(c.h)}</h3><p>${c.body}</p>
-      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset">${r.map((cell,i)=>`<span class="${["pr","wd","en"][i]||"en"}"${i===1 ? TA : ""}>${escapeHtml(cell)}</span>`).join("")}</div>`).join("")}</div>` : ""}
+      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset">${r.map((cell,i)=>`<span class="${["pr","wd","en"][i]||"en"}"${i===1 ? TA : ""}>${i === 0 ? readingHTML(cell) : escapeHtml(cell)}</span>`).join("")}</div>`).join("")}</div>` : ""}
       ${c.say ? `<div class="taplist">${c.say.map((s,i)=>`<button data-s="${i}">▶ ${tw(s)}</button>`).join("")}</div>` : ""}`;
     if(c.say) el.querySelectorAll("[data-s]").forEach((b,i)=>b.onclick=()=>say(c.say[i]));
     cw.appendChild(el);
@@ -1122,8 +1217,31 @@ function soundsRender(){
   }
   const done = LESSON_LIST.filter(l=>prog.lessons[l.id]).length;
   P.innerHTML = `<p class="q">Optional: how ${escapeHtml(PACK.name)} sounds and is written. ${LESSON_LIST.length} lessons, ${done} done.</p>
-    <div class="plist">${LESSON_LIST.map((l,i)=>`<button data-i="${i}"><span>${escapeHtml(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>`;
+    <div class="plist">${LESSON_LIST.map((l,i)=>`<button data-i="${i}"><span>${escapeHtml(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>${SOUNDS_REF ? soundsRefHTML() : ""}`;
   P.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ soundsSel = +b.dataset.i; soundsRender(); });
+  if(SOUNDS_REF) P.querySelectorAll("[data-rs]").forEach(b=>b.onclick=()=>speak(b.dataset.rs, b));
+}
+// pack.soundsReference: every one-character example row of the lessons (row[0] its
+// reading, card.say[i] its text), grouped by lesson, first occurrence of each reading
+// only. The lessons already teach every sound, so the reference is built from them.
+function soundsRefGroups(){
+  const seen = new Set(), groups = [];
+  LESSON_LIST.forEach(l => {
+    const cells = [];
+    (l.cards || []).forEach(c => (c.rows || []).forEach((r, i) => {
+      const say = c.say && c.say[i], label = Array.isArray(r) ? r[0] : null;
+      if(typeof say !== "string" || typeof label !== "string" || !label || [...say].length !== 1 || seen.has(label)) return;
+      seen.add(label); cells.push({ label, say });
+    }));
+    if(cells.length) groups.push({ title: l.title, cells });
+  });
+  return groups;
+}
+// Compact and collapsed: a <details> card below the lesson list. Tap a cell to hear it.
+function soundsRefHTML(){
+  const groups = soundsRefGroups();
+  if(!groups.length) return "";
+  return `<details class="refcard"><summary>Reference: every sound in the lessons</summary>${hasSpeech ? `<p class="q">Tap a sound to hear it.</p>` : ""}${groups.map(g => `<div class="refh">${escapeHtml(g.title)}</div><div class="refcells">${g.cells.map(c => `<button type="button" data-rs="${escapeHtml(c.say)}" aria-label="${escapeHtml(c.label)}">${readingHTML(c.label)}</button>`).join("")}</div>`).join("")}</details>`;
 }
 
 // ===================== Words =====================
@@ -1227,7 +1345,7 @@ function startPassage(p){
 // tokens (passageRubyHTML); the line box is the fixed tall one, so no line jumps.
 function passageSentenceHTML(s, si, hi){
   const seg = VC.passageSegments(s, WORDS_BY_ID, PACK);
-  const pf = pfPassage(s, seg, true);
+  const pf = pfPassage(s, seg, "pw");
   if(pf){
     const chips = seg.unplaced.length ? `<div class="pchips">${seg.unplaced.map(id => `<span class="pw pchip" data-pw="${escapeHtml(id)}" role="button" tabindex="0"${TA}>${wordFormHTML(WORDS_BY_ID[id], false)}</span>`).join("")}</div>` : "";
     const aloud = canHearSentence(s) ? `<button class="replay psay" data-say="${si}" aria-label="Read sentence aloud">${TEACH_PLAY_SVG}</button>` : "";
@@ -1258,13 +1376,19 @@ function passageRubyHTML(t, toks, a, b){
 // pack.pronFirst passage sentence (null when off): its tap segments (VC.passageSegments)
 // rendered by the same rule as sentences. With `ruby` the tokens follow their tiers
 // (VC.rubyTiers); without it each linked word is one token, its reading while its unit
-// is below mastered (displayForm), else its written form. Text outside every token (a
-// name with no word) stays as written: there is no reading for it. taps: wrap linked
-// words as data-pw tap spans (false: plain, for question reveals and results).
+// is below mastered (displayForm), else its written form. A span longer than its word
+// (这个 for 这, 越来越 for 越) reads as VC.composeSpanReading: the word's pron where its
+// written form occurs, each other character's single-character unit reading, and a
+// character with no reading stays written, so no character is ever dropped. Text outside
+// every token (a name with no word) stays as written: there is no reading for it.
+// taps: "pw" wraps linked words as data-pw tap spans (the Read screen, logged as
+// tapped), "tok" as word taps (tokTapHTML: question reveals and results, no log), false
+// plain. A phrase span (spanHead) carries its surface and reading for the popover.
 function pfPassage(s, seg, taps){
   if(!PRON_FIRST) return null;
   const t = String(s.t || "");
-  let toks = sentenceRuby(s);
+  const rt = sentenceRuby(s);
+  let toks = rt;
   const cuts = []; let at = 0;
   seg.parts.forEach(x => { cuts.push(at); at += x.text.length; });
   if(!toks){
@@ -1273,14 +1397,15 @@ function pfPassage(s, seg, taps){
       const a = at; at += x.text.length;
       const w = x.id ? WORDS_BY_ID[x.id] : null; if(!w) return;
       const d = dispWord(w);
-      toks.push({ start: a, end: at, tier: d.isPron ? "pron" : "plain", reading: w.pron || "", wordId: w.id });
+      if(!d.isPron || x.text === w.w){ toks.push({ start: a, end: at, tier: d.isPron ? "pron" : "plain", reading: w.pron || "", wordId: w.id }); return; }
+      VC.composeSpanReading(x.text, w, charReading, PACK).forEach(q => { if(q.reading) toks.push({ start: a + q.start, end: a + q.end, tier: "pron", reading: q.reading, wordId: w.id }); });
     });
   }
   const pieces = VC.sentencePieces(s, toks, null, cuts);
   let ruby = false;
   const pieceHTML = p => {
     if(p.kind === "tok" && (p.tier === "ruby" || p.tier === "bare")){ ruby = true; return rubyTokHTML(escapeHtml(p.text), showPron() ? p : Object.assign({}, p, { tier:"bare" })); }
-    return escapeHtml(p.text);
+    return p.kind === "tok" && p.tier === "pron" ? readingHTML(p.text) : escapeHtml(p.text);
   };
   let html = ""; at = 0;
   seg.parts.forEach(x => {
@@ -1288,16 +1413,38 @@ function pfPassage(s, seg, taps){
     const mine = pieces.filter(p => p.start >= a && p.start < at);
     if(!mine.length) return;
     const inner = mine.map((p, i) => (i ? escapeHtml(p.pre) : "") + pieceHTML(p)).join("");
-    html += escapeHtml(mine[0].pre) + (x.id && taps ? `<span class="pw" data-pw="${escapeHtml(x.id)}"${x.gloss ? ` data-pg="${escapeHtml(x.gloss)}"` : ""} role="button" tabindex="0">${inner}</span>` : inner);
+    const w = x.id ? WORDS_BY_ID[x.id] : null;
+    const head = w && taps ? spanHead(x.text, w, rt, a) : null;
+    const hd = head ? ` data-ts="${escapeHtml(head.surface)}" data-tr="${escapeHtml(head.reading)}"` : "";
+    html += escapeHtml(mine[0].pre) + (w && taps === "pw" ? `<span class="pw" data-pw="${escapeHtml(x.id)}"${x.gloss ? ` data-pg="${escapeHtml(x.gloss)}"` : ""}${hd} role="button" tabindex="0">${inner}</span>`
+      : w && taps === "tok" ? tokTapHTML(w.id, inner, head) : inner);
   });
   return { html, ruby };
 }
-// A passage sentence as plain display text (question reveal, results): pronFirst by
-// pfPassage without taps, else the written text.
+// Popover head of a phrase span (pronFirst): a span whose text contains its word's written
+// form and more (越来越 for 越, 一下 for 下) is shown in the popover as the tapped surface
+// with its reading: from the sentence's ruby tokens inside it when it has ruby (a
+// character outside every token stays written), else VC.spanReadingText. null for any
+// other span (the word's own headword). rt: the sentence's ruby tiers or null; a: the
+// span's offset in the sentence.
+function spanHead(text, w, rt, a){
+  const ww = String(w.w || "");
+  if(!ww || text === ww || text.indexOf(ww) < 0) return null;
+  if(!rt) return { surface: text, reading: VC.spanReadingText(text, w, charReading, PACK) };
+  let r = "", pos = 0;
+  rt.filter(k => k.start >= a && k.end <= a + text.length).forEach(k => {
+    if(k.start - a > pos) r += text.slice(pos, k.start - a);
+    r = VC.joinReadings(r, String(k.reading || ""), PACK); pos = k.end - a;
+  });
+  return { surface: text, reading: r + text.slice(pos) };
+}
+// A passage sentence as display text (question reveal, results): pronFirst by pfPassage
+// with word taps (tokTapHTML; the caller's container is a data-tokbox), else the written text.
 function passagePlainHTML(s){
-  const pf = PRON_FIRST ? pfPassage(s, VC.passageSegments(s, WORDS_BY_ID, PACK), false) : null;
+  const pf = PRON_FIRST ? pfPassage(s, VC.passageSegments(s, WORDS_BY_ID, PACK), "tok") : null;
   return pf ? pf.html : escapeHtml(s.t);
 }
+const TOKBOX = PRON_FIRST ? " data-tokbox" : ""; // passage reveals hold word taps (passagePlainHTML)
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
 // RTL packs: the popover runs right-to-left (tapped word at the right edge, then pron and
 // gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
@@ -1305,11 +1452,21 @@ const LTR = SCRIPT.rtl ? ' dir="ltr"' : "";
 const glossBox = () => `<div class="gloss" id="gloss"${SCRIPT.rtl ? ' dir="rtl"' : ""} hidden></div>`;
 // spanGloss: the tapped span's display-only gloss (spans[i][3], carried as data-pg on
 // the tap span), shown instead of the word's gloss; without one the word's own gloss.
-function glossHTML(id, spanGloss){
+// head (optional {surface, reading}, pronFirst phrase spans, spanHead): the headword is the
+// tapped surface (越来越), shown as its reading while the word is shown by its reading
+// (with the show-written tap), else written with the reading beside it.
+function glossHTML(id, spanGloss, head){
   const w = WORDS_BY_ID[id]; if(!w) return "";
-  const p = pronBeside(w);
   const g = spanGloss ? String(spanGloss).replace(/\s+/g, " ").trim() : "";
-  return `<span class="gw"${TA}>${wordFormHTML(w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(g || VC.gloss(w))}</span>`;
+  const ge = ` <span class="ge"${LTR}>${escapeHtml(g || VC.gloss(w))}</span>`;
+  if(head){
+    const r = head.reading || "";
+    if(dispWord(w).isPron && r) return `<span class="gw"${TA}>${readingHTML(r)}${showWrittenBtn(head.surface)}</span>${ge}`;
+    const hp = r && showPron() ? r : "";
+    return `<span class="gw"${TA}>${escapeHtml(head.surface)}</span>${hp ? ` <span class="gp"${LTR}>${readingHTML(hp)}</span>` : ""}${ge}`;
+  }
+  const p = pronBeside(w);
+  return `<span class="gw"${TA}>${wordFormHTML(w)}</span>${p ? ` <span class="gp"${LTR}>${readingHTML(p)}</span>` : ""}${ge}`;
 }
 // Wires tap-to-gloss and read-aloud on a freshly rendered passage container (its
 // innerHTML is replaced on every render, so listeners never accumulate).
@@ -1323,8 +1480,9 @@ function wirePassage(box, glossEl){
     // list shows the gloss the learner actually looked at.
     const g = t.dataset.pg || "";
     if(RD && RD.glosses){ if(g) RD.glosses[id] = g; else delete RD.glosses[id]; }
-    if(glossEl){ glossEl.innerHTML = glossHTML(id, g); glossEl.hidden = false; }
-    announce(glossHTML(id, g));
+    const head = tokHeadOf(t);
+    if(glossEl){ glossEl.innerHTML = glossHTML(id, g, head); glossEl.hidden = false; }
+    announce(glossHTML(id, g, head));
   };
   box.addEventListener("click", e => {
     const w = e.target.closest("[data-pw]"); if(w){ tap(w); return; }
@@ -1382,7 +1540,7 @@ function readQuestionScreen(){
       [...box.children].forEach(x => { x.disabled = true; if(x.dataset.v === String(q.answer)) x.classList.add("ok"); });
       if(!rec.ok) b.classList.add("bad");
       const s = p.sentences[q.sentence];
-      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${escapeHtml(s.en)}</div></div>`);
+      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"${TOKBOX}><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${escapeHtml(s.en)}</div></div>`);
       const hs = $("pbox").querySelector(`[data-si="${q.sentence}"]`); if(hs) hs.classList.add("hi");
       $("nx").style.display = "block"; setScore(qi+1, p.questions.length);
     };
@@ -1412,7 +1570,7 @@ function readResults(){
   P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
     <p class="q"${TA} style="margin-bottom:8px">${escapeHtml(p.title)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
-      return `<div class="stmt"><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${escapeHtml(q.q)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
+      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${escapeHtml(q.q)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
     ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${SCRIPT.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
     <div id="addmsg" class="q" hidden></div>
