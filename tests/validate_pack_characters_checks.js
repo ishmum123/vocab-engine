@@ -46,7 +46,7 @@ function basePack(extra){
 function baseCharUnits(words, extra){
   return [
     Object.assign({ id: "c0001", t: "字A", words: [words[0].id], lv: "1" }, {}),
-    Object.assign({ id: "c0002", t: "字B", words: [words[1].id], lv: "2" }, {}),
+    Object.assign({ id: "c0002", t: "字B", words: [words[13].id], lv: "2" }, {}),
   ].map((u, i) => Object.assign(u, (extra || [])[i] || {}));
 }
 function baseCharacters(){
@@ -150,13 +150,13 @@ console.log("Checking tools/validate_pack.py characters/legacy/ruby cases (Node 
 (function(){
   const words = baseWords();
   const pack = basePack({ characters: baseCharacters() });
-  const sentences = (ruby) => [{ id: "s0001", t: "AB", en: "ab", lv: "1", words: [words[0].id, words[1].id], ruby }];
-  const units = baseCharUnits(words); // words[0].id and words[1].id are words[0] of a unit each
+  const sentences = (ruby) => [{ id: "s0001", t: "AB", en: "ab", lv: "1", words: [words[0].id, words[13].id], ruby }];
+  const units = baseCharUnits(words); // words[0].id and words[13].id are words[0] of a unit each
 
   const cases = [
     ["out of range end", [[0, 5, "r", words[0].id]]],
     ["start >= end", [[1, 1, "r", words[0].id]]],
-    ["overlapping ruby tuples", [[0, 2, "r1", words[0].id], [1, 2, "r2", words[1].id]]],
+    ["overlapping ruby tuples", [[0, 2, "r1", words[0].id], [1, 2, "r2", words[13].id]]],
     ["ruby wordId not in sentence.words", [[0, 1, "r", "w1_99"]]],
     ["ruby wordId not words[0] of any unit", [[0, 1, "r", "w1_5"]]],
     ["ruby entry missing reading", [[0, 1, "", words[0].id]]],
@@ -169,7 +169,7 @@ console.log("Checking tools/validate_pack.py characters/legacy/ruby cases (Node 
   }
 
   // valid ruby, sorted and non-overlapping, both point at real unit words[0]s
-  const dirOk = mkPack({ pack, words, sentences: sentences([[0, 1, "r1", words[0].id], [1, 2, "r2", words[1].id]]) });
+  const dirOk = mkPack({ pack, words, sentences: sentences([[0, 1, "r1", words[0].id], [1, 2, "r2", words[13].id]]) });
   fs.writeFileSync(path.join(dirOk, "characters.json"), JSON.stringify(units));
   const rOk = runValidate(dirOk);
   check("accepts: valid, sorted, non-overlapping ruby", rOk.status === 0, rOk.out);
@@ -245,6 +245,85 @@ console.log("Checking tools/validate_pack.py characters/legacy/ruby cases (Node 
 
   // Real packs/zh (no characters.json) still builds identically either way: covered by
   // tests/engine_checks.js's [0] stale-build guard against dist/zh.html.
+})();
+
+// ------------------------------------------------------------ B8: stage levels vs after, unit lv vs words[0]
+(function(){
+  const words = baseWords();
+  // A stage covering a level taught after its own position: levels ["1","2"] after "1".
+  const late = Object.assign(baseCharacters(), { stages: [{ after: "1", levels: ["1", "2"] }] });
+  const d1 = mkPack({ pack: basePack({ characters: late }), words });
+  fs.writeFileSync(path.join(d1, "characters.json"), JSON.stringify(baseCharUnits(words)));
+  const r1 = runValidate(d1);
+  check("rejects: stage.levels entry after stage.after in pack.levels order", r1.status !== 0 && /after the stage's own position/.test(r1.out), r1.out);
+  // Same levels, stage at the later level: fine.
+  const ok = Object.assign(baseCharacters(), { stages: [{ after: "2", levels: ["1", "2"] }] });
+  const d2 = mkPack({ pack: basePack({ characters: ok }), words });
+  fs.writeFileSync(path.join(d2, "characters.json"), JSON.stringify(baseCharUnits(words)));
+  const r2 = runValidate(d2);
+  check("accepts: stage.levels all at or before stage.after", r2.status === 0, r2.out);
+  // unit.lv differs from its words[0]'s level (both covered by a stage).
+  const d3 = mkPack({ pack: basePack({ characters: baseCharacters() }), words });
+  fs.writeFileSync(path.join(d3, "characters.json"), JSON.stringify(baseCharUnits(words, [null, { words: [words[1].id] }])));
+  const r3 = runValidate(d3);
+  check("rejects: unit.lv differs from the level of its words[0]", r3.status !== 0 && /c0002\.lv '2' differs from the level of its words\[0\] w1_2 \('1'\)/.test(r3.out), r3.out);
+})();
+
+// ------------------------------------------------------------ B8: pack.characters.testKinds
+(function(){
+  const words = baseWords();
+  const run = tk => {
+    const d = mkPack({ pack: basePack({ characters: Object.assign(baseCharacters(), { testKinds: tk }) }), words });
+    fs.writeFileSync(path.join(d, "characters.json"), JSON.stringify(baseCharUnits(words)));
+    return runValidate(d);
+  };
+  const good = run({ charRead: 40, charSound: 30, charPick: 30 });
+  check("accepts: testKinds {charRead:40, charSound:30, charPick:30}", good.status === 0, good.out);
+  for(const [name, tk] of [["an unknown kind", { charRead: 1, nope: 1 }], ["a zero weight", { charRead: 0 }], ["a list", ["charRead"]], ["empty", {}], ["a string weight", { charRead: "40" }]]){
+    const r = run(tk);
+    check(`rejects: testKinds with ${name}`, r.status !== 0 && /testKinds/.test(r.out), r.out);
+  }
+})();
+
+// ------------------------------------------------------------ B8: passages[].sentences[].ruby
+(function(){
+  const words = baseWords();
+  const pack = basePack({ characters: baseCharacters() });
+  const units = baseCharUnits(words);
+  const passage = ruby => [{ id: "p1", lv: "1", title: "T", text: "AB",
+    sentences: [{ t: "AB", en: "ab", words: [words[0].id, words[13].id], ruby }],
+    questions: [{ type: "tf", q: "q", answer: true, words: [words[0].id], sentence: 0 }] }];
+  const runP = (ruby, pk) => {
+    const d = mkPack({ pack: pk || pack, words });
+    fs.writeFileSync(path.join(d, "characters.json"), JSON.stringify(units));
+    fs.writeFileSync(path.join(d, "passages.json"), JSON.stringify(passage(ruby)));
+    return runValidate(d);
+  };
+  const ok = runP([[0, 1, "r1", words[0].id], [1, 2, "r2", words[13].id]]);
+  check("accepts: passage sentence with valid ruby", ok.status === 0, ok.out);
+  const cases = [
+    ["out of range end", [[0, 5, "r", words[0].id]], /out of bounds/],
+    ["overlapping", [[0, 2, "r1", words[0].id], [1, 2, "r2", words[13].id]], /sorted and not overlap/],
+    ["wordId not in the sentence's words", [[0, 1, "r", "w1_5"]], /not in the sentence's words/],
+    ["missing reading", [[0, 1, "", words[0].id]], /non-empty strings/],
+    ["not a list", "x", /must be a list/],
+  ];
+  for(const [name, ruby, re] of cases){
+    const r = runP(ruby);
+    check(`rejects: passage ruby ${name} (named at passage p1.sentences[0])`, r.status !== 0 && re.test(r.out) && /passage p1\.sentences\[0\]\.ruby/.test(r.out), r.out);
+  }
+  // A unit-less word in passage ruby: w1_5 in the sentence's words but no unit's words[0].
+  const d = mkPack({ pack, words });
+  fs.writeFileSync(path.join(d, "characters.json"), JSON.stringify(units));
+  const p5 = passage([[0, 1, "r", "w1_5"]]); p5[0].sentences[0].words.push("w1_5");
+  fs.writeFileSync(path.join(d, "passages.json"), JSON.stringify(p5));
+  const r5 = runValidate(d);
+  check("rejects: passage ruby wordId not words[0] of any unit", r5.status !== 0 && /not words\[0\] of any characters\.json unit/.test(r5.out), r5.out);
+  // Without pack.characters: a warning, like sentences.json ruby.
+  const d6 = mkPack({ pack: basePack(), words });
+  fs.writeFileSync(path.join(d6, "passages.json"), JSON.stringify(passage([[0, 1, "r1", words[0].id]])));
+  const r6 = runValidate(d6);
+  check("warns: passage ruby without pack.characters is never rendered", r6.status === 0 && /WARN.*p1\.sentences\[0\]\.ruby present but pack\.characters is absent/.test(r6.out), r6.out);
 })();
 
 console.log(`\n${fails === 0 ? "ALL PASSED" : "FAILED"}: ${passes} passed, ${fails} failed`);

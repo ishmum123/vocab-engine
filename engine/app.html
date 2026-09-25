@@ -139,6 +139,7 @@
   .psent .ptxt.hasruby{line-height:2.3}
   .hasruby ruby{ruby-position:over}
   .hasruby rt{font-family:var(--font);font-size:0.5em;line-height:1;color:var(--mute);font-weight:400}
+  .hasruby ruby.bare rt{visibility:hidden}
   .sent{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
   .sent .st{font-family:var(--wfont);font-size:17px}
   .sent .sp{color:var(--mute);font-size:14px}
@@ -243,7 +244,7 @@ const HAS_PASSAGES = PASSAGE_LIST.length > 0;
 // surface (path stages, choice card, unit Learn, unit items in Review/Recall, sentence
 // ruby) is gated on HAS_CHARACTERS; without it each code path is the pre-characters one.
 const CHAR_LIST = (typeof CHARACTERS !== "undefined" && Array.isArray(CHARACTERS)) ? CHARACTERS : [];
-const HAS_CHARACTERS = !!PACK.characters && CHAR_LIST.length > 0;
+const HAS_CHARACTERS = VC.charsConfig(PACK) !== null && CHAR_LIST.length > 0;
 const CHAR_CFG = HAS_CHARACTERS ? VC.charsConfig(PACK) : null;
 const LEVELS = VC.levelIds(PACK);
 const SIZE = VC.setSizeOf(PACK);
@@ -333,11 +334,13 @@ let D = null;                  // active drill session (generic drill runner)
 let drillKeyHandler = null;    // keydown handler while a drill is active
 let tab = "today";             // current tab
 let todayStepState = null;     // Today tab step UI state
+let todayPrep = null;          // pack.characters: the snapshot + Review plan Today last showed, run by Start today
 let soundsSel = null;          // Sounds tab selection
 let wordsLv = LEVELS[0], wordsSet = null, wordsQuery = ""; // Words tab state
 let RD = null;                 // active Read session
 let testSel = null, PL = null; // Test tab state
 let legacyNotice = null;       // one-time notice after the boot migration (HTML), until dismissed
+let legacyFail = null;         // boot found an old-app record it could not import: why (text); session read-only until "Start without it"
 // Set true right before the boot IIFE's own render() call, at the very end of this
 // script. The voice probe below can fire synchronously before boot has run at all —
 // before store.load() has even been called, so prog is still the just-in-case default
@@ -577,8 +580,15 @@ function sentenceRuby(s){
   if(!HAS_CHARACTERS || !s || !Array.isArray(s.ruby) || !showPron()) return null;
   return VC.rubyTiers(s, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog));
 }
-// Sentence text with ruby tokens: below the bare tier <ruby>t<rt>reading</rt></ruby>,
-// at or above it the plain written form. entry (optional): the taught word, bolded as in
+// One ruby token (base: escaped written form). Below the bare tier <ruby>t<rt>reading</rt></ruby>;
+// at or above it the same markup with class "bare", whose <rt> is visibility:hidden (CSS
+// .hasruby ruby.bare rt), so a token's width never changes across tiers and a line
+// wraps the same whether its tokens show their reading or not.
+const rubyTokHTML = (base, k) => k.tier === "bare"
+  ? `<ruby class="bare">${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`
+  : `<ruby>${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`;
+// Sentence text with ruby tokens (rubyTokHTML): below the bare tier with its reading shown,
+// at or above it hidden. entry (optional): the taught word, bolded as in
 // highlightHTML (a ruby token overlapping it is bolded whole). Offsets are UTF-16, as
 // JS string indices; a malformed token (overlapping, out of range) renders as plain text.
 function rubyTextHTML(s, toks, entry){
@@ -597,7 +607,7 @@ function rubyTextHTML(s, toks, entry){
     if(!(k.start >= pos && k.end > k.start && k.end <= t.length)) return;
     out += plain(pos, k.start);
     const base = escapeHtml(t.slice(k.start, k.end));
-    const h = k.tier === "bare" ? base : `<ruby>${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`;
+    const h = rubyTokHTML(base, k);
     out += inHit(k.start, k.end) ? `<b>${h}</b>` : h;
     pos = k.end;
   });
@@ -817,8 +827,12 @@ function todayRender(){
   const availSent = availableSentences();
   const snap = takeSnapshot();
   const g = VC.todayGates(lw.length, snap ? snapLearns(snap) : !!nn, availSent.length);
+  // With pack.characters the Review plan is built here, with the snapshot, and Start today
+  // runs exactly this plan, so the line names units only when the plan holds some (a
+  // first character day has no unit records yet: "words" only).
+  todayPrep = snap ? { snap, review: g.review ? VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units: snap.charsStarted ? CHAR_LIST : undefined }) : null } : null;
   const reviewLine = snap
-    ? `${snap.reviewSize} items, weakest first${snap.charsStarted ? `, words and ${CHAR_CFG.label}` : ""}`
+    ? `${snap.reviewSize} items, weakest first${snap.charsStarted ? (todayPrep.review && todayPrep.review.some(x => x.unit) ? `, words and ${CHAR_CFG.label}` : ", words") : ""}`
     : `${VC.REVIEW_SIZE} items, weakest first`;
   const steps = [
     ["Review", g.review ? reviewLine : "skipped until 5+ words are learned"],
@@ -832,7 +846,7 @@ function todayRender(){
   refreshReadUnlocks();
   const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
   const choice = !!(snap && snap.choice);
-  P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${pathStrip()}
+  P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${legacyFail ? `<div class="stmt" id="legacyFail">${legacyFailHTML(legacyFail)}<button class="ghost" id="legacySkip" style="margin-top:8px">Start without it</button></div>` : ""}${pathStrip()}
     ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice ? charChoiceHTML() : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
     ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${tw(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
@@ -840,6 +854,7 @@ function todayRender(){
     <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
     </div>${choice ? "" : `<div class="actions"><button class="next" id="go">Start today</button></div>`}`;
   if(legacyNotice) $("legacyOk").onclick = () => { legacyNotice = null; todayRender(); };
+  if(legacyFail) $("legacySkip").onclick = () => { legacyFail = null; storeReadOnly = false; store.save(); todayRender(); };
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
   if(readHint) $("hintRead").onclick = () => { switchToTab("read", "Read"); RD = null; startPassage(readHint); };
@@ -850,7 +865,7 @@ function todayRender(){
     $("choiceSkip").onclick = () => { VC.answerCharChoice(prog, false); store.save(); todayRender(); };
     return;
   }
-  $("go").onclick = () => { todayStepState = HAS_CHARACTERS ? { step:0, snap: takeSnapshot() } : { step:0 }; todayStep(); };
+  $("go").onclick = () => { todayStepState = HAS_CHARACTERS ? (todayPrep ? { step:0, snap: todayPrep.snap, review: todayPrep.review } : { step:0, snap: takeSnapshot() }) : { step:0 }; todayPrep = null; todayStep(); };
 }
 function enterPlacementFromToday(){ switchToTab("test", "Test"); testSel = "placement"; startPlacement(); }
 function enterFirstSoundsLessonFromToday(){
@@ -874,7 +889,11 @@ function todayStep(){
   const units = snap && snap.charsStarted ? CHAR_LIST : undefined;
   const s = todayStepState.step++;
   if(s === 0){
-    if(g.review && snap){ drill(VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units }).map(planItem), todayStep, missSummary); return; }
+    if(g.review && snap){
+      const plan = todayStepState.review || VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units });
+      todayStepState.review = null;
+      drill(plan.map(planItem), todayStep, missSummary); return;
+    }
     if(g.review){ drill(VC.buildReviewPlan(lw, prog, PACK).map(itemFromPlan), todayStep, missSummary); return; }
     return todayStep();
   }
@@ -1119,15 +1138,16 @@ function passageSentenceHTML(s, si, hi){
   const aloud = canHearSentence(s) ? `<button class="replay psay" data-say="${si}" aria-label="Read sentence aloud">${TEACH_PLAY_SVG}</button>` : "";
   return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt${rt ? " hasruby" : ""}"${TA}>${txt}</div>${aloud}${chips}</div>`;
 }
-// Text t[a, b) with the ruby tokens that lie wholly inside it: below bare <ruby>, at or
-// above it plain. A token crossing a tap-segment edge, or malformed, renders plain.
+// Text t[a, b) with the ruby tokens that lie wholly inside it (rubyTokHTML: reading shown
+// below bare, hidden at or above it). A token crossing a tap-segment edge, or malformed,
+// renders plain.
 function passageRubyHTML(t, toks, a, b){
   let out = "", pos = a;
   toks.forEach(k => {
     if(!(k.start >= pos && k.end > k.start && k.end <= b)) return;
     out += escapeHtml(t.slice(pos, k.start));
     const base = escapeHtml(t.slice(k.start, k.end));
-    out += k.tier === "bare" ? base : `<ruby>${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`;
+    out += rubyTokHTML(base, k);
     pos = k.end;
   });
   return out + escapeHtml(t.slice(pos, b));
@@ -1262,10 +1282,11 @@ function testRender(){
   const tg = VC.testGates(lw.length, availSent.length);
   const needMore = tg.needPlacement;
   const n20 = Math.min(20, lw.length), sentN = Math.min(20, availSent.length);
-  // Characters N (pack.characters): recorded units only, weakest first, capped at 20 like
-  // the other free tests; hidden until a unit has a record.
-  const ru = HAS_CHARACTERS ? VC.recordedUnits(CHAR_LIST, prog, PACK) : [];
-  const charN = Math.min(20, ru.length);
+  // Characters N (pack.characters, predecessor-app parity): recorded units weakest first, topped up to
+  // 20 with learned words' unrecorded units, each a pack testKinds kind (VC.charTestPlan).
+  // Shown once characters have started (VC.charsStarted), not only once a record exists.
+  const charPlan = () => VC.charTestPlan(CHAR_LIST, learnedWords(), prog, PACK, 20);
+  const charN = HAS_CHARACTERS && VC.charsStarted(PACK, WORDS, CHAR_LIST, prog) ? charPlan().length : 0;
   P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
     <div class="actions">
       ${needMore ? `<div class="stmt">Free tests unlock at ${VC.TEST_MIN_WORDS} learned words (${lw.length} so far). Learn ${VC.TEST_MIN_WORDS} words first, or let placement find where to start.<button class="next" id="needPlace" style="margin-top:8px">Take the placement test</button></div>` : `<button class="next" id="pl">Take Placement</button>`}
@@ -1285,12 +1306,7 @@ function testRender(){
   if(tg.sentences){
     $("tSentences").onclick = () => drill(weakFirstSentences(availSent,20).map(hearSentence), testRender, missSummary);
   }
-  if(charN) $("tChars").onclick = () => drill(charTestPlan(ru, charN).map(planItem), testRender, missSummary);
-}
-// Characters test: the n weakest recorded units, each as a random pack reviewKind.
-function charTestPlan(units, n){
-  const kinds = CHAR_CFG.reviewKinds;
-  return VC.weakFirst(units, n, VC.charRecs(prog)).map(unit => ({ kind: kinds[Math.floor(Math.random() * kinds.length)], unit }));
+  if(charN) $("tChars").onclick = () => drill(charPlan().map(planItem), testRender, missSummary);
 }
 function placementItemTotal(){ return VC.strata(WORDS, PACK.placement, SIZE).reduce((n,_,i)=>n+VC.placementItemCount(i), 0); }
 function placeRender(){
@@ -1461,7 +1477,7 @@ function charProgress(){
   const deferred = VC.charStages(PACK, Object.assign({}, prog, { chars: Object.assign({}, prog.chars, { defer: true }) }));
   const top = deferred.length ? levelLabel(deferred[0].after) : "";
   const mix = !!(prog.chars && prog.chars.mix !== false);
-  const showMix = unlocked || started;
+  const showMix = started; // mixing changes nothing until characters have started
   const controls = (unlocked || showMix) ? `<div id="charCtl" style="margin-top:14px">${pathStrip()}
     ${showMix ? `<div class="row"><button class="chip ${mix ? "on" : ""}" id="toggleMix" aria-pressed="${mix}">Mix known characters into sentences</button></div>` : ""}
     ${unlocked ? `<div class="row"><button class="chip ${defer ? "" : "on"}" id="ordBefore" aria-pressed="${!defer}">Characters before ${escapeHtml(top)}</button><button class="chip ${defer ? "on" : ""}" id="ordAfter" aria-pressed="${defer}">Characters after ${escapeHtml(top)}</button></div>
@@ -1501,21 +1517,29 @@ $("themebtn").onclick = () => {
 };
 
 // ===================== boot =====================
-// The predecessor app's record (localStorage[pack.legacy.key]) -> VC.migrateLegacy result,
-// or null (nothing there, unreadable, not convertible, or its backup can't be secured).
-// The raw string is first copied to VC.legacyBackupKey(pack) unless that key already holds
-// something (the first backup is never overwritten); the legacy key itself is only read.
+// The predecessor app's record (localStorage[pack.legacy.key]) -> {m} (VC.migrateLegacy
+// result), {fail: why} when a record is (or may be) there but was not imported, or null
+// when there is nothing to import. The raw string is first copied to VC.legacyBackupKey(pack)
+// unless that key already holds something (the first backup is never overwritten); the
+// legacy key itself is only read.
 async function legacyBootMigration(){
   const old = await store.getRaw(PACK.legacy.key);
-  if(!old.ok || old.value == null || old.value === "") return null;
+  if(!old.ok) return { fail: "it could not be read (storage error)" };
+  if(old.value == null || old.value === "") return null;
   const m = VC.migrateLegacy(PACK, LEGACY_MAP, old.value);
-  if(!m.ok){ console.warn(`${PACK.legacy.key}: not migrated (${m.reason})`); return null; }
+  if(!m.ok){ console.warn(`${PACK.legacy.key}: not migrated (${m.reason})`); return { fail: `it could not be converted (${m.reason})` }; }
   const bk = VC.legacyBackupKey(PACK);
   const had = await store.getRaw(bk);
-  if(!had.ok) return null;
-  if((had.value == null || had.value === "") && !(await store.setRaw(bk, String(old.value)))) return null;
+  if(!had.ok) return { fail: `its safety copy (${bk}) could not be checked (storage error)` };
+  if((had.value == null || had.value === "") && !(await store.setRaw(bk, String(old.value)))) return { fail: `its safety copy (${bk}) could not be saved (storage error)` };
   if(m.unmapped.length) console.warn(`${PACK.legacy.key}: ${m.unmapped.length} unmapped part(s), kept in ${bk}`, m.unmapped);
-  return m;
+  return { m };
+}
+// Boot found an old-app record it could not import: this session saves nothing (store
+// read-only), so this pack's key stays empty and the next boot tries the import again.
+// "Start without it" lifts that and saves from here on (the old record stays untouched).
+function legacyFailHTML(why){
+  return `<div>Progress from the older app was found but not imported: ${escapeHtml(why)}. It is left untouched, and nothing you do now is saved, so the import runs again the next time this page loads. Reload to try again, or start without it.</div>`;
 }
 (async function(){
   // VC.bootProg: unparseable / invalid stored progress is preserved under
@@ -1524,7 +1548,8 @@ async function legacyBootMigration(){
   const got = await store.load();
   // Legacy migration (pack.legacy, core.js "legacy migration" contract): only when this
   // pack's own key read fine and holds nothing.
-  const mig = (HAS_LEGACY && got.ok && (got.value == null || got.value === "")) ? await legacyBootMigration() : null;
+  const lm = (HAS_LEGACY && got.ok && (got.value == null || got.value === "")) ? await legacyBootMigration() : null;
+  const mig = lm && lm.m;
   if(mig){
     prog = mig.prog;
     applyTheme();
@@ -1533,6 +1558,10 @@ async function legacyBootMigration(){
     booted = true;
     render();
     return;
+  }
+  if(lm && lm.fail){
+    storeReadOnly = true;
+    legacyFail = lm.fail;
   }
   const b = VC.bootProg(got.value, PACK, !got.ok);
   if(b.readOnly){

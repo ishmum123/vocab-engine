@@ -168,6 +168,8 @@ def check_characters_pack(pack, level_ids, rep):
             for lv in levels:
                 if lv not in idset:
                     rep.err(f"{where}.levels has {lv!r}, not a pack level id")
+                elif after in idset and level_ids.index(lv) > level_ids.index(after):
+                    rep.err(f"{where}.levels has {lv!r}, after the stage's own position ({after!r}) in pack.levels order: a stage covers only levels taught by then")
                 elif lv in covered:
                     rep.err(f"{where}.levels: level {lv!r} is covered by more than one stage")
                 else:
@@ -185,6 +187,10 @@ def check_characters_pack(pack, level_ids, rep):
         v = ch.get(f)
         if not (isinstance(v, list) and v and all(k in CHAR_KINDS for k in v)):
             rep.err(f"pack.characters.{f} must be a non-empty list drawn from {CHAR_KINDS}")
+    if "testKinds" in ch:
+        tk = ch["testKinds"]
+        if not (isinstance(tk, dict) and tk and all(k in CHAR_KINDS and is_num(v) and 0 < v < float("inf") for k, v in tk.items())):
+            rep.err(f"pack.characters.testKinds must be a non-empty object {{kind: positive weight}} with kinds from {CHAR_KINDS}")
     return covered
 
 
@@ -459,7 +465,7 @@ def check_spans(spans, t, words, where, rep):
             rep.err(f"{sw} [{a}, {b}] covers only whitespace")
 
 
-def check_passages(passages, levels, by_id, rep):
+def check_passages(passages, levels, by_id, rep, char_word0=None):
     """passages.json (optional): docs/PACK_SCHEMA.md "passages.json"."""
     if passages is None:
         return
@@ -509,6 +515,11 @@ def check_passages(passages, levels, by_id, rep):
                         rep.err(f"{sw}.words has unknown ids {missing}")
                 if "spans" in s:
                     check_spans(s["spans"], s.get("t"), ws, sw, rep)
+                if "ruby" in s:
+                    # Same rules as sentences.json ruby; the Read tab renders it by tier.
+                    if char_word0 is None:
+                        rep.warn(f"{sw}.ruby present but pack.characters is absent: ruby is never rendered")
+                    check_ruby(s["ruby"], s.get("t"), ws, char_word0, sw, rep)
                 if is_str(s.get("t")) and text and s["t"].strip() not in text:
                     rep.warn(f"{sw}.t does not appear in the passage text")
         qs = p.get("questions")
@@ -585,6 +596,9 @@ def check_characters_data(chars, char_levels, by_id, rep):
                 rep.err(f"{where}.words has unknown ids {missing}")
             elif is_str(ws[0]):
                 word0.add(ws[0])
+                w0lv = by_id[ws[0]].get("lv") if isinstance(by_id[ws[0]], dict) else None
+                if c.get("lv") != w0lv:
+                    rep.err(f"{where}.lv {c.get('lv')!r} differs from the level of its words[0] {ws[0]} ({w0lv!r})")
         if char_levels is not None:
             if c.get("lv") not in char_levels:
                 rep.err(f"{where}.lv {c.get('lv')!r} is not covered by any pack.characters.stages[].levels")
@@ -651,7 +665,7 @@ def validate(packdir):
     char_ids, char_word0 = check_characters_data(chars, char_levels, by_id, rep)
     check_sentences(sents, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
     check_lessons(pack, lessons, rep)
-    check_passages(passages, levels, by_id, rep)
+    check_passages(passages, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
     check_legacy(pack, legacy, by_id, {s.get("id") for s in sents if isinstance(s, dict)}, char_ids, rep)
     r = subprocess.run([sys.executable, os.path.join(HERE, "jsonify_pack.py"), packdir, "--check"],
                        capture_output=True, text=True)

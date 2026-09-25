@@ -2174,7 +2174,11 @@ class Japanese(LanguageSpec):
             if not KANA_ONLY_RE.match(rd):
                 left_out.append(f"{w['w']} {w['pron']}")
                 continue
-            units.append({"id": f"c{len(units) + 1:04d}", "t": w["w"], "words": [w["id"]],
+            # Unit id = "c" + the word id's digits (w0416 -> c0416): ids follow word ids,
+            # so they are never renumbered when units are added or left out.
+            if not re.fullmatch(r"w\d+", w["id"]):
+                raise ValueError(f"word id {w['id']!r} is not w<digits>; character unit ids derive from it")
+            units.append({"id": "c" + w["id"][1:], "t": w["w"], "words": [w["id"]],
                           "lv": w["lv"], "reading": rd})
         stat("ja_characters_left_out_reading_not_kana", left_out)
         return units
