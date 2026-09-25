@@ -87,7 +87,7 @@ Review/Recall as default if it is simply better; Samsung notice
 unconditional); rebuild the Chinese pack from hsk's current data with
 `tools/pack_from_hsk.py`; migrate the progress localStorage key to `vocab_zh`;
 switch hsk to the engine submodule; browser-check the full HSK path incl.
-the characters stage. The characters stage needs its own tests. Reference
+the characters stage. The characters stage needs its own tests. Second consumer: Japanese (kanji stage: unlock after A1/A2, drill kanji reading + meaning, mixed kana/kanji sentences from the Tatoeba furigana data the ja builder already uses), so design the flag and data shape for both scripts from the start; Korean and the others do not need it. Reference
 list of what hsk would gain: `hsk/TODO.md`. Do this BEFORE the B2 expansion
 so every pack is rebuilt once, on the merged engine.
 
