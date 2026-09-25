@@ -15,7 +15,8 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(TOOLS))   # vocab-engine/tools
 
-from packbuilder.core.script import build_script  # noqa: E402
+from packbuilder.core.script import build_script, _prune_syll  # noqa: E402
+from packbuilder.core.script_opts import option_counts  # noqa: E402
 from packbuilder.langs import get_spec  # noqa: E402
 from packbuilder.langs.ja import romaji  # noqa: E402
 
@@ -95,7 +96,9 @@ class Tables(unittest.TestCase):
         toks = sp.script_tokens("きゃく")
         self.assertEqual([t[0] for t in toks], ["ja-kya", "ja-ki", "ja-small-ya", "ja-ku"])
         self.assertEqual(toks[0][3], False)
-        self.assertEqual(sp.script_syllables("きゃく"), [("きゃ", ["ja-ki", "ja-small-ya"], "kya", ["ja-kya", "ja-small-ya"])])
+        self.assertEqual(sp.script_syllables("きゃく"), [("きゃ", ["ja-ki", "ja-small-ya"], "kya", ["ja-kya", "ja-small-ya"]),
+                                                  ("キャ", ["ja-kata-ki", "ja-kata-small-ya"], "kya",
+                                                   ["ja-kata-kya", "ja-kata-small-ya"])])
 
     def test_ko_ieung_first(self):
         units = spec("ko").script_units()
@@ -209,6 +212,24 @@ class ShippedPacks(unittest.TestCase):
                     if code == "fa":
                         self.assertEqual(roman, w["pron"], (u["id"], wid))
 
+    def test_every_unit_kind_has_four_options(self):
+        """Every unit x kind it can carry (symType aside: typed) gets 4 distinct options
+        with every unit of its stage taught, over many shuffles: the Python mirror of
+        engine scriptItem (tests/script_app_checks.js "every unit x fitting kind")."""
+        n = 0
+        for code, sp, words in self.each():
+            doc, _ = build_script(sp, words)
+            counts = option_counts(doc["units"], words, sp.script.get("tts", True))
+            short = {k: v for k, v in counts.items() if v < 4}
+            self.assertEqual(short, {}, code)
+            if code == "ja":
+                kata_compose = [k for k in counts if k[1] == "compose" and k[0].startswith("ja-kata-")]
+                self.assertTrue(any(k[0] == "ja-kata-small-yu" for k in kata_compose), kata_compose)
+                self.assertTrue(any(k[0] == "ja-kata-nyu" for k in kata_compose), kata_compose)
+            n += 1
+        if not n:
+            self.skipTest("no sibling packs")
+
     def test_validator_clean_on_shipped(self):
         """The shipped pack/ (written by `packbuilder script`) validates with 0 errors
         and matches what the emitter makes now."""
@@ -230,6 +251,24 @@ class ShippedPacks(unittest.TestCase):
             n += 1
         if not n:
             self.skipTest("no sibling packs with script.json")
+
+
+class Compose(unittest.TestCase):
+    def test_prune_short_stage(self):
+        """A stage whose syllables cannot give a compose item 4 options loses them."""
+        S = lambda t, r: {"t": t, "parts": [t[0]], "roman": r}
+        units = [{"id": "x-a", "st": "a", "syll": [S("ka", "ka"), S("ki", "ki")]},
+                 {"id": "x-b", "st": "b", "syll": [S("ma", "ma"), S("mi", "mi"), S("mu", "mu"), S("me", "me")]},
+                 {"id": "x-c", "st": "b", "syll": [S("mo", "me")]}]      # same roman as me: never its distractor
+        dropped = _prune_syll(units)
+        self.assertEqual(units[0]["syll"], [])
+        self.assertEqual(len(units[1]["syll"]), 4)
+        self.assertEqual(sorted(dropped), [["x-a", "ka"], ["x-a", "ki"]])
+
+    def test_ja_kata_twin(self):
+        sp = spec("ja")
+        self.assertEqual(sp.script_syllables("しゃしん")[1],
+                         ("シャ", ["ja-kata-shi", "ja-kata-small-ya"], "sha", ["ja-kata-sha", "ja-kata-small-ya"]))
 
 
 class Cli(unittest.TestCase):

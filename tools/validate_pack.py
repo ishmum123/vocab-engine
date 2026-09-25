@@ -701,6 +701,12 @@ def glyph_keys(s):
     return out
 
 
+def kana_fold(s):
+    """Katakana -> hiragana, for a later script stage's syllables (ja カタカナ re-teaches
+    sounds the first level writes in hiragana)."""
+    return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in str(s))
+
+
 def glyph_in(glyph, text):
     g, t = glyph_keys(glyph), glyph_keys(text)
     if not g:
@@ -850,7 +856,10 @@ def check_script_data(pack, script, stage_keys, words, rep):
                 late = [p for p in s["parts"] if p not in known]
                 if late:
                     rep.err(f"{sw}.parts {late} are not glyphs of units at or before set {u.get('set')} of stage {u.get('st')!r}")
-                if not any(glyph_in(s["t"], t) for t in first_texts):
+                # a later stage's syllable may be attested in the other kana (キャ by きゃ)
+                attested = any(glyph_in(s["t"], t) for t in first_texts) or (
+                    u.get("st") != first_stage and any(glyph_in(kana_fold(s["t"]), kana_fold(t)) for t in first_texts))
+                if not attested:
                     rep.err(f"{sw}.t {s['t']!r} does not occur in any first-level word")
         if u.get("sound", True) is not False and "say" not in u and (pack.get("script") or {}).get("tts") is not False:
             rep.warn(f"{where} has sound but no say (TTS has nothing to speak)")

@@ -3628,12 +3628,19 @@ class Japanese(LanguageSpec):
         return (2, 3) if unit["st"] == "kata" else (1, 2)
 
     def script_syllables(self, text):
-        """yōon in text: (きゃ, [き, ゃ], kya, owners [きゃ, ゃ])."""
+        """yōon in text: (きゃ, [き, ゃ], kya, owners [きゃ, ゃ]). A hiragana yōon also
+        gives its katakana twin (キャ, [キ, ャ]): the katakana stage re-teaches sounds
+        the first level writes in hiragana, and has too few katakana words of its own
+        to pad a compose item (A1 has one katakana yōon, ニュ). The validator accepts
+        a later stage's syllable attested in a first-level word after kana folding."""
         g, out = self._script_glyphs(), []
         for i in range(len(text or "") - 1):
             two = text[i:i + 2]
             if two[1] in _JA_SMALL_Y and two in g and two[0] in g:
                 out.append((two, [g[two[0]], g[two[1]]], romaji(two), [g[two], g[two[1]]]))
+                kt = _ja_kata(two)
+                if kt != two and kt in g:
+                    out.append((kt, [g[kt[0]], g[kt[1]]], romaji(two), [g[kt], g[kt[1]]]))
         return out
 
     def script_ex_ok(self, word):

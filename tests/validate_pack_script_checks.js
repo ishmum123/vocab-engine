@@ -103,6 +103,19 @@ expectError("ex word from the third level on a first-stage unit", "ja", fx => {
   check("later stage: ex word from the third level is a warning", r.status === 0 &&
     /WARN  script unit ja-ka-ka\.ex\[0\] word jB1_01 is from level 'B1', the third level/.test(r.out) && !/ERROR/.test(r.out), r.out);
 }
+// A later stage's syllable may be attested in the other kana (キャ by きゃく); the first
+// stage's may not.
+function jaWithKyaku(){
+  const fx = FX.ja(); fx.words.push({ id: "jA1_kyaku", w: "客", en: "guest", lv: "A1", pron: "きゃく" }); return fx;
+}
+expectError("first-stage syll.t only in the other kana", "ja", fx => {
+  Object.assign(fx, jaWithKyaku()); unit(fx, "ja-ki").syll = [{ t: "キャ", parts: ["き"], roman: "kya" }];
+}, /ERROR script unit ja-ki\.syll\[0\]\.t 'キャ' does not occur in any first-level word/);
+{
+  const fx = jaWithKyaku(); unit(fx, "ja-ka-ki").syll = [{ t: "キャ", parts: ["キ"], roman: "kya" }];
+  const r = runValidate(mkPack(fx));
+  check("later stage: syll.t attested in the other kana passes", r.status === 0 && !/syll/.test(r.out), r.out);
+}
 expectError("syll.t not in a first-level word", "ko", fx => { unit(fx, "ko-n").syll = [{ t: "노", parts: ["ㄴ", "ㅗ"], roman: "no" }]; }, /ERROR script unit ko-n\.syll\[0\]\.t '노' does not occur in any first-level word/);
 expectError("joins bad value", "fa", fx => { unit(fx, "fa-be").joins = "left"; }, /ERROR script unit fa-be\.joins must be one of/);
 expectError("note on an unknown stage set", "ko", fx => { fx.script.notes.push({ st: "hangul", set: 9, h: "x", body: "y" }); }, /ERROR script notes\[1\] \('hangul', set 9\) is not a known stage set/);

@@ -27,6 +27,8 @@ occurrence. Up to 3.
 """
 from collections import Counter
 
+from .script_opts import compose_opts
+
 EX_MAX = 3
 SYLL_MAX = 3
 FIELD_ORDER = ("id", "st", "set", "group", "t", "name", "roman", "alt", "say", "sound", "note",
@@ -49,6 +51,20 @@ def _unit_out(u):
     if extra:
         raise ValueError(f"script unit {u.get('id')}: unknown fields {extra}")
     return out
+
+
+def _prune_syll(units):
+    """Drop every syllable a compose item could not give 4 options (3 distractor
+    syllables of its stage, none sharing its roman: engine scriptItem compose, with
+    every unit taught), until none is left short. Returns the dropped [unitId, t]."""
+    dropped = []
+    while True:
+        short = [(u, s) for u in units for s in u["syll"] if len(compose_opts(u, s, units)) < 3]
+        if not short:
+            return dropped
+        for u, s in short:
+            u["syll"].remove(s)
+            dropped.append([u["id"], s["t"]])
 
 
 def _need(tok):
@@ -144,6 +160,8 @@ def build_script(spec, words):
         if say:
             u["say"] = say
 
+    syll_dropped = _prune_syll(units)
+
     doc = {"units": [_unit_out(u) for u in units]}
     notes = spec.script_notes()
     if notes:
@@ -157,5 +175,6 @@ def build_script(spec, words):
         "ex_two_unknown_units": flags[2],
         "ex_none": no_ex,
         "syll_units": sum(1 for u in units if u["syll"]),
+        "syll_dropped": syll_dropped,
     }
     return doc, stats
