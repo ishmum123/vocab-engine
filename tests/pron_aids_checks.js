@@ -333,7 +333,7 @@ function walk(api, stopAt){
     check("the popover shows the coloured reading, the show-written tap and the gloss", tspans(appended[0].innerHTML) > 0 && /data-showw="学生"/.test(appended[0].innerHTML) && appended[0].innerHTML.includes(VC.escapeHtml(VC.gloss(tw0))));
     check(`the tap speaks the word only (${JSON.stringify(spoken)}), progress unchanged`, spoken.length === 1 && spoken[0] === tw0.w && JSON.stringify(api.getProg()) === progBefore);
     check("keyboard: one keydown listener on #panel (Enter/Space on a tap); drill shortcuts skip a focused tap",
-      api.panelListeners("keydown").length === 1 && api.onTok({ target: { closest: s => s === "[data-tok]" ? {} : null } }) && /!onShowWritten\(e\) && !onTok\(e\)\) drillKeyHandler/.test(appHtml));
+      api.panelListeners("keydown").length === 1 && api.onTok({ target: { closest: s => s === "[data-tok]" ? {} : null } }) && /!onShowWritten\(e\) && !\(onTok\(e\) && e\.key !== "Escape"\)\) drillKeyHandler/.test(appHtml));
     check("click delegation: still one bubbling click listener + the show-written capture listener", api.panelListeners("click").length === 2);
     // Teach examples (charTeach) and Words-list examples carry taps too.
     const cs = VC.nextCharSet(["1","2","3"], CHARACTERS, PACK, VC.normalizeProg({}, PACK));
@@ -371,6 +371,13 @@ function walk(api, stopAt){
     const missI = inits.filter(i => ![...all].some(l => { const sp = VC.splitSyllable(l); return sp && sp.initial === i; }));
     const tonesSeen = new Set(cells.map(c => VC.splitReading(c.label).find(p => p.tone).tone));
     check(`covers all 21 initials (missing ${missI.join(",") || "none"}) and tones 1-4`, missI.length === 0 && [1,2,3,4].every(t => tonesSeen.has(t)));
+    // Finals as written in the cells (zero-initial y/w spellings and j/q/x ü-as-u included).
+    const finalsSeen = new Set([...all].map(l => { const sp = VC.splitSyllable(l); return sp ? sp.final : null; }).filter(Boolean));
+    const need = ["a","o","e","i","u","ü","ai","ei","ao","ou","an","en","ang","eng","ong","ia","ie","ua","uo","ue","ian","in","iang","ing","iao","iu","uai","ui","uan","un","uang","er"];
+    const zeroMap = { yi:"i", wu:"u", yu:"ü", wen:"en", wo:"o" };
+    [...all].forEach(l => { if(zeroMap[l]) finalsSeen.add(zeroMap[l]); });
+    const missF = need.filter(f => !finalsSeen.has(f));
+    check(`covers the finals the lessons teach (${need.length}; missing ${missF.join(",") || "none"})`, missF.length === 0);
     check("no duplicate reading; every cell is one character", new Set(cells.map(c => c.label)).size === cells.length && cells.every(c => [...c.say].length === 1));
     const { api: off } = await boot({ pack: Object.assign({}, PACK, { soundsReference: undefined }) });
     off.goto("sounds");
@@ -532,6 +539,90 @@ function walk(api, stopAt){
     check(`without pronFirst the list titles stay written, ruby unused (${offList.length} titles)`, offList.length > 0 && offList.every(m => m[2].includes(PASSAGES.find(p => p.id === m[1]).title) && !tspans(m[2])));
     a3.startPassage(PASSAGES[0]); a3.el("rdone").click();
     check("without pronFirst the heading, question and options stay written", a3.el("o").children.some(b => b.innerHTML.includes(PASSAGES[0].questions[0].options[0])) && a3.html("panel").includes(VC.escapeHtml(PASSAGES[0].questions[0].q)));
+  } catch(e){ check(`section threw: ${e.message}`, false); }
+
+  // ---------------------------------------------------------------- [9] phrase tokens in sentences
+  console.log("\n[9] sentence tokens longer than their word (这个 for 这): popover head and speech");
+  try {
+    const { api, spoken } = await boot();
+    api.setProg(seedPF());
+    const tokHTML = (h) => [...h.matchAll(/<span class="tk" data-tok="([^"]+)"( data-ts="([^"]*)" data-tr="([^"]*)")? role="button"/g)].map(m => ({ id: m[1], ts: m[3], tr: m[4] }));
+    const popFor = (tk) => {
+      const appended = []; const box = { querySelectorAll: () => [], querySelector: () => null, appendChild(c){ appended.push(c); return c; } };
+      const ds = { tok: tk.id }; if(tk.ts !== undefined){ ds.ts = tk.ts; ds.tr = tk.tr; }
+      spoken.length = 0;
+      api.tokTap({ dataset: ds, closest: sel => sel === "[data-tokbox]" ? box : null, classList: { add(){}, remove(){} } });
+      const g = appended[0] ? appended[0].innerHTML : "";
+      const gw = (g.match(/<span class="gw"[^>]*>([\s\S]*?)<\/span> <span class="ge"/) || [])[1] || "";
+      return { head: stripTags(gw.replace(/<button[\s\S]*?<\/button>/g, "")), showw: (gw.match(/data-showw="([^"]*)"/) || [])[1], said: spoken.slice() };
+    };
+    let phrase = 0, plainN = 0, bad = [];
+    SENTENCES.forEach(snt => {
+      const toks = snt.ruby.filter(r => BY_ID[r[3]]);
+      const got = tokHTML(api.sentenceRowHTML(snt));
+      if(got.length !== toks.length){ bad.push(`${snt.id} count`); return; }
+      toks.forEach((r, i) => {
+        const surf = snt.t.slice(r[0], r[1]), w = BY_ID[r[3]], tk = got[i];
+        const isPhrase = surf !== w.w && surf.includes(w.w);
+        const pop = popFor(tk);
+        if(isPhrase){ phrase++;
+          if(tk.ts !== surf || tk.tr !== r[2] || pop.head !== r[2] || pop.showw !== surf || pop.said[0] !== surf) bad.push(`${snt.id} ${surf}: head ${pop.head}/${pop.showw}, said ${pop.said}`);
+        } else { plainN++;
+          if(tk.ts !== undefined || pop.head !== w.pron || pop.showw !== w.w || pop.said[0] !== w.w) bad.push(`${snt.id} ${surf}: ${pop.head}/${pop.showw}`);
+        }
+      });
+    });
+    check(`every zh sentence ruby token: a phrase token (${phrase}) heads its popover with the surface's reading, show-written = the surface, speaks the surface; the rest (${plainN}) keep the word (${bad.length} bad${bad[0] ? ": " + bad.slice(0, 3).join(" | ") : ""})`, phrase >= 140 && bad.length === 0);
+    // The same through the reveal block and through the word-first ruby path (rubyTextHTML).
+    const s这个 = SENTENCES.find(x => x.ruby.some(r => x.t.slice(r[0], r[1]) === "这个"));
+    check("reveal block: 这个 carries its head", /data-ts="这个" data-tr="[^"]+"/.test(api.sentenceRevealBlock(s这个)));
+    const wf = Object.assign({}, PACK); delete wf.pronFirst;
+    const { api: a2 } = await boot({ pack: wf });
+    const pc = VC.normalizeProg({ sets: { "1": NS("1"), "2": NS("2"), "3": NS("3") }, placedOnce: true, sessions: 30 }, wf); VC.answerCharChoice(pc, true);
+    VC.charStageUnits(["1","2","3"], CHARACTERS, wf).slice(0, 5).forEach(u => { pc.chars.c[u.id] = { r: 1, w: 0, s: 1 }; });
+    a2.setProg(pc);
+    check("word-first characters pack (rubyTextHTML): 这个 carries its head too", /data-ts="这个" data-tr="[^"]+"/.test(a2.sentenceRowHTML(s这个)));
+    // ja-like: ruby over the written stem only (食 of 食べた) keeps the word; a token longer
+    // than the word (the word + a kana suffix) heads with its surface and kana reading.
+    const { jaLike } = require(path.join(__dirname, "fixtures", "chars_packs.js"));
+    const J = jaLike(); const jp = Object.assign({}, J.pack, { pronFirst: true, tts: "ja-JP" });
+    const jw = J.words.filter(w => J.units.some(u => u.words[0] === w.id) && /[ぁ-ゟ]$/.test(w.w)).slice(0, 4);
+    const jsents = [];
+    jw.forEach((w, i) => {
+      const stem = w.w.replace(/[ぁ-ゟ]+$/, "");
+      jsents.push({ id: "js" + i + "a", t: w.w + "です", en: "x", lv: w.lv, words: [w.id], ruby: [[0, stem.length, w.pron.slice(0, 2), w.id]] });
+      jsents.push({ id: "js" + i + "b", t: w.w + "たち", en: "y", lv: w.lv, words: [w.id], ruby: [[0, w.w.length + 2, w.pron + "たち", w.id]] });
+    });
+    const { api: aj } = await boot({ pack: jp, words: J.words, sentences: jsents, units: J.units, passages: [] });
+    aj.setProg(VC.normalizeProg({ sets: { A1: 3 }, placedOnce: true }, jp));
+    let jb = [];
+    jsents.forEach((x, i) => {
+      const t = tokHTML(aj.sentenceRowHTML(x))[0]; const w = jw[Math.floor(i / 2)];
+      if(i % 2 === 0 ? t.ts !== undefined : (t.ts !== x.t || t.tr !== w.pron + "たち")) jb.push(x.t);
+    });
+    check(`ja-like: a stem-only token keeps the word's headword; a token longer than the word heads with its surface and kana reading (${jsents.length} sentences, ${jb.length} bad)`, jw.length === 4 && jb.length === 0);
+  } catch(e){ check(`section threw: ${e.message}`, false); }
+
+  // ---------------------------------------------------------------- [10] review nits
+  console.log("\n[10] r-suffix numbered forms, Escape on a tap, quotes and ellipsis");
+  try {
+    const w = WORDS.find(x => x.w === "一会儿");
+    check(`一会儿 (${w.pron}): yi1hui4r5, yi1hui4r0, yi1hui4r, yi1huir4 accepted as hsk did; yi1hui4 not`,
+      ["yi1hui4r5", "yi1hui4r0", "yi1hui4r", "yi1huir4"].every(i => VC.checkPronTyped(i, w.pron) === "ok") && VC.checkPronTyped("yi1hui4", w.pron) === "wrong");
+    const { api } = await boot(); api.setProg(seedPF());
+    const kd = api.panelListeners("keydown")[0];
+    let hidden = null; const cleared = [];
+    const g = { hidden: false }; const on = { classList: { remove: c => cleared.push(c) } };
+    const box = { querySelectorAll: () => [on], querySelector: () => g };
+    const tk = { dataset: { tok: "w0028" }, closest: sel => sel === "[data-tok]" ? tk : sel === "[data-tokbox]" ? box : null };
+    kd({ key: "Escape", target: tk, preventDefault(){} }); hidden = g.hidden;
+    check("Escape on a focused tap hides the popover and clears the highlight", hidden === true && cleared.includes("on"));
+    check("... and is not swallowed: the drill's own Escape still runs (only Enter/Space are the tap's)", /!\(onTok\(e\) && e\.key !== "Escape"\)\) drillKeyHandler/.test(appHtml));
+    const L = (t, r) => VC.sentencePieces({ t }, r.map(([a, b, x]) => ({ start: a, end: b, tier: "pron", reading: x }))).map(p => p.pre + p.text).join("");
+    const q1 = L("他说：“好。”", [[0,1,"tā"],[1,2,"shuō"],[4,5,"hǎo"]]);
+    check(`capital after a colon and an opening quote (${q1})`, q1 === "Tā shuō: “Hǎo.”");
+    const q2 = L("好……好", [[0,1,"hǎo"],[3,4,"hǎo"]]);
+    check(`ellipsis kept as written (no "..."), no capital after it (${q2})`, q2 === "Hǎo…… hǎo");
   } catch(e){ check(`section threw: ${e.message}`, false); }
 
   // ---------------------------------------------------------------- [7] control vs main

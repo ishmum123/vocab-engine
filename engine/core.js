@@ -1435,14 +1435,16 @@ function sentencePieces(sentence, toks, blank, cuts){
   // a neighbour that meets it with a letter or digit (a token, or text such as a name).
   const edgeL = p => p.kind !== "text" || /^[\p{L}\p{N}]/u.test(p.text);
   const edgeR = p => p.kind !== "text" || /[\p{L}\p{N}]$/u.test(p.text);
-  out.forEach(p => { if(p.kind === "text") p.text = p.text.replace(/[\uff0c\u3001\u3002\uff01\uff1f\uff1a\uff1b\uff08\uff09\u201c\u201d\u2018\u2019\u300a\u300b\u2026\u2014]/g, c => ASCII_PUNCT[c]); });
+  out.forEach(p => { if(p.kind === "text") p.text = p.text.replace(/[\uff0c\u3001\u3002\uff01\uff1f\uff1a\uff1b\uff08\uff09\u201c\u201d\u2018\u2019\u300a\u300b\u2026\u2014]/g, c => ASCII_PUNCT[c]).replace(/\s+(?=[\u201d\u2019)\u2026,.!?:;])/g, ""); });
   // A reading that starts a sentence is capitalised: the first one when only opening
-  // punctuation precedes it, and the first after a sentence-internal . ! or ? (ba! Ni...).
+  // punctuation precedes it, the first after a sentence-internal . ! or ? (ba! Ni...), and
+  // the first inside a quote opened after a colon (Ta shuo: "Ni..."). An ellipsis (…) stays
+  // as written and starts nothing.
   let atStart = true;
   out.forEach(p => {
     if(p.kind === "tok" && p.tier === "pron"){ if(atStart) p.text = p.text.charAt(0).toUpperCase() + p.text.slice(1); atStart = false; }
     else if(p.kind !== "text") atStart = false;
-    else if(/[.!?][\s"'\u201d\u2019)]*$/.test(p.text)) atStart = true;
+    else if(/[.!?][\s"'\u201d\u2019)]*$/.test(p.text) || /:\s*["'\u201c\u2018(]+\s*$/.test(p.text)) atStart = true;
     else if(!/^[\s"'\u201c\u2018(]*$/.test(p.text)) atStart = false;
   });
   out.forEach((p, i) => { const prev = out[i-1]; if(prev && (shown(p) || shown(prev)) && edgeL(p) && edgeR(prev)) p.pre = " "; });
@@ -1782,7 +1784,8 @@ function pronKey(s){
 }
 const NUMBERED_MAX = 64;
 // Every numbered spelling of pron: syllable letters + tone digit; a neutral syllable as
-// 5, 0 or no digit; an r-suffixed syllable with its digit before or after the r.
+// 5, 0 or no digit; an r-suffixed syllable with its digit after the r, or before it with
+// the r bare, r5 or r0.
 // [] when pron does not split into syllables (then only the marked form is accepted).
 function numberedForms(pron){
   const runs = String(pron || "").normalize("NFC").match(LETTER_RUN) || [];
@@ -1793,7 +1796,9 @@ function numberedForms(pron){
       const b = stripMarks(x.text).toLowerCase();
       const d = x.tone === 5 ? ["5", "0", ""] : [String(x.tone)];
       const opts = [];
-      d.forEach(k => { opts.push(b + k); if(x.r && k) opts.push(b.slice(0, -1) + k + "r"); });
+      // r-suffix: the digit also before the r, the r then bare or as its own neutral
+      // chunk ("yi1hui4r5", "hui4r0": how the predecessor app stored 一会儿).
+      d.forEach(k => { opts.push(b + k); if(x.r && k) ["r", "r5", "r0"].forEach(rr => opts.push(b.slice(0, -1) + k + rr)); });
       const next = []; combos.forEach(c => opts.forEach(o => next.push(c + o)));
       if(next.length > NUMBERED_MAX) return [];
       combos = next;

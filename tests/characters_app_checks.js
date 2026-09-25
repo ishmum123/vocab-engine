@@ -751,7 +751,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
   console.log("\n[14] pronunciation-first (pack.pronFirst, brief BP): the zh pack as shipped");
   // Visible written characters in markup: Han outside the show-written tap's hidden form.
   // (data-pg: a span's display gloss, shown only in the popover, may quote its headword.)
-  const visHan = h => (String(h == null ? "" : h).replace(/data-(showw|pg)="[^"]*"/g, "").match(/\p{Script=Han}/gu) || []).join("");
+  const visHan = h => (String(h == null ? "" : h).replace(/data-(showw|pg|ts)="[^"]*"/g, "").match(/\p{Script=Han}/gu) || []).join("");
   const onlyLabel = h => /^字*$/.test(visHan(h)); // the stage label 字 / 字4 (path strip, Progress rows)
   const PF_ZH = PACK_ZH;
   const NSZ = lv => VC.nSets(VC.wordsByLevel(WORDS, PF_ZH)[lv], VC.setSizeOf(PF_ZH));
@@ -905,7 +905,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     check("a mouse tap (button not focused) does not move focus", b2.by && focused === null);
     document.createElement = mk;
     check("keys on a show-written button never reach the drill shortcuts (Enter = Next)",
-      api.onShowWritten({ target: { closest: s => s === "[data-showw]" ? b : null } }) && !api.onShowWritten({ target: { closest: () => null } }) && /if\(drillKeyHandler && !onShowWritten\(e\) && !onTok\(e\)\) drillKeyHandler\(e\)/.test(appHtml));
+      api.onShowWritten({ target: { closest: s => s === "[data-showw]" ? b : null } }) && !api.onShowWritten({ target: { closest: () => null } }) && /if\(drillKeyHandler && !onShowWritten\(e\) && !\(onTok\(e\) && e\.key !== "Escape"\)\) drillKeyHandler\(e\)/.test(appHtml));
     check("announce() drops the show-written button label from the live-region text", /querySelectorAll\("\[data-showw\]"\)\.forEach\(x => x\.remove\(\)\)/.test(appHtml.match(/function announce[\s\S]*?\n}\n/)[0]));
     let other = false;
     cap({ target: { closest: () => null }, preventDefault(){ other = true; }, stopPropagation(){ other = true; } });
