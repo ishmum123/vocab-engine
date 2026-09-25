@@ -302,15 +302,22 @@ class German(LanguageSpec):
         "Vermieter", "Heizung", "Möbel", "Schrank", "Treppe", "Lohn", "Formular", "Ausweis", "Versicherung",
         "Hausaufgabe", "Zucker", "Salz", "Kartoffel", "Reis", "Mittagessen", "Getränk", "Kühlschrank")} |
         {(w, "VERB") for w in ("regnen", "parken", "umsteigen", "umziehen", "mieten")})
-    # film/TV-subtitle register (crime, war, fantasy, slang) near the cut gives
-    # its slots to the everyday words above, so the kept words displace these
-    # rather than everyday tail words (Toilette, Einladung, lächeln, mitkommen)
+    # film/TV-subtitle register near the cut (weapons, crime, military, slang,
+    # insults) gives its slots to the everyday words above, so the kept words
+    # displace these rather than everyday tail words (Toilette, Einladung,
+    # lächeln, mitkommen, umsonst, wegwerfen, drinnen, vorhin). All are in the
+    # B1 band, so no other word changes level. Words kids' books and news use
+    # stay (Prinzessin, Riese, Monster, Wolf, Engel, Kaiser, Kapitän, Minister,
+    # Nation, Grab, Kreuz, Zelle, Wesen, Motiv, Menschheit, beschützen,
+    # bestrafen, herrschen, begehen, besiegen, Schwanz as an animal's tail).
     drop_keys = {**drop_keys, **{(w.lower(), "NOUN"): None for w in (
-        "Weib", "Führer", "Ermittlung", "Flucht", "Schwert", "Monster", "Riese", "Kaiser", "Prinzessin", "Bombe",
-        "Kugel", "Täter", "Agent", "Truppe", "Gefangener", "Maul", "Bulle", "Menschheit", "Kapitän", "Engel",
-        "Motiv", "Grab", "Kreuz", "Minister", "Nation", "Wolf", "Akt", "Wesen", "Zelle", "Wahnsinn", "Klappe",
-        "Mädel")}, **{(w, "VERB"): None for w in (
-        "besiegen", "begehen", "vernichten", "herrschen", "beschützen", "bestrafen", "abhauen")}}
+        "Weib", "Führer", "Ermittlung", "Flucht", "Schwert", "Bombe", "Kugel", "Täter", "Agent", "Truppe",
+        "Gefangener", "Maul", "Bulle", "Akt", "Wahnsinn", "Klappe", "Mädel",
+        "Mörder", "Toter", "Schlag", "Liebling", "Mission", "Date", "Ex", "Haufen")},
+        **{(w, "VERB"): None for w in (
+            "vernichten", "abhauen", "erschießen", "ermorden", "verhaften", "hauen", "antun", "fliehen",
+            "schnappen", "ausbrechen", "hinkriegen")},
+        **{(w, "ADJ"): None for w in ("sexy", "nackt", "schuldig")}}
     profane_stems = ("fick", "scheiß", "scheiss", "arschl", "wichs", "fotz", "hurens")
     profanity = {"scheiße", "scheisse", "arsch", "hure", "huren", "schlampe", "kacke", "pisse", "pissen",
                  "verdammt", "verdammte", "wichser", "fotze", "schwuchtel", "nutte", "titten", "bumsen",
