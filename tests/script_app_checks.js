@@ -141,7 +141,7 @@ return {
   getD: () => D, getCur: () => __cur, getState: () => todayStepState,
   goto: t => { tab = t; testSel = null; RD = null; render(); },
   hasScript: () => HAS_SCRIPT, scriptTab: () => SCRIPT_TAB, byId: () => SCRIPT_BYID,
-  scriptDrillItem, scriptCtx, scriptTeachHTML, scriptChartHTML, drill,
+  scriptDrillItem, scriptCtx, kindCtx: () => scriptKindCtx(), scriptTeachHTML, scriptChartHTML, drill,
   panelListeners: () => document.getElementById("panel")._listeners.click || [],
 };`;
   const names = ["document","window","SpeechSynthesisUtterance","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
@@ -582,16 +582,20 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     check(`${lang}: Learn runs sets 1 and 2 (${n} items)${err ? ` (${err.message})` : ""}`, !err && [...sets[0], ...sets[1]].every(u => b.api.getProg().script.u[u.id]));
     // Every unit x every kind it can carry: item builds, renders, has >= 2 options (mc).
     const p = b.api.getProg(); units.forEach(u => { p.script.u[u.id] = { r:1, w:0, s:1 }; });
-    const bad = [];
+    const bad = [], kctx = b.api.kindCtx(); let unfit = 0;
     units.forEach(u => VC.SCRIPT_KINDS.forEach(k => {
-      if(!VC.scriptKindFits(k === "wordHear" && pack.script.tts === false ? "wordRead" : k, u)) return;
+      const kk = k === "wordHear" && kctx.tts === false ? "wordRead" : k;
+      if(!VC.scriptKindShape(kk, u)) return;
+      if(!VC.scriptKindFits(kk, u, kctx)){ unfit++; return; }
       try{
         const it = b.api.scriptDrillItem(k, u, b.api.scriptCtx());
-        if(it.kind === "mc" && !(it.opts.length >= 2 && it.opts.includes(it.a) && new Set(it.opts).size === it.opts.length)) bad.push(`${u.id}/${k}: opts ${JSON.stringify(it.opts)}`);
+        if(it.kind === "mc" && !(it.opts.length >= 4 && it.opts.includes(it.a) && new Set(it.opts).size === it.opts.length)) bad.push(`${u.id}/${k}: opts ${JSON.stringify(it.opts)}`);
         b.api.drill([it], () => {});
       }catch(e){ bad.push(`${u.id}/${k}: ${e.message}`); }
     }));
-    check(`${lang}: every unit x fitting kind builds and renders, options distinct and holding the answer (${bad.length} bad)`, bad.length === 0, bad.slice(0, 5).join("; "));
+    check(`${lang}: every unit x kind that fits (4-option rule; ${unfit} shaped but unfit) builds and renders with >= 4 distinct options holding the answer (${bad.length} bad)`, bad.length === 0, bad.slice(0, 5).join("; "));
+    const plans = [...VC.learnScriptPlan(units, pack, kctx), ...VC.scriptTestPlan(units, b.api.getProg(), pack, 500, undefined, kctx)];
+    check(`${lang}: Learn and practice plans pick only kinds that fit (${plans.length} entries)`, plans.every(x => x.kind === "symType" || VC.scriptKindFits(x.kind, x.unit, kctx)));
     let cardErr = null, heads = 0;
     try{ units.forEach(u => { const c = b.api.scriptTeachHTML(u); if(/class="xhead/.test(c)) heads++; }); }catch(e){ cardErr = e; }
     check(`${lang}: every unit's teach card renders${cardErr ? ` (${cardErr.message})` : ""}`, !cardErr && heads === units.length);

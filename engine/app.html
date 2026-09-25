@@ -1051,6 +1051,9 @@ function charDrillItem(kind, unit){
 // ctx.tts false, so soundSym shows the roman and wordHear becomes wordRead (core.js).
 const scriptVoice = () => !!SCFG && SCFG.tts !== false && hasSpeech;
 const scriptCtx = set => ({ units: SUNITS, pool: VC.scriptPool(SUNITS, prog, set), byId: SCRIPT_BYID, tts: scriptVoice() });
+// Kind-picking context for the core plans (VC.scriptKindFits): a kind that cannot get 4
+// options from every unit is never picked. undefined without pack.script.
+const scriptKindCtx = () => HAS_SCRIPT ? { units: SUNITS, byId: SCRIPT_BYID, tts: scriptVoice() } : undefined;
 function markScriptRec(unitId, ok){ VC.markScript(prog, unitId, ok); store.save(); } // prog.script.u only
 const sayScript = (it, btn) => speak(it.say || "", btn, it.audioUrl || undefined);
 // A unit's own sound: its recorded clip, else its `say` when the pack has a voice.
@@ -1242,7 +1245,7 @@ function todayRender(){
   // runs exactly this plan, so the line names units only when the plan holds some (a
   // first character day has no unit records yet: "words" only). With pack.script recorded
   // script units join it (opts.script).
-  todayPrep = snap ? { snap, review: g.review ? VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units: snap.charsStarted ? CHAR_LIST : undefined, script: SU }) : null } : null;
+  todayPrep = snap ? { snap, review: g.review ? VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units: snap.charsStarted ? CHAR_LIST : undefined, script: SU, scriptCtx: scriptKindCtx() }) : null } : null;
   const reviewLine = snap
     ? `${snap.reviewSize} items, weakest first${reviewWhat(snap, todayPrep.review)}`
     : `${VC.REVIEW_SIZE} items, weakest first`;
@@ -1310,7 +1313,7 @@ function todayStep(){
   const s = todayStepState.step++;
   if(s === 0){
     if(g.review && snap){
-      const plan = todayStepState.review || VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units, script: SU });
+      const plan = todayStepState.review || VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units, script: SU, scriptCtx: scriptKindCtx() });
       todayStepState.review = null;
       drill(plan.map(planItem), todayStep, missSummary); return;
     }
@@ -1421,7 +1424,7 @@ function scriptLearn(snap, i){
   const more = i + 1 < snap.ssets.length;
   scriptTeach(ss, snap.stage, () => {
     const ctx = scriptCtx(ss.units);
-    drill(VC.learnScriptPlan(ss.units, PACK).map(p => scriptDrillItem(p.kind, p.unit, ctx)), todayStep,
+    drill(VC.learnScriptPlan(ss.units, PACK, scriptKindCtx()).map(p => scriptDrillItem(p.kind, p.unit, ctx)), todayStep,
       more ? miss => `${missSummary(miss)}<button class="next" id="moreSet" style="margin-bottom:8px">One more set</button>` : missSummary,
       more ? () => { $("moreSet").onclick = () => scriptLearn(snap, i + 1); } : undefined);
   });
@@ -1489,7 +1492,7 @@ function scriptChartHTML(){
       return `<button type="button" class="${m ? "xm" : r ? "xt" : ""}" data-xs="${escapeHtml(u.id)}" data-xopen aria-label="${escapeHtml(VC.scriptGlyph(u))}, ${escapeHtml(u.roman)}${state ? `, ${state}` : ""}"><span class="xcg"${TA}>${escapeHtml(VC.scriptGlyph(u))}</span><span class="xcr">${escapeHtml(u.roman)}</span></button>`;
     }).join("")}</div></div>`).join("")).join("");
 }
-const scriptPractisePlan = () => VC.scriptTestPlan(SUNITS, prog, PACK, 20);
+const scriptPractisePlan = () => VC.scriptTestPlan(SUNITS, prog, PACK, 20, undefined, scriptKindCtx());
 function scriptTabHTML(){
   const n = scriptPractisePlan().length;
   return `<div id="xtab"><p class="q">Every symbol in teaching order. Tap one to see it${SUNITS.some(unitHasSound) ? " and hear it" : ""}. Marked: <span class="xkey xt">taught</span> <span class="xkey xm">mastered</span></p>

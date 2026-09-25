@@ -71,6 +71,8 @@ Each item scores one unit's record, `prog.script.u[id]`. Options are 4, shuffled
 
 If fewer than 3 remain, the pool is padded from the `confuse` list even when those units are untaught. A set-1 item therefore never has fewer than 4 options.
 
+**Four options or the kind does not fit.** Every option kind (all but `symType`) needs at least 4 distinct options when distractors may come from every unit. Otherwise `scriptKindFits(kind, unit, ctx)` is false, so no Learn, Review or practice plan picks it, and `pickScriptKind` moves to the next kind. ctx is `{units, byId | words, tts}`. The app always passes it, and the Review and practice plans default `units` to their own. Compose distractors widen in this order: the same set, the same stage, then any stage written in the same Unicode script. Hiragana and katakana are two scripts and never mix.
+
 **Never a second right answer:**
 - `soundSym` and `formMatch` never offer a unit with the same `roman` or `say`. That covers fa ت/ط, س/ص/ث, ز/ذ/ض/ظ, ه/ح, ja じ/ぢ and ず/づ.
 - `symSound` never offers a duplicate roman.

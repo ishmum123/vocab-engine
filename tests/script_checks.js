@@ -335,5 +335,63 @@ section("[items] scriptItem: every fitting kind, every fixture unit", () => {
   check("scriptMastered: streak >= mastered", VC.scriptMastered({ r: 3, w: 0, s: 3 }, K.pack) && !VC.scriptMastered({ r: 2, w: 0, s: 2 }, K.pack));
 });
 
+section("[min] an option kind needs 4 options or it does not fit; compose pads set, stage, then same-script stages", () => {
+  // Synthetic: hiragana stage with yōon syllables in sets 1-2; a katakana stage whose only
+  // compose unit is one syllable (ニュ); a stage of two symbols with no confuse; a second
+  // Hangul stage whose one compose unit can only pad from the first Hangul stage.
+  const U = (id, st, set, t, roman, extra) => Object.assign({ id, st, set, group: "g", t, roman, say: t }, extra);
+  const Y = (t, parts, roman) => [{ t, parts, roman }];
+  const units = [
+    U("xx-ki", "hira", 1, "き", "ki", { syll: Y("きゃ", ["き","ゃ"], "kya") }), U("xx-kyu", "hira", 1, "ゅ", "yu", { syll: Y("きゅ", ["き","ゅ"], "kyu") }),
+    U("xx-shi", "hira", 2, "し", "shi", { syll: Y("しゃ", ["し","ゃ"], "sha") }), U("xx-chi", "hira", 2, "ち", "chi", { syll: Y("ちゃ", ["ち","ゃ"], "cha") }),
+    U("xx-ni", "hira", 2, "に", "ni", { syll: Y("にゃ", ["に","ゃ"], "nya") }),
+    U("xx-kni", "kata", 1, "ニ", "ni", { syll: Y("ニュ", ["ニ","ュ"], "nyu") }), U("xx-kka", "kata", 1, "カ", "ka"), U("xx-kki", "kata", 1, "キ", "ki"), U("xx-kku", "kata", 1, "ク", "ku"),
+    U("xx-p1", "pair", 1, "ㅂ", "b"), U("xx-p2", "pair", 1, "ㅍ", "p"),
+    U("xx-ga", "han1", 1, "ㄱ", "g", { syll: Y("가", ["ㄱ","ㅏ"], "ga") }), U("xx-na", "han1", 1, "ㄴ", "n", { syll: Y("나", ["ㄴ","ㅏ"], "na") }),
+    U("xx-da", "han1", 1, "ㄷ", "d", { syll: Y("다", ["ㄷ","ㅏ"], "da") }),
+    U("xx-ma", "han2", 1, "ㅁ", "m", { syll: Y("마", ["ㅁ","ㅏ"], "ma") }),
+  ];
+  const pack = { key: "synthmin", levels: [{ id: "A1" }], script: { stages: ["hira","kata","pair","han1","han2"].map(key => ({ key, label: key })),
+    learnKinds: ["compose","symSound"], reviewKinds: ["compose","symSound"], testKinds: { compose: 90, symSound: 10 } } };
+  const cfg = VC.scriptConfig(pack), ctx = { units, words: [] }, by = byUid(units);
+  check("katakana ニュ: compose has the right shape (structure only, no ctx)", VC.scriptKindFits("compose", by["xx-kni"]) && VC.scriptKindShape("compose", by["xx-kni"]));
+  const lone = VC.scriptItem("compose", by["xx-kni"], { units, rng: mulberry32(1) });
+  check(`... but only ${lone.options.length} option exists: hiragana syllables never pad a katakana item`, lone.options.length === 1 && lone.options[0] === "ニュ");
+  check("with ctx: compose does not fit ニュ", !VC.scriptKindFits("compose", by["xx-kni"], ctx) && VC.scriptKindFor("compose", by["xx-kni"], cfg, ctx) === null);
+  let picked = new Set(); for(let i = 0; i < 40; i++) picked.add(VC.pickScriptKind(cfg.reviewKinds, by["xx-kni"], cfg, mulberry32(i), ctx));
+  check(`pickScriptKind falls to the next kind (${[...picked]})`, eq([...picked], ["symSound"]));
+  const lp = VC.learnScriptPlan([by["xx-kni"]], pack, ctx);
+  check("learnScriptPlan with ctx: no compose for ニュ", lp.length === 1 && lp[0].kind === "symSound");
+  const tp = VC.scriptTestPlan(units, { script: { u: Object.fromEntries(units.map(u => [u.id, { r: 1, w: 1, s: 0 }])) } }, pack, 20, mulberry32(3));
+  check("scriptTestPlan counts options from its own units (no ctx): never compose for ニュ, never a kind for the pair stage's letters", tp.every(x => !(x.unit.id === "xx-kni" && x.kind === "compose")) && !tp.some(x => x.unit.st === "pair"));
+  const prog = { w: {}, script: { u: Object.fromEntries(units.map(u => [u.id, { r: 1, w: 1, s: 0 }])) } };
+  let rvBad = 0; for(let i = 0; i < 20; i++) VC.buildReviewPlan([], prog, pack, { size: 12, script: units, rng: mulberry32(i) }).forEach(x => { if(x.unit.id === "xx-kni" && x.kind === "compose") rvBad++; });
+  check("buildReviewPlan (units from opts.script): never compose for ニュ", rvBad === 0);
+  check("symSound/soundSym with only 2 symbols in a stage: do not fit with ctx", !VC.scriptKindFits("symSound", by["xx-p1"], ctx) && !VC.scriptKindFits("soundSym", by["xx-p1"], ctx) && VC.scriptKindFits("symSound", by["xx-p1"]));
+  let setFirst = true, famOk = true, n4 = true;
+  for(let i = 0; i < 30; i++){
+    const it = VC.scriptItem("compose", by["xx-ki"], { units, pool: [by["xx-ki"]], rng: mulberry32(i) });
+    if(it.answer === "きゃ" && !it.options.includes("きゅ")) setFirst = false;
+    if(it.options.some(o => VC.scriptFamily(o) !== "Hiragana")) famOk = false;
+    if(it.options.length !== 4) n4 = false;
+  }
+  check("hiragana きゃ: same-set きゅ always offered first, then same-stage syllables; 4 options, all hiragana", setFirst && famOk && n4 && VC.scriptKindFits("compose", by["xx-ki"], ctx));
+  const m = VC.scriptItem("compose", by["xx-ma"], { units, rng: mulberry32(2) });
+  check(`a stage's lone syllable pads from another stage in the same script (마 with ${m.options.join(" ")})`, m.options.length === 4 && ["가","나","다"].every(x => m.options.includes(x)) && VC.scriptKindFits("compose", by["xx-ma"], ctx));
+  // Every fixture: every kind that fits with ctx builds 4 distinct options under any rng.
+  const bad = [];
+  ["ko","fa","ja"].forEach(k => {
+    const fx = FX[k](); const c2 = { units: fx.script.units, words: fx.words, tts: VC.scriptConfig(fx.pack).tts };
+    fx.script.units.forEach(u => VC.SCRIPT_KINDS.forEach(kind => {
+      if(kind === "symType" || !VC.scriptKindFits(kind, u, c2)) return;
+      for(let i = 0; i < 5; i++){
+        const it = VC.scriptItem(kind, u, Object.assign({ rng: mulberry32(i) }, c2));
+        if(it.options.length < 4 || new Set(it.options).size !== it.options.length) bad.push(`${u.id}/${kind}: ${it.options}`);
+      }
+    }));
+  });
+  check(`fixtures: every kind that fits with ctx gets 4 distinct options (${bad.length} bad)`, bad.length === 0, bad.slice(0, 4).join("; "));
+});
+
 console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

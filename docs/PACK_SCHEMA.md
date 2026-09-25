@@ -160,7 +160,7 @@ Optional. `pack.script` plus `pack/script.json` turn on a **script primer**: one
 | `reviewKinds` | kinds, non-empty | no (`symSound`, `soundSym`, `wordRead`) | Review draws one at random per unit. |
 | `testKinds` | `{kind: weight}` | no (`symSound` 35, `soundSym` 25, `wordRead` 25, `symType` 15) | The Script tab's practice mix. |
 
-Kinds are `symSound`, `soundSym`, `symType`, `compose`, `formFind`, `formMatch`, `wordRead`, `wordHear` (`docs/SCRIPT_PRIMER.md` §2). A unit carries a kind only when it has what the kind needs: the three sound kinds need `sound` not false; `compose` needs `syll`; `formMatch` needs `joins`; `formFind`, `wordRead` and `wordHear` need `ex`. A `sound:false` unit gets `wordRead` in place of the sound kinds in Learn.
+Kinds are `symSound`, `soundSym`, `symType`, `compose`, `formFind`, `formMatch`, `wordRead`, `wordHear` (`docs/SCRIPT_PRIMER.md` §2). A unit carries a kind only when it has what the kind needs: the three sound kinds need `sound` not false; `compose` needs `syll`; `formMatch` needs `joins`; `formFind`, `wordRead` and `wordHear` need `ex`. A `sound:false` unit gets `wordRead` in place of the sound kinds in Learn. An option kind also needs at least 4 distinct options drawn from all the pack's units, or it is never asked of that unit.
 
 ### pack/script.json
 

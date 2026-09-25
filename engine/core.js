@@ -845,6 +845,8 @@ function kindMix(n, share, typing, rng){
 // opts.units (optional): the pack's character units. When the pack has a characters
 // block and some unit has a record, Review is unified (see unifiedReviewPlan); with no
 // such unit the code below runs unchanged, so the output is identical to a word-only plan.
+// opts.scriptCtx (optional): {byId | words, tts} for scriptKindFits, so a script unit
+// never gets a kind with fewer than 4 options (the units are opts.script).
 // opts.script (optional): the pack's script units (pack.script). Recorded ones join the
 // same unified ranking as kind "x" (scriptReviewScore); none recorded, or the primer
 // skipped, leaves the plan as above.
@@ -852,7 +854,7 @@ function buildReviewPlan(learned, prog, pack, opts){
   const o = opts || {}; const n = o.size || REVIEW_SIZE;
   const ru = recordedUnits(o.units, prog, pack);
   const rs = recordedScriptUnits(o.script, prog, pack);
-  if(ru.length || rs.length) return unifiedReviewPlan(learned, ru, prog, pack, n, o.rng, rs);
+  if(ru.length || rs.length) return unifiedReviewPlan(learned, ru, prog, pack, n, o.rng, rs, Object.assign({ units: o.script }, o.scriptCtx || {}));
   const pv = provPick(learned, Math.min(REVIEW_PROV, n), prog.w);
   const pvSet = new Set(pv.map(w=>w.id));
   const rest = weakFirst(learned.filter(x=>!pvSet.has(x.id)), n - pv.length, prog.w, null, o.rng);
@@ -1639,7 +1641,7 @@ function rankUnified(words, wrecs, units, crecs, n, pack, rng, sunits, srecs){
 // under one ranking, n total. Word items keep the >= 40% production mix; each unit gets
 // a random pack reviewKind. Items: {kind, word} or {kind, unit}. rs (optional): recorded
 // script units; each gets a random pack.script reviewKind that fits it (pickScriptKind).
-function unifiedReviewPlan(learned, ru, prog, pack, n, rng, rs){
+function unifiedReviewPlan(learned, ru, prog, pack, n, rng, rs, sctx){
   const cfg = charsConfig(pack), scfg = scriptConfig(pack); const r = rng || Math.random;
   const pv = provPick(learned, Math.min(REVIEW_PROV, n), prog.w);
   const pvSet = new Set(pv.map(w => w.id));
@@ -1649,7 +1651,7 @@ function unifiedReviewPlan(learned, ru, prog, pack, n, rng, rs){
   let wi = 0;
   const out = pool.map(x => x.kind === "w" ? { kind: kinds[wi++], word: x.entry }
     : x.kind === "c" ? { kind: cfg.reviewKinds[Math.floor(r() * cfg.reviewKinds.length)], unit: x.entry }
-    : { kind: pickScriptKind(scfg.reviewKinds, x.entry, scfg, r), unit: x.entry });
+    : { kind: pickScriptKind(scfg.reviewKinds, x.entry, scfg, r, sctx), unit: x.entry });
   return out.filter(it => it.kind);
 }
 // Unified Recall: the n weakest words and recorded units, weakest first; words as
@@ -1855,8 +1857,8 @@ function showScriptChoice(pack, units, prog){
 
 // ---- item kinds
 const hasEx = u => Array.isArray(u.ex) && u.ex.some(e => Array.isArray(e) && e[0] != null);
-// Whether a unit can carry an item of this kind at all.
-function scriptKindFits(kind, unit){
+// Whether a unit has the fields a kind needs (structure only; scriptItem's own check).
+function scriptKindShape(kind, unit){
   if(!isObj(unit)) return false;
   if(SCRIPT_SOUND_KINDS.includes(kind)) return unit.sound !== false && !!unit.roman;
   if(kind === "compose") return Array.isArray(unit.syll) && unit.syll.some(s => isObj(s) && s.t && Array.isArray(s.parts) && s.parts.length);
@@ -1864,18 +1866,41 @@ function scriptKindFits(kind, unit){
   if(kind === "formFind" || kind === "wordRead" || kind === "wordHear") return hasEx(unit);
   return false;
 }
-// The kind actually asked: wordHear is wordRead when the pack has no voice (tts false);
-// null when the unit cannot carry it.
-function scriptKindFor(kind, unit, cfg){
-  const k = kind === "wordHear" && cfg && !cfg.tts ? "wordRead" : kind;
-  return scriptKindFits(k, unit) ? k : null;
+const SCRIPT_MIN_OPTIONS = 4;
+// Whether a unit can carry an item of this kind. ctx (optional) = {units (every script
+// unit), byId | words, tts}: with it, an option kind (all but symType) also needs at least
+// SCRIPT_MIN_OPTIONS distinct options when distractors may come from every unit, else it
+// does not fit and the pickers move on to another kind. Word kinds are counted only when
+// ctx has the words (byId/words); without them only the structure is checked, as it is
+// without ctx.
+function scriptKindFits(kind, unit, ctx){
+  if(!scriptKindShape(kind, unit)) return false;
+  if(!isObj(ctx) || !Array.isArray(ctx.units) || kind === "symType") return true;
+  const hasWords = !!(ctx.byId || ctx.words);
+  if(!hasWords && (kind === "formFind" || kind === "wordRead" || kind === "wordHear")) return true;
+  const it = scriptItem(kind, unit, { units: ctx.units, pool: ctx.units, byId: ctx.byId, words: ctx.words, tts: ctx.tts, rng: () => 0 });
+  return Array.isArray(it.options) && it.options.length >= SCRIPT_MIN_OPTIONS;
+}
+// The kind actually asked: wordHear is wordRead when the pack has no voice (tts false, or
+// ctx.tts false); null when the unit cannot carry it (scriptKindFits, with ctx).
+function scriptKindFor(kind, unit, cfg, ctx){
+  const k = kind === "wordHear" && ((cfg && !cfg.tts) || (isObj(ctx) && ctx.tts === false)) ? "wordRead" : kind;
+  return scriptKindFits(k, unit, ctx) ? k : null;
 }
 // One fitting kind from `kinds` at random; else the first fitting of wordRead, symSound,
 // formMatch; else null (the unit is left out).
-function pickScriptKind(kinds, unit, cfg, rng){
-  const fit = [...new Set((kinds || []).map(k => scriptKindFor(k, unit, cfg)).filter(Boolean))];
+function pickScriptKind(kinds, unit, cfg, rng, ctx){
+  const fit = [...new Set((kinds || []).map(k => scriptKindFor(k, unit, cfg, ctx)).filter(Boolean))];
   if(fit.length) return fit[Math.floor((rng || Math.random)() * fit.length)];
-  return ["wordRead","symSound","formMatch"].find(k => scriptKindFits(k, unit)) || null;
+  return ["wordRead","symSound","formMatch"].find(k => scriptKindFits(k, unit, ctx)) || null;
+}
+// A text's writing system: the Unicode script of its first letter that has one of these
+// (Hiragana and Katakana are two), or "" when none does. Compose distractors never cross it.
+const SCRIPT_FAMILIES = ["Hangul","Hiragana","Katakana","Han","Cyrillic","Greek","Arabic","Hebrew","Devanagari","Bengali","Gurmukhi","Gujarati","Tamil","Telugu","Kannada","Malayalam","Thai","Lao","Georgian","Armenian","Ethiopic","Latin"]
+  .map(n => [n, new RegExp(`\\p{Script=${n}}`, "u")]);
+function scriptFamily(text){
+  for(const ch of String(text || "")){ const f = SCRIPT_FAMILIES.find(([, re]) => re.test(ch)); if(f) return f[0]; }
+  return "";
 }
 
 // ---- options
@@ -1987,7 +2012,7 @@ function scriptItem(kind, unit, ctx){
   const voice = c.tts !== false;
   if(!SCRIPT_KINDS.includes(kind)) throw new Error(`unknown script item kind ${kind}`);
   const k = kind === "wordHear" && !voice ? "wordRead" : kind;
-  if(!scriptKindFits(k, unit)) throw new Error(`script unit ${unit && unit.id} cannot carry a ${k} item`);
+  if(!scriptKindShape(k, unit)) throw new Error(`script unit ${unit && unit.id} cannot carry a ${k} item`);
   const glyph = scriptGlyph(unit), roman = String(unit.roman || "");
   const unitSay = voice && unit.say ? String(unit.say) : null, unitUrl = unit.audio ? String(unit.audio) : null;
   const unitAudio = !!(unitSay || unitUrl);
@@ -2011,13 +2036,17 @@ function scriptItem(kind, unit, ctx){
     const s = sy[Math.floor(r() * sy.length)];
     it.show = s.parts.map(String).join(" + "); it.answer = String(s.t);
     reveal.roman = String(s.roman || ""); reveal.syll = { t: String(s.t), parts: s.parts.map(String), roman: String(s.roman || "") };
-    const parts = new Set(s.parts.map(String));
-    const cand = list => list.filter(u => isObj(u) && u.st === unit.st && Array.isArray(u.syll)).flatMap(u => u.syll)
-      .filter(x => isObj(x) && x.t && String(x.t) !== it.answer && !(s.roman && x.roman && normKey(x.roman) === normKey(s.roman)));
+    // Distractor syllables, widening scope: the same set, the same stage, then any stage
+    // written in the same script (hiragana and katakana never mix). Within a scope: taught
+    // (pool) sharing a part, taught, any sharing a part, any.
+    const parts = new Set(s.parts.map(String)), fam = scriptFamily(it.answer);
+    const scopes = [u => u.st === unit.st && u.set === unit.set, u => u.st === unit.st, () => true];
+    const cand = (list, sc) => list.filter(u => isObj(u) && Array.isArray(u.syll) && sc(u)).flatMap(u => u.syll)
+      .filter(x => isObj(x) && x.t && String(x.t) !== it.answer && scriptFamily(x.t) === fam && !(s.roman && x.roman && normKey(x.roman) === normKey(s.roman)));
     const shares = x => Array.isArray(x.parts) && x.parts.some(p => parts.has(String(p)));
-    const used = new Set([it.answer]);
-    for(const list of [cand(pool).filter(shares), cand(pool), cand(all).filter(shares), cand(all)]){
-      for(const x of shuffle(list.slice(), r)){ if(others.length >= 3) break; if(!used.has(String(x.t))){ used.add(String(x.t)); others.push(String(x.t)); } }
+    const used = new Set([it.answer]), usedR = new Set([normKey(s.roman || "")]);
+    for(const list of scopes.flatMap(sc => [cand(pool, sc).filter(shares), cand(pool, sc), cand(all, sc).filter(shares), cand(all, sc)])){
+      for(const x of shuffle(list.slice(), r)){ if(others.length >= 3) break; const xr = normKey(x.roman || ""); if(!used.has(String(x.t)) && !(xr && usedR.has(xr))){ used.add(String(x.t)); if(xr) usedR.add(xr); others.push(String(x.t)); } }
     }
     if(voice){ it.audio = "after"; it.say = it.answer; }
   }
@@ -2051,17 +2080,18 @@ function scriptItem(kind, unit, ctx){
 // Learn step for a script set: per unit one item per pack learnKind that fits it. A
 // sound:false unit gets wordRead in place of the sound kinds; compose needs `syll`. A unit
 // no learnKind fits gets its first fitting kind, so every unit of the set is asked.
-function learnScriptPlan(set, pack){
+// ctx (optional): as scriptKindFits; with it, a kind that cannot get 4 options is skipped.
+function learnScriptPlan(set, pack, ctx){
   const cfg = scriptConfig(pack); if(!cfg) return [];
   const out = [];
   (set || []).forEach(unit => {
     const seen = new Set();
     cfg.learnKinds.forEach(k0 => {
-      let k = scriptKindFor(k0, unit, cfg);
-      if(!k && SCRIPT_SOUND_KINDS.includes(k0) && isObj(unit) && unit.sound === false) k = scriptKindFits("wordRead", unit) ? "wordRead" : null;
+      let k = scriptKindFor(k0, unit, cfg, ctx);
+      if(!k && SCRIPT_SOUND_KINDS.includes(k0) && isObj(unit) && unit.sound === false) k = scriptKindFits("wordRead", unit, ctx) ? "wordRead" : null;
       if(k && !seen.has(k)){ seen.add(k); out.push({ kind: k, unit }); }
     });
-    if(!seen.size){ const k = pickScriptKind(SCRIPT_KINDS, unit, cfg, () => 0); if(k) out.push({ kind: k, unit }); }
+    if(!seen.size){ const k = pickScriptKind(SCRIPT_KINDS, unit, cfg, () => 0, ctx); if(k) out.push({ kind: k, unit }); }
   });
   return out;
 }
@@ -2072,14 +2102,16 @@ function scriptReviewScore(rec, pack){
   return (p.s || 0) < (cfg ? cfg.mastered : SCRIPT_MASTERED) ? Math.max(sc, 0) : sc;
 }
 // Test tab's script practice: the n weakest recorded units, each with a kind drawn from
-// pack.script.testKinds among the kinds that fit it. [{kind, unit}].
-function scriptTestPlan(units, prog, pack, n, rng){
+// pack.script.testKinds among the kinds that fit it. [{kind, unit}]. ctx (optional): as
+// scriptKindFits; its units default to `units`, so option kinds are always counted.
+function scriptTestPlan(units, prog, pack, n, rng, ctx){
   const cfg = scriptConfig(pack); if(!cfg) return [];
+  const kctx = Object.assign({ units }, ctx || {});
   const rec = weakFirst(recordedScriptUnits(units, prog, pack), n, scriptRecs(prog), undefined, rng);
   const out = [];
   rec.forEach(unit => {
-    const w = {}; Object.keys(cfg.testKinds).forEach(k => { const f = scriptKindFor(k, unit, cfg); if(f) w[f] = (w[f] || 0) + cfg.testKinds[k]; });
-    const kind = Object.keys(w).length ? pickWeighted(w, rng) : pickScriptKind(cfg.reviewKinds, unit, cfg, rng);
+    const w = {}; Object.keys(cfg.testKinds).forEach(k => { const f = scriptKindFor(k, unit, cfg, kctx); if(f) w[f] = (w[f] || 0) + cfg.testKinds[k]; });
+    const kind = Object.keys(w).length ? pickWeighted(w, rng) : pickScriptKind(cfg.reviewKinds, unit, cfg, rng, kctx);
     if(kind) out.push({ kind, unit });
   });
   return out;
@@ -2441,7 +2473,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   SCRIPT_PROG_VERSION, SCRIPT_MASTERED, SCRIPT_SETS_PER_SESSION, REVIEW_SIZE_SCRIPT, SCRIPT_KINDS, scriptConfig,
   defaultScriptProg, validateScriptShape, normalizeScriptProg, ensureScript, scriptRecs, scriptSkipped, setScriptSkipped, answerScriptChoice,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
-  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindFits, scriptKindFor, pickScriptKind, scriptGlyph, scriptSecondRight,
+  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
   tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
