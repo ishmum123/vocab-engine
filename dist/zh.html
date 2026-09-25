@@ -1100,6 +1100,14 @@ function speechUsable(apiPresent, voices, lang){
   if(!voices || !voices.length) return true;
   return !!pickVoice(voices, lang);
 }
+// Samsung Internet on Android reports a voice via speechSynthesis for most
+// languages but never actually plays audio through it, so speechUsable()
+// (which only checks voice availability) misses it. Pure UA check, no pack
+// involvement: shown regardless of hasSpeech, every visit, no dismiss —
+// unlike the no-voice notice, the problem persists until the browser changes.
+function isSamsungBrowser(ua){
+  return /SamsungBrowser/i.test(String(ua||""));
+}
 
 // ------------------------------------------------------------------ audio
 // One shared playback slot for recorded audio. play(url) pauses whatever the slot played
@@ -1298,7 +1306,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,
-  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable,
+  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable, isSamsungBrowser,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
@@ -1403,7 +1411,16 @@ let ttsVoice = null, noticeShown = false;
 // language (once the list is known) means listening items fall back to reading.
 let hasSpeech = VC.speechUsable(speechAPI, [], TTS_LANG);
 if(speechAPI){
-  const pv = () => { const v = SS.getVoices(); ttsVoice = VC.pickVoice(v, TTS_LANG); hasSpeech = VC.speechUsable(speechAPI, v, TTS_LANG); };
+  // Some browsers report the voice list late (voiceschanged fires after first
+  // paint). When hasSpeech flips, re-render the current tab so speaker icons
+  // and hints catch up — skipped mid-drill (D set) so an in-progress answer
+  // isn't torn down under the learner.
+  const pv = () => {
+    const v = SS.getVoices(); ttsVoice = VC.pickVoice(v, TTS_LANG);
+    const was = hasSpeech;
+    hasSpeech = VC.speechUsable(speechAPI, v, TTS_LANG);
+    if(hasSpeech !== was && !D) render();
+  };
   pv(); SS.onvoiceschanged = pv;
 }
 // Speaks text via TTS, or plays audioUrl if given (sentence.audio). btn, if given,
@@ -1444,6 +1461,11 @@ function speechNotice(){
   noticeShown = true;
   return `<div class="warn">This browser has no text-to-speech voice for this language, so listening items show the word instead of playing audio.</div>`;
 }
+// Shown every visit on Today (no dismiss, since the problem persists until the
+// learner switches browser), unlike speechNotice() above which is a one-time,
+// any-page notice keyed off hasSpeech.
+const samsungNoticeHTML = VC.isSamsungBrowser(navigator.userAgent)
+  ? `<div class="warn">Audio doesn't play in Samsung Internet. Open this page in Chrome or Firefox to hear the words.</div>` : "";
 
 // ===================== speaker icon =====================
 function speakerSVG(size){
@@ -1607,7 +1629,8 @@ function exampleSentencesHTML(entry){
 }
 function revealBlock(entry){
   const p = pronOf(entry);
-  return `<div data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"><div class="rw"${TA}>${escapeHtml(entry.w)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
+  const icon = hasSpeech ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
+  return `<div${hasSpeech ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(entry.w)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
 }
 const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
 // hear — TTS plays the word; pick the meaning. Without speech it degrades to read.
@@ -1655,7 +1678,9 @@ function missSummary(miss){
 // ===================== sentence drill items =====================
 function sentenceRevealBlock(s){
   const p = pronOf(s);
-  return `<div data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"><div class="rw"${TA}>${escapeHtml(s.t)} <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span></div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  const canHear = canHearSentence(s);
+  const icon = canHear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
+  return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(s.t)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
 }
 const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
 function readSentence(s){
@@ -1759,8 +1784,8 @@ function todayRender(){
   const showSoundsHint = HAS_LESSONS && !prog.soundsOpened;
   refreshReadUnlocks();
   const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
-  P.innerHTML = `<div class="drill-body top">${pathStrip()}
-    ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
+  P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${pathStrip()}
+    ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
     ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${tw(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
@@ -1832,14 +1857,14 @@ function wordRowHTML(w, cls){
 function vocabTeach(list, lv, onDrill){
   setScore(0,0);
   const P = $("panel");
-  P.innerHTML = `<p class="q">${escapeHtml(levelLabel(lv))}, new set. Tap a word to hear it.</p>
+  const hint = hasSpeech ? " Tap a word to hear it." : "";
+  P.innerHTML = `<p class="q">${escapeHtml(levelLabel(lv))}, new set.${hint}</p>
     <div id="tl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
   const tl = $("tl");
   list.forEach(w => {
     const row = document.createElement("div"); row.className = "rowset";
-    row.innerHTML = `${wordRowHTML(w, "rowset")}<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>`;
-    row.onclick = () => say(w.w);
-    row.style.cursor = "pointer";
+    row.innerHTML = `${wordRowHTML(w, "rowset")}${hasSpeech ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}`;
+    if(hasSpeech){ row.onclick = () => say(w.w); row.style.cursor = "pointer"; }
     tl.appendChild(row);
     const exHtml = exampleSentencesHTML(w);
     if(exHtml){
@@ -1919,9 +1944,9 @@ function wordsRender(){
 }
 function wordListInto(wl, list){
   list.forEach(w => {
-    const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
+    const row = document.createElement("div"); row.className = "wl";
     row.innerHTML = wordRowHTML(w, "wl");
-    row.onclick = () => say(w.w);
+    if(hasSpeech){ row.style.cursor = "pointer"; row.onclick = () => say(w.w); }
     wl.appendChild(row);
   });
 }

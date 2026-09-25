@@ -460,6 +460,11 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   check("speechUsable: no API -> false; unknown voice list -> true; list without the language -> false",
     !VC.speechUsable(false, voices, "it-IT") && VC.speechUsable(true, [], "es-ES") && !VC.speechUsable(true, voices, "es-ES") && VC.speechUsable(true, voices, "it-IT"));
   check("escapeHtml escapes single quotes", VC.escapeHtml(`a'b"<`) === "a&#39;b&quot;&lt;");
+  check("isSamsungBrowser: matches SamsungBrowser UA case-insensitively, not other Android/Chrome UAs",
+    VC.isSamsungBrowser("Mozilla/5.0 (Linux; Android 13) SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile Safari/537.36") &&
+    VC.isSamsungBrowser("...samsungbrowser/1.0...") &&
+    !VC.isSamsungBrowser("Mozilla/5.0 (Linux; Android 13) Chrome/115.0.0.0 Mobile Safari/537.36") &&
+    !VC.isSamsungBrowser(undefined));
 })();
 
 // ------------------------------------------------------------ [14] validator (minor 7, nit 15)

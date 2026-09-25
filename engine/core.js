@@ -894,6 +894,14 @@ function speechUsable(apiPresent, voices, lang){
   if(!voices || !voices.length) return true;
   return !!pickVoice(voices, lang);
 }
+// Samsung Internet on Android reports a voice via speechSynthesis for most
+// languages but never actually plays audio through it, so speechUsable()
+// (which only checks voice availability) misses it. Pure UA check, no pack
+// involvement: shown regardless of hasSpeech, every visit, no dismiss —
+// unlike the no-voice notice, the problem persists until the browser changes.
+function isSamsungBrowser(ua){
+  return /SamsungBrowser/i.test(String(ua||""));
+}
 
 // ------------------------------------------------------------------ audio
 // One shared playback slot for recorded audio. play(url) pauses whatever the slot played
@@ -1092,7 +1100,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,
-  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable,
+  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable, isSamsungBrowser,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
