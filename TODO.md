@@ -72,6 +72,7 @@
 - Persian has no TTS on Apple/Windows/Google TTS and no Tatoeba clips, so the speaker is hidden for most users; Indonesian has no voice on Apple devices; Urdu will be the same. Option: render words + sentences offline with Piper (fa_IR voices, permissive licence) to Opus (~50–80 MB per pack) and serve from each repo's Pages site. Pack already carries per-sentence `audio`; word audio needs a small engine addition. Also: show a one-line "no voice for this language" note instead of silently hiding the speaker.
 
 ## Large items (user 2026-09-25; order revised 09:10 the same day)
+Update 2026-09-25 14:35 (user): items 1 (hsk merge, design first in docs/HSK_MERGE.md) and 1b (Chinese passages: hooks + authoring) START NOW, in parallel with the Japanese publish/passages. Final hsk switch still last.
 Order: (a) live-language follow-ups + Japanese/Korean live with passages,
 (b) merge hsk's post-fork features INTO the engine (section 1 below, minus the
 final switch), (c) Arabic, Hindi, Urdu, (d) switch hsk onto the engine
