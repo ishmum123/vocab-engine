@@ -115,7 +115,8 @@
    "charRead": 40,
    "charSound": 30,
    "charPick": 30
-  }
+  },
+  "compose": true
  },
  "legacy": {
   "key": "hsk_pinyin",

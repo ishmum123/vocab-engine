@@ -1152,6 +1152,7 @@ function charsConfig(pack){
     learnKinds: kinds(c.learnKinds, ["charPick","charRead"]),
     reviewKinds: kinds(c.reviewKinds, ["charRead","charSound"]),
     testKinds: testKinds(c.testKinds),
+    compose: c.compose === true,
   };
 }
 // pack.characters.testKinds: {kind: weight} for the Test tab's Characters N (the predecessor app's mix,
@@ -1459,6 +1460,35 @@ function sentencePieces(sentence, toks, blank, cuts){
   for(let i = out.length - 1; i >= 0; i--){ const p = out[i]; if(p.kind === "text"){ p.text = p.text.replace(/\s+$/, ""); if(p.text) break; } else break; }
   return out;
 }
+// Whether ruby tokens ([{start, end}], UTF-16 offsets) cover every Han character of text t:
+// the characters that need a reading to be shown with ruby. Kana, Latin letters, digits and
+// punctuation are readable as written. sentenceDisplay shows a sentence with ruby only when
+// this holds; unitExampleSentences prefers such sentences.
+function rubyCovers(t, toks){
+  const cov = new Array(t.length).fill(false);
+  (toks || []).forEach(k => { for(let i = Math.max(0, k.start); i < Math.min(t.length, k.end); i++) cov[i] = true; });
+  for(let i = 0; i < t.length; i++){ if(!cov[i]){ const cp = t.codePointAt(i); if(HAN_RE.test(String.fromCodePoint(cp))) return false; if(cp > 0xFFFF) i++; } }
+  return true;
+}
+// A characters-stage teach card's examples for unit (its word `word`): exampleSentences'
+// order within three tiers. First, sentences with a ruby token of the unit's own word
+// (unit.words) whose ruby covers every Han character (rubyCovers): they can show the
+// unit written with its reading, under pack.pronFirst too. Then sentences with the
+// unit's token but uncovered characters, then the rest. Without pack.characters it is
+// exampleSentences.
+function unitExampleSentences(unit, word, sentences, pack, n){
+  if(!word) return [];
+  const all = exampleSentences(word, sentences, pack, Infinity);
+  if(!charsConfig(pack)) return all.slice(0, n);
+  const own = new Set((unit && unit.words) || []);
+  const tiers = [[], [], []];
+  all.forEach(s => {
+    const r = Array.isArray(s.ruby) ? s.ruby.filter(Array.isArray) : [];
+    const tk = r.map(k => ({ start: k[0], end: k[1] }));
+    tiers[!r.some(k => own.has(k[3])) ? 2 : rubyCovers(String(s.t || ""), tk) ? 0 : 1].push(s);
+  });
+  return [...tiers[0], ...tiers[1], ...tiers[2]].slice(0, n);
+}
 // A sentence under pack.pronFirst: how to show it. null when pron display is off (the
 // caller renders as without it). Else {mode, pieces?, text?}:
 //  "pieces": ruby tokens by tier (sentencePieces), when every Han character of the text
@@ -1475,13 +1505,7 @@ function sentenceDisplay(sentence, units, prog, pack, started, blank, written){
   const ws = new Set(written || []);
   const rt = rubyTiers(sentence, units, prog, pack, started);
   const toks = rt && rt.map(k => k.tier === "pron" && ws.has(k.wordId) ? Object.assign({}, k, { tier:"ruby" }) : k);
-  if(toks){
-    const cov = new Array(t.length).fill(false);
-    toks.forEach(k => { for(let i = Math.max(0, k.start); i < Math.min(t.length, k.end); i++) cov[i] = true; });
-    let leak = false;
-    for(let i = 0; i < t.length && !leak; i++){ if(!cov[i]){ const cp = t.codePointAt(i); if(HAN_RE.test(String.fromCodePoint(cp))) leak = true; if(cp > 0xFFFF) i++; } }
-    if(!leak) return { mode:"pieces", pieces: sentencePieces(sentence, toks, blank) };
-  }
+  if(toks && rubyCovers(t, toks)) return { mode:"pieces", pieces: sentencePieces(sentence, toks, blank) };
   if(!HAN_RE.test(t)) return { mode:"text" };
   if(blank) return null;
   return sentence.pron ? { mode:"pron", text: String(sentence.pron) } : { mode:"text" };
@@ -1825,12 +1849,15 @@ function joinReadings(a, b, pack){
 }
 // The reading of a tap span whose text may be longer than its word (越来越 for 越, 一下 for
 // 下). Returns pieces [{start, end, reading}] covering text in order, offsets relative to
-// text: each occurrence of the word's written form gets word.pron, every other character
-// readingOf(char) (e.g. its single-character unit's reading), and a character with no
-// reading gets reading "" (shown written). Adjacent read pieces are merged with
-// joinReadings, as are adjacent written ones. No character is ever dropped.
+// text: each occurrence of the word's written form gets word.pron. Every other character
+// gets readingOf(char) (e.g. its single-character unit's reading) only when the pack opts
+// in with pack.characters.compose (a character reads the same in every word, as each
+// character unit has one reading); otherwise, and for a character with no reading, it gets
+// reading "" (shown written): a reading is never guessed. Adjacent read pieces are merged
+// with joinReadings, as are adjacent written ones. No character is ever dropped.
 function composeSpanReading(text, word, readingOf, pack){
   const t = String(text == null ? "" : text); const w = String((word && word.w) || ""); const wp = String((word && word.pron) || "");
+  const cfg = charsConfig(pack); if(!(cfg && cfg.compose)) readingOf = null;
   const raw = []; let i = 0;
   while(i < t.length){
     if(w && wp && t.startsWith(w, i)){ raw.push({ start: i, end: i + w.length, reading: wp }); i += w.length; continue; }
@@ -1976,7 +2003,7 @@ function migrateLegacy(pack, legacyMap, oldRecord){
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
-  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
+  meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, unitExampleSentences, rubyCovers, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
   targetLang, fontFamilyOf, lineHeightOf, fontsHref, scriptDisplay,
   foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,

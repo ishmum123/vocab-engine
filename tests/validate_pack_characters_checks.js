@@ -299,6 +299,21 @@ console.log("Checking tools/validate_pack.py characters/legacy/ruby cases (Node 
   }
 })();
 
+// ------------------------------------------------------------ pack.characters.compose
+(function(){
+  const words = baseWords();
+  const run = v => {
+    const d = mkPack({ pack: basePack({ characters: Object.assign(baseCharacters(), { compose: v }) }), words });
+    fs.writeFileSync(path.join(d, "characters.json"), JSON.stringify(baseCharUnits(words)));
+    return runValidate(d);
+  };
+  for(const v of [true, false]){ const r = run(v); check(`accepts: characters.compose ${v}`, r.status === 0, r.out); }
+  for(const [name, v] of [["a string", "yes"], ["a number", 1], ["null", null]]){
+    const r = run(v);
+    check(`rejects: characters.compose ${name}`, r.status !== 0 && /characters\.compose must be a boolean/.test(r.out), r.out);
+  }
+})();
+
 // ------------------------------------------------------------ B8: passages[].sentences[].ruby
 (function(){
   const words = baseWords();

@@ -489,7 +489,8 @@ const twReading = s => TONES ? `<bdi${TA}>${VC.toneHTML(s)}</bdi>` : tw(s); // t
 // pack.typing "pron": the production slot types the word's reading (pronTypeItem).
 const PRON_TYPING = VC.pronTypingOn(PACK);
 // Reading of one written character (a single-character unit's reading), for tap spans
-// longer than their word (VC.composeSpanReading). First unit in file order wins.
+// longer than their word (VC.composeSpanReading, used only with pack.characters.compose).
+// First unit in file order wins.
 const CHAR_READING = new Map();
 CHAR_LIST.forEach(u => { const t = String((u && u.t) || ""); if([...t].length === 1 && !CHAR_READING.has(t)){ const r = VC.unitReading(u, WORDS_BY_ID); if(r) CHAR_READING.set(t, r); } });
 const charReading = c => CHAR_READING.get(c) || "";
@@ -1193,7 +1194,7 @@ function charTeach(cs, stage, onDrill){
   const cards = cs.units.map(u => {
     const w = VC.unitWord(u, WORDS_BY_ID), reading = VC.unitReading(u, WORDS_BY_ID);
     const tap = hasSpeech && w;
-    const ex = w ? wordExampleSentences(w, 1) : [];
+    const ex = VC.unitExampleSentences(u, w, SENTENCES, PACK, 1); // prefers one showing the unit written with ruby
     return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${readingHTML(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w, u.words)).join("")}</div>`;
   }).join("");
   P.innerHTML = `<p class="q">${tw(stage.label)}, set ${cs.index+1} of ${cs.total}: the written form of words you already know.${hint}</p>
@@ -1404,8 +1405,9 @@ function passageRubyHTML(t, toks, a, b){
 // (VC.rubyTiers); without it each linked word is one token, its reading while its unit
 // is below mastered (displayForm), else its written form. A span longer than its word
 // (这个 for 这, 越来越 for 越) reads as VC.composeSpanReading: the word's pron where its
-// written form occurs, each other character's single-character unit reading, and a
-// character with no reading stays written, so no character is ever dropped. Text outside
+// written form occurs, each other character its single-character unit reading when the
+// pack sets characters.compose, else (and with no reading) written, so no character is
+// ever dropped or given a guessed reading. Text outside
 // every token (a name with no word) stays as written: there is no reading for it.
 // taps: "pw" wraps linked words as data-pw tap spans (the Read screen, logged as
 // tapped), "tok" as word taps (tokTapHTML: question reveals and results, no log), false

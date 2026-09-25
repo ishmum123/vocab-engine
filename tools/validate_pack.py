@@ -234,6 +234,8 @@ def check_characters_pack(pack, level_ids, rep):
         tk = ch["testKinds"]
         if not (isinstance(tk, dict) and tk and all(k in CHAR_KINDS and is_num(v) and 0 < v < float("inf") for k, v in tk.items())):
             rep.err(f"pack.characters.testKinds must be a non-empty object {{kind: positive weight}} with kinds from {CHAR_KINDS}")
+    if "compose" in ch and not is_bool(ch["compose"]):
+        rep.err("pack.characters.compose must be a boolean")
     return covered
 
 

@@ -204,6 +204,9 @@ def main(argv):
             "learnKinds": ["charPick", "charRead"],
             "reviewKinds": ["charRead", "charSound"],
             "testKinds": {"charRead": 40, "charSound": 30, "charPick": 30},
+            # A hanzi's unit has one reading, so a passage span longer than its word may
+            # read its other characters per character (docs/PACK_SCHEMA.md "characters").
+            "compose": True,
         },
         "legacy": {"key": "hsk_pinyin", "format": "hsk-v2"},
         # Pronunciation first (docs/HSK_MERGE.md §8, 2026-09-25): a word is shown by its
