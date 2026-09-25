@@ -1250,6 +1250,8 @@ $("themebtn").onclick = () => {
 // harness), and harmlessly fails in dev mode over http (no sw.js next to app.html).
 // A new build activates in the background; the page keeps running and a toast offers a
 // reload. On a first visit (no controller yet) the worker taking control is not an update.
+// Registered after window load, so a first visit's install (which fetches the page again
+// to precache it) never competes with boot.
 (function(){
   if(typeof navigator === "undefined" || !navigator.serviceWorker) return;
   if(typeof location === "undefined" || !/^https?:$/.test(location.protocol)) return;
@@ -1262,7 +1264,8 @@ $("themebtn").onclick = () => {
     t.onclick = () => location.reload();
     document.body.appendChild(t);
   });
-  sw.register("sw.js").catch(() => {});
+  const reg = () => { sw.register("sw.js").catch(() => {}); };
+  if(document.readyState === "complete") reg(); else window.addEventListener("load", reg);
 })();
 </script>
 </body>

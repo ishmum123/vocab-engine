@@ -1262,6 +1262,8 @@ const appBootChecks = (async function(){
       VocabCore: VC,
       speechSynthesis: ss,
       SpeechSynthesisUtterance: function(){},
+      _l: {}, addEventListener(t, f){ (this._l[t] = this._l[t] || []).push(f); },
+      fire(t){ (this._l[t] || []).forEach(f => f({})); },
     };
     const navigator = (env && env.navigator) || { userAgent: "EngineChecks/1.0" };
     const location = env ? env.location : undefined;
@@ -1281,7 +1283,7 @@ return {
 };`;
     const fn = new Function("document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS", fnBody);
     const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, pack, WORDS, SENTENCES, LESSONS);
-    return { api, document, ss, setItemCalls };
+    return { api, document, ss, setItemCalls, window };
   }
   async function bootApp(getVoicesResult, env){
     const boot = bootAppSync(getVoicesResult, env);
@@ -1433,12 +1435,15 @@ return {
     const { document } = await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x" }, location: { protocol:"https:" } });
     check("sw: no navigator.serviceWorker (old browser / Node) -> boot does not throw", document.getElementById("htitle").textContent === "Today");
     const swFile = fakeSw(null);
-    await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x", serviceWorker: swFile }, location: { protocol:"file:" } });
+    const fileBoot = await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x", serviceWorker: swFile }, location: { protocol:"file:" } });
+    fileBoot.window.fire("load");
     check("sw: file:// -> sw.js is not registered", swFile.calls.length === 0);
     const swFirst = fakeSw(null);
     const first = await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x", serviceWorker: swFirst }, location: { protocol:"https:" } });
+    check("sw: not registered during parse/boot (waits for window load)", swFirst.calls.length === 0);
+    first.window.fire("load");
     await tick();
-    check("sw: https -> registers the sibling sw.js (relative URL); a failed registration is swallowed", swFirst.calls.length === 1 && swFirst.calls[0] === "sw.js");
+    check("sw: https, after load -> registers the sibling sw.js (relative URL); a failed registration is swallowed", swFirst.calls.length === 1 && swFirst.calls[0] === "sw.js");
     swFirst.fire("controllerchange");
     check("sw: first install taking control shows no update toast", first.document.getElementById("swtoast") === null);
     const swUpd = fakeSw({});
@@ -1450,84 +1455,149 @@ return {
 })();
 
 // ------------------------------------------------------------ [24] service worker
-// Runs the sw.js build.sh writes against a simulated worker global: a Map-backed
-// CacheStorage and a fetch that can be switched offline. Responses are Node's real
+// Runs the sw.js build.sh writes (and engine/sw.disable.js) against a simulated worker
+// global: a Map-backed CacheStorage and a scriptable fetch. Responses are Node's real
 // Response; Request is a stub (Node's rejects cache:"reload").
+function swSim(src, scope){
+  const store = new Map();
+  const cacheFor = n => { if(!store.has(n)) store.set(n, new Map()); const m = store.get(n);
+    return { match: async k => { const r = m.get(typeof k === "string" ? k : k.url); return r ? r.clone() : undefined; },
+             put: async (k, r) => { m.set(typeof k === "string" ? k : k.url, r); } }; };
+  const sim = { store, fetched: [], net: null, unregistered: false, cacheFails: false, L: {} };
+  sim.caches = { open: async n => { if(sim.cacheFails) throw new Error("cache broken"); return cacheFor(n); },
+    keys: async () => [...store.keys()], delete: async n => store.delete(n) };
+  const fetch = async req => { const u = typeof req === "string" ? req : req.url; sim.fetched.push({ u, cache: req.cache });
+    if(!sim.net) throw new TypeError("Failed to fetch"); return sim.net(u); };
+  class Req { constructor(u, init){ this.url = u; this.cache = init && init.cache; this.method = "GET"; this.mode = "cors"; } }
+  const self = { location: new URL(scope + "sw.js"), registration: { scope, unregister: async () => { sim.unregistered = true; return true; } },
+    addEventListener: (t, f) => { sim.L[t] = f; }, skipWaiting: async () => {}, clients: { claim: async () => {} } };
+  new Function("self", "caches", "fetch", "Request", "Response", "URL", src)(self, sim.caches, fetch, Req, Response, URL);
+  sim.until = async t => { let w; sim.L[t]({ waitUntil: p => { w = p; } }); await w; };
+  sim.go = async (u, mode, method) => { let r = null;
+    sim.L.fetch({ request: { url: u, method: method || "GET", mode: mode || "no-cors" }, respondWith: p => { r = p; } });
+    return r ? await r : undefined; };
+  return sim;
+}
 async function swChecks(){
-  console.log("\n[24] service worker: build.sh sw.js emission, cache naming, fetch strategy");
+  console.log("\n[24] service worker: build.sh sw.js emission, build marker, cache naming, fetch strategy, kill switch, check_site.sh");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vocab_engine_sw_"));
   try{
-    cp.execSync(`sh build.sh packs/zh "${path.join(dir, "index.html")}"`, { cwd: ROOT, stdio: "pipe" });
+    const page = path.join(dir, "index.html");
+    cp.execSync(`sh build.sh packs/zh "${page}"`, { cwd: ROOT, stdio: "pipe" });
     const src = fs.readFileSync(path.join(dir, "sw.js"), "utf8");
-    const ck = cp.execSync(`cksum < "${path.join(dir, "index.html")}"`).toString().trim().split(/\s+/);
+    const html = fs.readFileSync(page, "utf8");
+    const lines = html.split("\n"); // ends "...</html>\n<!--ve-build:ID-->\n"
+    const body = lines.slice(0, -2).join("\n") + "\n";
+    fs.writeFileSync(path.join(dir, "body.html"), body);
+    const ck = cp.execSync(`cksum < "${path.join(dir, "body.html")}"`).toString().trim().split(/\s+/);
     const build = `${ck[0]}-${ck[1]}`;
     check("build.sh writes sw.js next to the page with every placeholder filled", !/__VE_/.test(src));
-    check("sw.js build id is the POSIX cksum (crc-size) of the built page; page name is the output file name",
+    check("sw.js build id is the POSIX cksum (crc-size) of the page before its marker; page name is the output file name",
       src.includes(`const BUILD = "${build}";`) && src.includes(`const PAGE = "index.html";`));
+    check("the built page ends with its build marker line", lines[lines.length - 2] === `<!--ve-build:${build}-->` && lines[lines.length - 1] === "");
     let parses = true; try{ new Function(src); }catch(e){ parses = false; }
     check("sw.js parses", parses);
+    check("sw.js has no pack/*.js route (packs are inlined into the page)", !/pack\//.test(src.replace(/^\/\/.*$/gm, "")));
 
     // Any change to the page changes the build id: one extra comment line in pack.js.
     const pk = path.join(dir, "pack"); fs.cpSync(ZH, pk, { recursive: true });
     fs.appendFileSync(path.join(pk, "pack.js"), "\n// changed\n");
     const d2 = path.join(dir, "b2"); fs.mkdirSync(d2);
     cp.execSync(`sh build.sh "${pk}" "${path.join(d2, "index.html")}"`, { cwd: ROOT, stdio: "pipe" });
-    const src2 = fs.readFileSync(path.join(d2, "sw.js"), "utf8");
-    const b2 = (src2.match(/const BUILD = "([^"]+)"/) || [])[1];
+    const b2 = (fs.readFileSync(path.join(d2, "sw.js"), "utf8").match(/const BUILD = "([^"]+)"/) || [])[1];
     check("changing index.html changes the sw.js cache id", !!b2 && b2 !== build);
     const bad = cp.spawnSync("sh", ["build.sh", "packs/zh", path.join(dir, 'a"b.html')], { cwd: ROOT, encoding: "utf8" });
     check("build.sh refuses an output name that is unsafe to embed in sw.js, before writing anything",
       bad.status !== 0 && !fs.existsSync(path.join(dir, 'a"b.html')));
 
-    const ORIGIN = "https://ishmum123.github.io", SCOPE = ORIGIN + "/german/";
-    const store = new Map();
-    const cacheFor = n => { if(!store.has(n)) store.set(n, new Map()); const m = store.get(n);
-      return { match: async k => { const r = m.get(typeof k === "string" ? k : k.url); return r ? r.clone() : undefined; }, put: async (k, r) => { m.set(typeof k === "string" ? k : k.url, r); } }; };
-    const caches = { open: async n => cacheFor(n), keys: async () => [...store.keys()], delete: async n => store.delete(n) };
-    let offline = false; const fetched = [];
-    const fetch = async req => { const u = typeof req === "string" ? req : req.url; fetched.push({ u, cache: req.cache });
-      if(offline) throw new TypeError("Failed to fetch"); return new Response("net:" + u, { status: 200 }); };
-    class Req { constructor(u, init){ this.url = u; this.cache = init && init.cache; this.method = "GET"; this.mode = "cors"; } }
-    const L = {};
-    const self = { location: new URL(SCOPE + "sw.js"), registration: { scope: SCOPE },
-      addEventListener: (t, f) => { L[t] = f; }, skipWaiting: async () => {}, clients: { claim: async () => {} } };
-    new Function("self", "caches", "fetch", "Request", "Response", "URL", src)(self, caches, fetch, Req, Response, URL);
+    const ORIGIN = "https://ishmum123.github.io", SCOPE = ORIGIN + "/german/", PAGE_URL = SCOPE + "index.html";
+    const MARK = `<!--ve-build:${build}-->`;
     const CACHE = `ve:/german/:${build}`;
-    store.set("ve:/german:old", new Map()); // not this site's prefix (no trailing slash)
-    store.set("ve:/german/:old", new Map()); store.set("ve:/french/:old", new Map()); store.set("unrelated", new Map());
-    const until = async (t) => { let w; L[t]({ waitUntil: p => { w = p; } }); await w; };
-    await until("install");
-    check("install precaches the page into ve:<scope path>:<build id>, bypassing the HTTP cache",
-      store.has(CACHE) && store.get(CACHE).has(SCOPE + "index.html") && fetched.some(f => f.u === SCOPE + "index.html" && f.cache === "reload"));
-    await until("activate");
+    const pageNet = (bodyText, opts) => u => { const r = new Response(u === PAGE_URL || u === SCOPE ? bodyText : "net:" + u, { status: (opts && opts.status) || 200 });
+      if(opts && opts.redirected) Object.defineProperty(r, "redirected", { value: true }); return r; };
+    const good = "page " + MARK, stale = "page <!--ve-build:0-1-->";
+
+    // Stale CDN edge: install must reject and store nothing, so it retries later.
+    const s0 = swSim(src, SCOPE); s0.net = pageNet(stale);
+    let rejected = false; try{ await s0.until("install"); }catch(e){ rejected = true; }
+    check("install: a page without this build's marker (stale edge) rejects and caches nothing",
+      rejected && (!s0.store.has(CACHE) || s0.store.get(CACHE).size === 0));
+    const s0b = swSim(src, SCOPE); s0b.net = pageNet(good, { status: 404 });
+    let rej404 = false; try{ await s0b.until("install"); }catch(e){ rej404 = true; }
+    check("install: a non-200 page rejects and caches nothing", rej404 && (!s0b.store.has(CACHE) || s0b.store.get(CACHE).size === 0));
+
+    const sim = swSim(src, SCOPE); sim.net = pageNet(good);
+    sim.store.set("ve:/german:old", new Map()); // not this site's prefix (no trailing slash)
+    sim.store.set("ve:/german/:old", new Map()); sim.store.set("ve:/french/:old", new Map()); sim.store.set("unrelated", new Map());
+    await sim.until("install");
+    check("install: page with this build's marker is precached into ve:<scope path>:<build id>, bypassing the HTTP cache",
+      sim.store.has(CACHE) && sim.store.get(CACHE).has(PAGE_URL) && sim.fetched.some(f => f.u === PAGE_URL && f.cache === "reload"));
+    await sim.until("activate");
     check("activate deletes only this site's caches with another build id (other language sites' caches kept)",
-      !store.has("ve:/german/:old") && store.has("ve:/french/:old") && store.has("ve:/german:old") && store.has("unrelated") && store.has(CACHE));
-    const go = async (u, mode, method) => { let r = null;
-      L.fetch({ request: { url: u, method: method || "GET", mode: mode || "no-cors" }, respondWith: p => { r = p; } });
-      return r ? await r : undefined; };
-    offline = true;
-    const nav = await go(SCOPE, "navigate");
-    const navIdx = await go(SCOPE + "index.html?x=1", "navigate");
+      !sim.store.has("ve:/german/:old") && sim.store.has("ve:/french/:old") && sim.store.has("ve:/german:old") && sim.store.has("unrelated") && sim.store.has(CACHE));
+    sim.net = null; // offline
+    const nav = await sim.go(SCOPE, "navigate");
+    const navIdx = await sim.go(SCOPE + "index.html?x=1", "navigate");
     check("offline: navigating to the site root and to index.html (with a query) serves the cached page",
-      !!nav && (await nav.text()) === "net:" + SCOPE + "index.html" && !!navIdx && (await navIdx.text()) === "net:" + SCOPE + "index.html");
-    const other = await go(SCOPE + "missing/page", "navigate");
-    check("offline: any other in-scope navigation falls back to the cached page", !!other && (await other.text()) === "net:" + SCOPE + "index.html");
+      !!nav && (await nav.text()) === good && !!navIdx && (await navIdx.text()) === good);
+    const other = await sim.go(SCOPE + "missing/page", "navigate");
+    check("offline: any other in-scope navigation falls back to the cached page", !!other && (await other.text()) === good);
     check("cross-origin (Google Fonts, tatoeba.org audio) is never intercepted",
-      (await go("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans")) === undefined &&
-      (await go("https://fonts.gstatic.com/s/x.woff2")) === undefined &&
-      (await go("https://audio.tatoeba.org/sentences/eng/1.mp3")) === undefined);
+      (await sim.go("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans")) === undefined &&
+      (await sim.go("https://fonts.gstatic.com/s/x.woff2")) === undefined &&
+      (await sim.go("https://audio.tatoeba.org/sentences/eng/1.mp3")) === undefined);
     check("same origin outside this site's scope, and non-GET, are not intercepted",
-      (await go(ORIGIN + "/french/index.html", "navigate")) === undefined && (await go(SCOPE + "index.html", "navigate", "POST")) === undefined);
-    offline = false; fetched.length = 0;
-    const p1 = await go(SCOPE + "pack/words.js");
-    offline = true;
-    const p2 = await go(SCOPE + "pack/words.js");
-    check("pack/*.js: cache-first, filled on first fetch, served offline afterwards",
-      !!p1 && fetched.length === 1 && !!p2 && (await p2.text()) === "net:" + SCOPE + "pack/words.js");
-    offline = false; fetched.length = 0;
-    await go(SCOPE, "navigate");
-    check("online: the page is still served from cache (no network hit)", fetched.length === 0);
-    check("other same-origin non-navigation requests pass through untouched", (await go(SCOPE + "LICENSE")) === undefined);
+      (await sim.go(ORIGIN + "/french/index.html", "navigate")) === undefined && (await sim.go(PAGE_URL, "navigate", "POST")) === undefined);
+    check("pack/*.js and other same-origin non-navigation requests pass through untouched",
+      (await sim.go(SCOPE + "pack/words.js")) === undefined && (await sim.go(SCOPE + "LICENSE")) === undefined);
+    sim.net = pageNet(good); sim.fetched.length = 0;
+    await sim.go(SCOPE, "navigate");
+    check("online: the page is still served from cache (no network hit)", sim.fetched.length === 0);
+
+    // Cache-miss path (cache evicted): network response served; stored only if it is this build.
+    const miss = async (net) => { const m = swSim(src, SCOPE); m.net = net;
+      const r = await m.go(SCOPE, "navigate"); return { text: r ? await r.text() : null, stored: m.store.has(CACHE) && m.store.get(CACHE).has(PAGE_URL) }; };
+    const mGood = await miss(pageNet(good)), mStale = await miss(pageNet(stale)), mRedir = await miss(pageNet(good, { redirected: true }));
+    check("cache miss: this build's page is served and stored", mGood.text === good && mGood.stored);
+    check("cache miss: a stale-edge page is served but never stored", mStale.text === stale && !mStale.stored);
+    check("cache miss: a redirected response is served but never stored", mRedir.text === good && !mRedir.stored);
+    const broken = swSim(src, SCOPE); broken.net = pageNet(good); broken.cacheFails = true;
+    const br = await broken.go(SCOPE, "navigate");
+    check("a failing Cache API (caches.open rejects) falls back to the network for the page", !!br && (await br.text()) === good);
+
+    // Kill switch: engine/sw.disable.js deletes only this site's caches and unregisters.
+    const dsrc = fs.readFileSync(path.join(ROOT, "engine", "sw.disable.js"), "utf8");
+    const ks = swSim(dsrc, SCOPE);
+    ["ve:/german/:" + build, "ve:/german/:old", "ve:/french/:x", "unrelated"].forEach(k => ks.store.set(k, new Map()));
+    ks.L.install({});
+    await ks.until("activate");
+    check("sw.disable.js: deletes every ve:<this scope>: cache, keeps other sites' caches, unregisters, has no fetch handler",
+      !ks.store.has("ve:/german/:" + build) && !ks.store.has("ve:/german/:old") && ks.store.has("ve:/french/:x") && ks.store.has("unrelated") &&
+      ks.unregistered && !ks.L.fetch);
+
+    // tools/check_site.sh against a throwaway language repo.
+    const repo = path.join(dir, "repo"); fs.mkdirSync(repo);
+    fs.cpSync(ZH, path.join(repo, "pack"), { recursive: true });
+    const gitc = (args) => cp.execSync(`git -c user.email=t@t -c user.name=t ${args}`, { cwd: repo, stdio: "pipe" });
+    const site = () => cp.spawnSync("sh", [path.join(ROOT, "tools", "check_site.sh"), "pack"], { cwd: repo, encoding: "utf8" });
+    cp.execSync(`sh "${path.join(ROOT, "build.sh")}" pack index.html`, { cwd: repo, stdio: "pipe" });
+    gitc("init -q"); gitc("add pack index.html");
+    gitc("commit -q -m a");
+    const untracked = site();
+    gitc("add sw.js"); gitc("commit -q -m b");
+    const okRun = site();
+    check("check_site.sh: fails when sw.js is not tracked, passes once page + sw.js are fresh and committed",
+      untracked.status !== 0 && /sw\.js is not tracked/.test(untracked.stderr) && okRun.status === 0 && /^OK /.test(okRun.stdout));
+    fs.writeFileSync(path.join(repo, "sw.js"), fs.readFileSync(path.join(repo, "sw.js"), "utf8").replace(/const BUILD = "[^"]+"/, 'const BUILD = "0-0"'));
+    gitc("commit -q -am c");
+    const staleSw = site();
+    check("check_site.sh: fails on a committed but stale sw.js", staleSw.status !== 0 && /sw\.js is stale/.test(staleSw.stderr));
+    gitc("checkout -q HEAD~1 -- sw.js");
+    const dirty = site();
+    check("check_site.sh: fails on uncommitted page/sw.js changes even when they match a fresh build",
+      dirty.status !== 0 && /uncommitted/.test(dirty.stderr) && !/stale/.test(dirty.stderr));
+    check("check_site.sh builds in a private temp dir (no sw.js left next to the repo or in TMPDIR root)",
+      fs.readdirSync(repo).sort().join(",") === ".git,index.html,pack,sw.js");
   }catch(e){ check(`service worker checks do not throw (got: ${e.stack})`, false); }
   finally{ fs.rmSync(dir, { recursive: true, force: true }); }
 }

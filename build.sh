@@ -10,8 +10,10 @@
 # tools/validate_pack.py fails if they are stale.
 #
 # Also writes sw.js next to <out.html>: engine/sw.template.js with the build id (POSIX
-# cksum of the built page) and the page's file name filled in. Publish it with the page;
-# app.html registers it (offline use and instant repeat loads, see README).
+# cksum of the built page) and the page's file name filled in. The page then gets a last
+# line <!--ve-build:<id>--> that sw.js checks before caching it. Publish sw.js with the
+# page; app.html registers it (offline use and instant repeat loads, see README).
+# tools/check_site.sh is the stale-build guard for a language repo.
 set -e
 if [ $# -ne 2 ]; then echo "usage: $0 <packdir> <out.html>" >&2; exit 2; fi
 PACKDIR="${1%/}"
@@ -52,12 +54,16 @@ VE_LESSONS="$LESSONS" VE_CORE="$CORE" awk '
   { print }
   END { if (!seen_begin || !seen_end || !seen_core) { print "build.sh: PACK-BEGIN/PACK-END markers or core.js tag not found in app.html" > "/dev/stderr"; exit 1 } }
 ' "$SRC" > "$TMP" || { rm -f "$TMP"; exit 1; }
+
+# Build id: cksum of the page before the marker line. sw.js cache name = build id, so any
+# change to the page changes sw.js and busts the cache.
+BUILD_ID="$(cksum < "$TMP" | awk '{ printf "%s-%s", $1, $2 }')"
+echo "<!--ve-build:$BUILD_ID-->" >> "$TMP"
 mv "$TMP" "$OUT"
 
-# sw.js: cache name = build id, so any change to the page changes sw.js and busts the cache.
 SW="$(dirname "$OUT")/sw.js"
 SWTMP="$SW.tmp.$$"
-VE_BUILD="$(cksum < "$OUT" | awk '{ printf "%s-%s", $1, $2 }')" VE_PAGE="$PAGE" awk '
+VE_BUILD="$BUILD_ID" VE_PAGE="$PAGE" awk '
   BEGIN { b = ENVIRON["VE_BUILD"]; p = ENVIRON["VE_PAGE"] }
   { gsub(/__VE_BUILD__/, b); gsub(/__VE_PAGE__/, p); print }
 ' "$SWT" > "$SWTMP" || { rm -f "$SWTMP"; exit 1; }

@@ -24,10 +24,12 @@ The question types are:
 engine/core.js            logic with no DOM (VocabCore); shared by the app and the tests
 engine/app.html           UI shell; loads a pack in dev mode, and build.sh inlines everything
 engine/sw.template.js     service worker; build.sh fills in the build id and writes sw.js
+engine/sw.disable.js      kill switch: copy over sw.js to turn the offline cache off
 build.sh                  ./build.sh <packdir> <out.html>   (awk only, no Node or Python; also writes sw.js next to out.html)
 packs/zh/                 Mandarin HSK 1–4 pack, ported from ../hsk (1193 words, 882 sentences, 12 lessons)
 tools/jsonify_pack.py     packs/X/*.json -> *.js consts
 tools/validate_pack.py    schema and referential-integrity check
+tools/check_site.sh       stale-build guard for a language repo's index.html + sw.js
 tools/pack_from_hsk.py    reproducible hsk -> packs/zh converter
 tools/packbuilder/        shared corpus-based pack builder for language repos (it; see its README)
 tests/engine_checks.js    Node checks, no dependencies
@@ -76,13 +78,22 @@ vocab-engine/build.sh pack index.html
 
 ### Offline and repeat loads (sw.js)
 
-`build.sh` writes `sw.js` next to the page. The page registers it over http(s) only, so `file://` and dev mode are unaffected. The worker:
+`build.sh` writes `sw.js` next to the page. The page registers it after `window` load, over http(s) only, so `file://` and dev mode are unaffected. The worker:
 
-- serves the page and same-origin `pack/*.js` cache-first, so repeat visits load instantly and work offline. Other offline navigations inside the site fall back to the cached page;
-- names its cache `ve:<site path>:<build id>`, where the build id is the POSIX `cksum` of the built page. Every rebuild that changes the page changes `sw.js`, and the browser installs the new worker on the next visit. Activation deletes only this site's older caches. All language sites share the `github.io` origin, so the site path in the name keeps them apart;
-- never touches cross-origin requests (Google Fonts, tatoeba.org audio). They go to the network as before.
+- serves the page cache-first, so repeat visits load instantly and work offline. Other offline navigations inside the site fall back to the cached page. Packs are inlined, so nothing else is cached;
+- names its cache `ve:<site path>:<build id>`. The build id is the POSIX `cksum` of the built page before its last line, `<!--ve-build:<id>-->`. Every rebuild that changes the page changes `sw.js`, and the browser installs the new worker on the next visit. Activation deletes only this site's older caches. All language sites share the `github.io` origin, so the site path in the name keeps them apart;
+- caches a page only when it carries this build's marker. Right after a publish a CDN edge can still serve the old `index.html`. Install then fails and the browser retries it on a later navigation, instead of pinning the old page under the new id;
+- falls back to the plain network whenever the Cache API fails, and never touches cross-origin requests (Google Fonts, tatoeba.org audio).
 
-A new build takes over in the background. The open page keeps running and shows "Updated, reload for the new version". The load after that gets the new build. Commit `sw.js` together with `index.html` every time: a stale `sw.js` keeps serving the old cached page until the next publish that updates it.
+A new build takes over in the background. The open page keeps running and shows "Updated, reload for the new version". The load after that gets the new build.
+
+**Publishing.** Commit `sw.js` together with `index.html` every time. A stale `sw.js` keeps serving the old cached page until a publish changes `sw.js`. Add this line to the language repo's `check.sh`. It rebuilds into a private temp dir, compares `index.html` and `sw.js`, and checks that both are tracked and committed:
+
+```sh
+sh engine/tools/check_site.sh pack        # [page], default index.html
+```
+
+**Kill switch and rollback.** Never delete a published `sw.js`. When the update check gets a 404, the installed worker stays and keeps serving its cached page. To turn the cache off, copy `engine/sw.disable.js` over `sw.js` after `build.sh`, then publish. On the next visit it deletes this site's `ve:` caches, unregisters itself and handles no requests. `check_site.sh` reports `sw.js` as stale while the kill switch is in place. To roll back a bad build, publish the previous `index.html` and `sw.js` together. Its build id differs from the live one, so browsers install it and replace the cache in the usual way. To re-enable after the kill switch, rebuild and publish.
 
 To take an engine update, run this and then rebuild:
 
