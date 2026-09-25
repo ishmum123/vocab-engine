@@ -1698,14 +1698,16 @@ function sentencePieces(sentence, toks, blank, cuts){
   // a neighbour that meets it with a letter or digit (a token, or text such as a name).
   const edgeL = p => p.kind !== "text" || /^[\p{L}\p{N}]/u.test(p.text);
   const edgeR = p => p.kind !== "text" || /[\p{L}\p{N}]$/u.test(p.text);
-  out.forEach(p => { if(p.kind === "text") p.text = p.text.replace(/[\uff0c\u3001\u3002\uff01\uff1f\uff1a\uff1b\uff08\uff09\u201c\u201d\u2018\u2019\u300a\u300b\u2026\u2014]/g, c => ASCII_PUNCT[c]); });
+  out.forEach(p => { if(p.kind === "text") p.text = p.text.replace(/[\uff0c\u3001\u3002\uff01\uff1f\uff1a\uff1b\uff08\uff09\u201c\u201d\u2018\u2019\u300a\u300b\u2026\u2014]/g, c => ASCII_PUNCT[c]).replace(/\s+(?=[\u201d\u2019)\u2026,.!?:;])/g, ""); });
   // A reading that starts a sentence is capitalised: the first one when only opening
-  // punctuation precedes it, and the first after a sentence-internal . ! or ? (ba! Ni...).
+  // punctuation precedes it, the first after a sentence-internal . ! or ? (ba! Ni...), and
+  // the first inside a quote opened after a colon (Ta shuo: "Ni..."). An ellipsis (…) stays
+  // as written and starts nothing.
   let atStart = true;
   out.forEach(p => {
     if(p.kind === "tok" && p.tier === "pron"){ if(atStart) p.text = p.text.charAt(0).toUpperCase() + p.text.slice(1); atStart = false; }
     else if(p.kind !== "text") atStart = false;
-    else if(/[.!?][\s"'\u201d\u2019)]*$/.test(p.text)) atStart = true;
+    else if(/[.!?][\s"'\u201d\u2019)]*$/.test(p.text) || /:\s*["'\u201c\u2018(]+\s*$/.test(p.text)) atStart = true;
     else if(!/^[\s"'\u201c\u2018(]*$/.test(p.text)) atStart = false;
   });
   out.forEach((p, i) => { const prev = out[i-1]; if(prev && (shown(p) || shown(prev)) && edgeL(p) && edgeR(prev)) p.pre = " "; });
@@ -2045,7 +2047,8 @@ function pronKey(s){
 }
 const NUMBERED_MAX = 64;
 // Every numbered spelling of pron: syllable letters + tone digit; a neutral syllable as
-// 5, 0 or no digit; an r-suffixed syllable with its digit before or after the r.
+// 5, 0 or no digit; an r-suffixed syllable with its digit after the r, or before it with
+// the r bare, r5 or r0.
 // [] when pron does not split into syllables (then only the marked form is accepted).
 function numberedForms(pron){
   const runs = String(pron || "").normalize("NFC").match(LETTER_RUN) || [];
@@ -2056,7 +2059,9 @@ function numberedForms(pron){
       const b = stripMarks(x.text).toLowerCase();
       const d = x.tone === 5 ? ["5", "0", ""] : [String(x.tone)];
       const opts = [];
-      d.forEach(k => { opts.push(b + k); if(x.r && k) opts.push(b.slice(0, -1) + k + "r"); });
+      // r-suffix: the digit also before the r, the r then bare or as its own neutral
+      // chunk ("yi1hui4r5", "hui4r0": how the predecessor app stored 一会儿).
+      d.forEach(k => { opts.push(b + k); if(x.r && k) ["r", "r5", "r0"].forEach(rr => opts.push(b.slice(0, -1) + k + rr)); });
       const next = []; combos.forEach(c => opts.forEach(o => next.push(c + o)));
       if(next.length > NUMBERED_MAX) return [];
       combos = next;
@@ -2624,7 +2629,9 @@ function renderTypeItem(it){
 // A key on a show-written button (pack.pronFirst) is the button's own (Enter/Space reveal
 // the written form); it never reaches the drill's shortcuts (Enter = Next, 1-4 = answer).
 const onShowWritten = e => !!(e && e.target && e.target.closest && e.target.closest("[data-showw]"));
-document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e) && !onTok(e)) drillKeyHandler(e); });
+// Enter/Space on a focused word tap are the tap's own; Escape still reaches the drill (after
+// the panel listener below has dismissed the popover).
+document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e) && !(onTok(e) && e.key !== "Escape")) drillKeyHandler(e); });
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
 // ---- word taps inside sentences (any pack whose sentences carry ruby, or pronFirst
@@ -2636,6 +2643,15 @@ function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 function tokTapHTML(wordId, inner, head){
   const h = head ? ` data-ts="${escapeHtml(head.surface)}" data-tr="${escapeHtml(head.reading)}"` : "";
   return `<span class="tk" data-tok="${escapeHtml(wordId)}"${h} role="button" tabindex="0">${inner}</span>`;
+}
+// A phrase token's popover head: a token whose surface contains its word's written form
+// and more (这个 for 这, 他们 for 他, 越来越 for 越) heads the popover with that surface and its
+// reading, and a tap speaks the surface; any other token (the word itself, or a token
+// covering only part of the word, as ja ruby over the written stem) keeps the word's own
+// headword (null). Used by sentence tokens and passage spans (spanHead).
+function phraseHead(surface, w, reading){
+  const ww = String((w && w.w) || ""), t = String(surface || "");
+  return ww && t !== ww && t.indexOf(ww) >= 0 ? { surface: t, reading: String(reading || "") } : null;
 }
 const sentSayHTML = s => canHearSentence(s) ? `<button type="button" class="replay ssay" data-sent="${SENT_INDEX.get(s)}" aria-label="Hear the sentence">${TEACH_PLAY_SVG}</button>` : "";
 const tokHeadOf = t => t.dataset.ts !== undefined ? { surface: t.dataset.ts, reading: t.dataset.tr || "" } : null;
@@ -2653,6 +2669,12 @@ function tokTap(t){
   }
   announce(html);
   say(head ? head.surface : w.w);
+}
+// Hides the popover of the tap's data-tokbox and clears its highlight.
+function tokDismiss(t){
+  const box = t.closest("[data-tokbox]"); if(!box) return;
+  box.querySelectorAll(".tk.on").forEach(x => x.classList.remove("on"));
+  const g = box.querySelector(".tokgloss"); if(g) g.hidden = true;
 }
 const onTok = e => !!(e && e.target && e.target.closest && e.target.closest("[data-tok]"));
 
@@ -2673,6 +2695,7 @@ $("panel").addEventListener("click", e => {
 $("panel").addEventListener("keydown", e => {
   const t = e.target && e.target.closest ? e.target.closest("[data-tok]") : null;
   if(t && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); tokTap(t); }
+  else if(t && e.key === "Escape") tokDismiss(t); // then the drill's own Escape runs as before
 });
 
 // pack.pronFirst "show written form" tap: capture phase, so it runs before (and stops) the
@@ -2735,7 +2758,8 @@ function rubyTextHTML(s, toks, entry, taps){
     if(!(k.start >= pos && k.end > k.start && k.end <= t.length)) return;
     out += plain(pos, k.start);
     const base = escapeHtml(t.slice(k.start, k.end));
-    const h = taps ? tokTapHTML(k.wordId, rubyTokHTML(base, k)) : rubyTokHTML(base, k);
+    const tw0 = taps ? WORDS_BY_ID[k.wordId] : null;
+    const h = tw0 ? tokTapHTML(k.wordId, rubyTokHTML(base, k), phraseHead(t.slice(k.start, k.end), tw0, k.reading)) : rubyTokHTML(base, k);
     out += inHit(k.start, k.end) ? `<b>${h}</b>` : h;
     pos = k.end;
   });
@@ -2766,7 +2790,7 @@ function pfSentence(s, entry, blank, written, taps){
     else if(p.kind === "text") h = escapeHtml(p.text);
     else if(p.tier === "pron"){ anyPron = true; h = readingHTML(p.text); }
     else { ruby = true; h = rubyTokHTML(escapeHtml(p.text), showPron() ? p : Object.assign({}, p, { tier:"bare" })); }
-    if(taps && p.kind === "tok" && WORDS_BY_ID[p.wordId]){ tapped = true; h = tokTapHTML(p.wordId, h); }
+    if(taps && p.kind === "tok" && WORDS_BY_ID[p.wordId]){ tapped = true; h = tokTapHTML(p.wordId, h, phraseHead(String(s.t || "").slice(p.start, p.end), WORDS_BY_ID[p.wordId], p.reading)); }
     if(p.kind !== "blank" && inHit(p.start, p.end)) h = `<b>${h}</b>`;
     return escapeHtml(p.pre) + h;
   }).join("");
@@ -3437,8 +3461,7 @@ function pfPassage(s, seg, taps){
 // other span (the word's own headword). rt: the sentence's ruby tiers or null; a: the
 // span's offset in the sentence.
 function spanHead(text, w, rt, a){
-  const ww = String(w.w || "");
-  if(!ww || text === ww || text.indexOf(ww) < 0) return null;
+  if(!phraseHead(text, w, "")) return null;
   if(!rt) return { surface: text, reading: VC.spanReadingText(text, w, charReading, PACK) };
   let r = "", pos = 0;
   rt.filter(k => k.start >= a && k.end <= a + text.length).forEach(k => {
@@ -3453,7 +3476,7 @@ function passagePlainHTML(s){
   const pf = PRON_FIRST ? pfPassage(s, VC.passageSegments(s, WORDS_BY_ID, PACK), "tok") : null;
   return pf ? pf.html : escapeHtml(s.t);
 }
-const TOKBOX = PRON_FIRST ? " data-tokbox" : "";
+const TOKBOX = PRON_FIRST ? " data-tokbox" : ""; // passage reveals hold word taps (passagePlainHTML)
 // pack.pronFirst text carrying its own ruby (passages.json titleRuby, questions[].ruby,
 // questions[].optionsRuby): reading-first by the sentence tier rules (VC.rubyTiers +
 // VC.sentencePieces), readings tone-coloured (readingHTML); a token with a null wordId (a
@@ -3482,7 +3505,7 @@ function rubyTextOr(t, ruby, inButton){
 // The same wrapped as target-language text (tw) for places that used tw(text).
 function rubyTw(t, ruby, inButton){
   return pfRubyText(t, ruby) ? `<bdi${TA}>${rubyTextOr(t, ruby, inButton)}</bdi>` : tw(t);
-} // passage reveals hold word taps (passagePlainHTML)
+}
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
 // RTL packs: the popover runs right-to-left (tapped word at the right edge, then pron and
 // gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
@@ -3951,4 +3974,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:2878411772-1449314-->
+<!--ve-build:2431027718-1451144-->
