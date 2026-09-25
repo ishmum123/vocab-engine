@@ -760,8 +760,10 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const optsW = [...app.matchAll(/optHtml: wordOptHtml\([^)]*\)(, optsT: true)?/g)];
   check("app.html: every target-text element (big/med/wd/st/rw) carries ${TA}; every word-option item sets optsT",
     bare.length === 0 && optsW.length >= 2 && optsW.every(m=>!!m[1]) && /id="tin"[^>]*\$\{it\.inputTA !== undefined \? it\.inputTA : TA\}/.test(app)
-    // the only override is the typed-reading item (Latin reading, not the target script)
-    && [...app.matchAll(/inputTA: /g)].length === 1 && /function pronTypeItem[\s\S]*?inputTA: ""/.test(app));
+    // the only overrides are the typed-reading item and the script primer's symType (both
+    // type a Latin reading or romanisation, not the target script)
+    && [...app.matchAll(/inputTA: /g)].length === 2 && /function pronTypeItem[\s\S]*?inputTA: ""/.test(app)
+    && /if\(k === "symType"\)\{[^\n]*\n[^\n]*\n\s*return \{ kind:"type", key: it\.key, label:"Type how it sounds", html: big\(it\.show\), inputTA: ""/.test(app));
 })();
 
 // ------------------------------------------------------------ [18] validator script fields; distractor word class

@@ -186,7 +186,9 @@ Required when `pack.script` is set, absent otherwise. `{units, notes?}`.
 | `base` | unitId | The unit this one is a variant of (a mark added, the other syllabary); the teach card shows base → variant. |
 | `italic` | string | The glyph's italic form when it differs; the teach card shows it. |
 
-`notes`: `[{st, set, h, body}]`, rule cards shown with the teach cards of that stage's set.
+`notes`: `[{st, set, h, body}]`, rule cards shown with the teach cards of that stage's set. `h` and `body` are plain text (escaped).
+
+**Example words** are shown in the script being taught: a word whose `w` uses letters outside the primer's units while its `pron` is written entirely with them (ja kanji words) is shown, spoken and answered by its `pron`; otherwise by its `w`.
 
 **Progress.** `prog.script = {v:1, u:{[unitId]:{r,w,s}}, skipped, skip:{[stageKey]:bool}, choiceSeen, notice}`, present only with `pack.script`. `skipped` turns the whole primer off and `skip` one stage; an off stage leaves the path, Review and Test, and its records are kept. Taught, done and mastered are derived: a set is taught and a stage done once every unit has a record; mastered is streak ≥ `mastered`. Stored progress with word records and no `script` field (a learner from before the primer) normalizes to `skipped:true, choiceSeen:true, notice:true`: the primer starts off, with a one-time notice that it can be turned on in Progress. Fresh progress starts with the primer on and the choice card unanswered.
 
