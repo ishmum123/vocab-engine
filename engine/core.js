@@ -326,7 +326,9 @@ function visibleArticle(before, arts, pack){
 }
 // Indices into sentence.words that are legal cloze blanks: a known word at the
 // sentence's own level, not a pack function word, not repeated in the sentence (by id),
-// and with a gapMatch (visible exactly once, not inside a longer pack word/compound).
+// and with a gapMatch (visible exactly once, not inside a longer pack word/compound)
+// that leaves some letter or digit outside the blank (a one-word sentence such as
+// "不客气。" blanked whole is "____。", no cloze at all).
 function gapCandidateIndices(sentence, wordsById, pack){
   const fw = new Set((pack && pack.functionWords) || []);
   const words = sentence.words || [];
@@ -336,7 +338,10 @@ function gapCandidateIndices(sentence, wordsById, pack){
     if(fw.has(id) || counts[id] > 1) return;
     const entry = wordsById[id];
     if(!entry || entry.lv !== sentence.lv) return;
-    if(!gapMatch(sentence, entry, wordsById, pack)) return;
+    const m = gapMatch(sentence, entry, wordsById, pack);
+    if(!m) return;
+    const t = String(sentence.t || "");
+    if(!/[\p{L}\p{N}]/u.test(t.slice(0, m.start) + t.slice(m.end))) return;
     out.push(i);
   });
   return out;

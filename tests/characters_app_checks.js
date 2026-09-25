@@ -795,6 +795,10 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     });
     check(`all ${SENTENCES.length} sentences: row, read item and reveal read as pinyin (${sb} bad)`, sb === 0);
     check(`gap items: blanked pinyin sentence, pinyin options (${gn} built, ${gb} bad)`, gn > 100 && gb === 0);
+    const oneWord = SENTENCES.filter(x => ["不客气。","对不起。","没关系。"].includes(x.t));
+    check(`one-word sentences (${oneWord.map(x => x.t).join(" ")}) are never gap items, word-first or pron-first; the read item stands in`,
+      oneWord.length === 3 && oneWord.every(x => VC.gapCandidateIndices(x, BY_ID, PF_ZH).length === 0 && VC.gapCandidateIndices(x, BY_ID, PACK).length === 0 && api.gapSentence(x, false) === null));
+    check("every gap item leaves a letter outside its blank", SENTENCES.every(x => { const g = api.gapSentence(x, false); return !g || /[\p{L}\p{N}]/u.test(stripTags(g.html.split('<div class="q">')[0]).replace(/____|show written/g, "")); }));
     WORDS.forEach(w => { if(visHan(api.wordRowHTML(w)) || visHan(api.revealBlock(w)) || visHan(api.glossHTML(w.id))) rb++; });
     check(`all ${WORDS.length} words: Words-list row, reveal and passage popover show pinyin (${rb} bad)`, rb === 0);
     // Words tab list and search.
@@ -842,6 +846,8 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     check("mastered unit (streak = mastered): its word renders written with its pron beside it",
       new RegExp(`^<span class="wd" data-tl lang="[^"]+">${wo.w}</span>`).test(api.wordRowHTML(wo)) && api.wordRowHTML(wo).includes(`>${wo.pron}<`) && !/data-showw/.test(api.wordRowHTML(wo)));
     check("an unmastered word next to it still renders its reading", !visHan(api.wordRowHTML(ni)));
+    check("row layout: a reading-shown word gets class pf (one line with its tap), a written one does not",
+      /^<span class="wd pf"/.test(api.wordRowHTML(ni)) && /^<span class="wd"/.test(api.wordRowHTML(wo)) && /\.wl \.wd\.pf,\.rowset \.wd\.pf\{white-space:nowrap;max-width:75%\}/.test(appHtml));
     const s0 = SENTENCES[0]; // 你好，我是学生。
     const row = api.sentenceRowHTML(s0);
     check(`sentence: the mastered token as ruby, the rest pinyin (${stripTags(row)})`, row.includes(`<ruby>${wo.w}<rt>${wo.pron}</rt></ruby>`) && visHan(row) === wo.w);
@@ -874,15 +880,16 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     const before = JSON.stringify(api.getProg());
     let focused = null; const mk = document.createElement;
     document.createElement = tag => { const el = mk.call(document, tag); el.focus = () => { focused = el; }; return el; };
-    const b = { dataset: { showw: "你" }, replaceWith(x){ this.by = x; } };
+    const b = { dataset: { showw: "你" }, replaceWith(...xs){ this.gap = xs[0]; this.by = xs[xs.length - 1]; } };
     document.activeElement = b; // keyboard user: the button has focus
     let stopped = false, prevented = false;
     const cap = api.panelListeners()[1];
     cap({ target: { closest: sel => sel === "[data-showw]" ? b : null }, preventDefault(){ prevented = true; }, stopPropagation(){ stopped = true; } });
     const sp = b.by;
     check("show-written tap swaps the button for the written form in place", sp && sp.className === "wwr" && sp.textContent === "你" && sp.getAttribute("lang") && stopped && prevented);
+    check("a thin space separates the reading from the revealed written form", b.gap === "\u2009" && /\.wwr\{[^}]*margin-inline-start:3px/.test(appHtml));
     check("the revealed span keeps keyboard focus (tabindex -1, focused)", sp && sp.getAttribute("tabindex") === "-1" && focused === sp);
-    const b2 = { dataset: { showw: "好" }, replaceWith(x){ this.by = x; } }; focused = null; document.activeElement = null;
+    const b2 = { dataset: { showw: "好" }, replaceWith(...xs){ this.gap = xs[0]; this.by = xs[xs.length - 1]; } }; focused = null; document.activeElement = null;
     api.revealWritten(b2);
     check("a mouse tap (button not focused) does not move focus", b2.by && focused === null);
     document.createElement = mk;

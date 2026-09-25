@@ -138,7 +138,12 @@
   .hasruby{line-height:2.3}
   /* pack.pronFirst: the "show written form" tap beside a word shown by its reading. */
   .showw{display:inline-block;width:auto;min-height:0;margin:0 0 0 6px;padding:2px 6px;border:0;background:none;color:var(--mute);font:400 12px/1.2 var(--font);text-decoration:underline;vertical-align:middle;cursor:pointer}
-  .wwr{color:var(--mute);font-size:.8em;margin-inline-start:6px}
+  .wwr{color:var(--mute);font-size:.8em;margin-inline-start:3px}
+  .showw,.wwr{white-space:nowrap}
+  /* A row word shown by its reading (class pf) keeps reading and tap on one line: the
+     word column may take up to 75% (a reading has no break points), the gloss column
+     shrinks and wraps instead. Readings stay short (zh max 13 letters, 公共汽车). */
+  .wl .wd.pf,.rowset .wd.pf{white-space:nowrap;max-width:75%}
   .psent .ptxt.hasruby{line-height:2.3}
   .hasruby ruby{ruby-position:over}
   .hasruby rt{font-family:var(--font);font-size:0.5em;line-height:1;color:var(--mute);font-weight:400}
@@ -568,7 +573,9 @@ function visibleArticle(before, arts, pack){
 }
 // Indices into sentence.words that are legal cloze blanks: a known word at the
 // sentence's own level, not a pack function word, not repeated in the sentence (by id),
-// and with a gapMatch (visible exactly once, not inside a longer pack word/compound).
+// and with a gapMatch (visible exactly once, not inside a longer pack word/compound)
+// that leaves some letter or digit outside the blank (a one-word sentence such as
+// "不客气。" blanked whole is "____。", no cloze at all).
 function gapCandidateIndices(sentence, wordsById, pack){
   const fw = new Set((pack && pack.functionWords) || []);
   const words = sentence.words || [];
@@ -578,7 +585,10 @@ function gapCandidateIndices(sentence, wordsById, pack){
     if(fw.has(id) || counts[id] > 1) return;
     const entry = wordsById[id];
     if(!entry || entry.lv !== sentence.lv) return;
-    if(!gapMatch(sentence, entry, wordsById, pack)) return;
+    const m = gapMatch(sentence, entry, wordsById, pack);
+    if(!m) return;
+    const t = String(sentence.t || "");
+    if(!/[\p{L}\p{N}]/u.test(t.slice(0, m.start) + t.slice(m.end))) return;
     out.push(i);
   });
   return out;
@@ -2389,7 +2399,7 @@ function revealWritten(b){
   sp.className = "wwr"; sp.setAttribute("data-tl", ""); sp.setAttribute("lang", SCRIPT.lang); if(SCRIPT.rtl) sp.setAttribute("dir", "rtl");
   sp.setAttribute("tabindex", "-1"); sp.textContent = b.dataset.showw || "";
   const had = document.activeElement === b;
-  b.replaceWith(sp);
+  b.replaceWith("\u2009", sp); // a thin space: reading and written form never run together, in text too
   if(had) sp.focus();
   return sp;
 }
@@ -2821,7 +2831,7 @@ function wordRowHTML(w, cls){
   // shrink to width:0 next to the gloss (that caused unbreakable transliterations
   // like "budan" to overlap the gloss text when the gloss was long).
   const p = pronBeside(w);
-  return `<span class="wd"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
+  return `<span class="wd${dispWord(w).isPron ? " pf" : ""}"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
 }
 function vocabTeach(list, lv, onDrill){
   setScore(0,0);
@@ -3538,4 +3548,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:2812906493-1175137-->
+<!--ve-build:1341463626-1175893-->

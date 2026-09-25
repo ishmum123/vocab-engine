@@ -138,7 +138,12 @@
   .hasruby{line-height:2.3}
   /* pack.pronFirst: the "show written form" tap beside a word shown by its reading. */
   .showw{display:inline-block;width:auto;min-height:0;margin:0 0 0 6px;padding:2px 6px;border:0;background:none;color:var(--mute);font:400 12px/1.2 var(--font);text-decoration:underline;vertical-align:middle;cursor:pointer}
-  .wwr{color:var(--mute);font-size:.8em;margin-inline-start:6px}
+  .wwr{color:var(--mute);font-size:.8em;margin-inline-start:3px}
+  .showw,.wwr{white-space:nowrap}
+  /* A row word shown by its reading (class pf) keeps reading and tap on one line: the
+     word column may take up to 75% (a reading has no break points), the gloss column
+     shrinks and wraps instead. Readings stay short (zh max 13 letters, 公共汽车). */
+  .wl .wd.pf,.rowset .wd.pf{white-space:nowrap;max-width:75%}
   .psent .ptxt.hasruby{line-height:2.3}
   .hasruby ruby{ruby-position:over}
   .hasruby rt{font-family:var(--font);font-size:0.5em;line-height:1;color:var(--mute);font-weight:400}
@@ -601,7 +606,7 @@ function revealWritten(b){
   sp.className = "wwr"; sp.setAttribute("data-tl", ""); sp.setAttribute("lang", SCRIPT.lang); if(SCRIPT.rtl) sp.setAttribute("dir", "rtl");
   sp.setAttribute("tabindex", "-1"); sp.textContent = b.dataset.showw || "";
   const had = document.activeElement === b;
-  b.replaceWith(sp);
+  b.replaceWith("\u2009", sp); // a thin space: reading and written form never run together, in text too
   if(had) sp.focus();
   return sp;
 }
@@ -1033,7 +1038,7 @@ function wordRowHTML(w, cls){
   // shrink to width:0 next to the gloss (that caused unbreakable transliterations
   // like "budan" to overlap the gloss text when the gloss was long).
   const p = pronBeside(w);
-  return `<span class="wd"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
+  return `<span class="wd${dispWord(w).isPron ? " pf" : ""}"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
 }
 function vocabTeach(list, lv, onDrill){
   setScore(0,0);
