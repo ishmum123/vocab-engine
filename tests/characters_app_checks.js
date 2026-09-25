@@ -700,6 +700,18 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     let bad = 0;
     withRuby.sentences.forEach((x, i) => { const r = on.api.passageSentenceHTML(x, i, false); if(stripTags((r.match(/<div class="ptxt[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "") !== x.t) bad++; });
     check(`every sentence of the passage renders to its own text (${bad} bad)`, bad === 0);
+    {
+      // Span display glosses (spans[i][3]) survive the ruby render: each glossed tap span
+      // carries the same data-pg with and without ruby.
+      const pgs = h => [...h.matchAll(/data-pw="([^"]+)" data-pg="([^"]*)"/g)].map(m => m[1] + "=" + m[2]).join("|");
+      let pgBad = 0, pgN = 0;
+      withRuby.sentences.forEach((x, i) => {
+        const r = pgs(on.api.passageSentenceHTML(x, i, false)), r0 = pgs(plain.api.passageSentenceHTML(src.sentences[i], i, false));
+        const want = (x.spans || []).filter(k => typeof k[3] === "string" && k[3].trim()).length;
+        pgN += want; if(r !== r0 || (r ? r.split("|").length : 0) !== want) pgBad++;
+      });
+      check(`passage ruby: tap spans keep their span gloss (data-pg) under ruby (${pgN} glossed spans, ${pgBad} sentences off)`, pgN > 0 && pgBad === 0);
+    }
     on.api.getProg().chars.mix = false;
     check("mix off: passage sentence renders exactly as without ruby", on.api.passageSentenceHTML(s, si, false) === h0);
     on.api.getProg().chars.mix = true; on.api.getProg().showPron = false;
@@ -730,7 +742,8 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
   // ---------------------------------------------------------------- [14] pronFirst
   console.log("\n[14] pronunciation-first (pack.pronFirst, brief BP): the zh pack as shipped");
   // Visible written characters in markup: Han outside the show-written tap's hidden form.
-  const visHan = h => (String(h == null ? "" : h).replace(/data-showw="[^"]*"/g, "").match(/\p{Script=Han}/gu) || []).join("");
+  // (data-pg: a span's display gloss, shown only in the popover, may quote its headword.)
+  const visHan = h => (String(h == null ? "" : h).replace(/data-(showw|pg)="[^"]*"/g, "").match(/\p{Script=Han}/gu) || []).join("");
   const onlyLabel = h => /^字*$/.test(visHan(h)); // the stage label 字 / 字4 (path strip, Progress rows)
   const PF_ZH = PACK_ZH;
   const NSZ = lv => VC.nSets(VC.wordsByLevel(WORDS, PF_ZH)[lv], VC.setSizeOf(PF_ZH));
@@ -809,7 +822,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     if(PASSAGES.length){
       api.startPassage(PASSAGES[0]);
       const box = api.html("panel").split('id="pbox">')[1] || ""; // the fake DOM keeps markup on the panel only
-      const spans = [...box.matchAll(/<span class="pw" data-pw="[^"]*" role="button" tabindex="0">([\s\S]*?)<\/span>/g)].map(m => m[1]);
+      const spans = [...box.matchAll(/<span class="pw" data-pw="[^"]*"(?: data-pg="[^"]*")? role="button" tabindex="0">([\s\S]*?)<\/span>/g)].map(m => m[1]);
       check(`Read: every tap span of "${PASSAGES[0].title}" reads as pinyin (${spans.length} spans)`, spans.length > 10 && spans.every(h => !visHan(h)));
       const left = visHan(box);
       const unlinked = PASSAGES[0].sentences.map(x => VC.passageSegments(x, BY_ID, PF_ZH).parts.filter(q => !q.id).map(q => q.text).join("")).join("");

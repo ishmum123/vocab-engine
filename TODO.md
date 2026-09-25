@@ -90,7 +90,9 @@ characters-stage fields, and writes `vocab_zh`.
 
 ### 1. Merge hsk's post-fork state into the engine, then (last task) move hsk onto the engine
 DECISION 2026-09-25 16:10 (user): pronunciation-first for zh (pinyin) and ja (kana); never start a logographic pack with the written form; UX and ease of learning over coding ease. Briefs BP (pronFirst) and BP2 (restore per-word taps, tone colouring, typed pinyin, pinyin chart) follow the B8 polish; see docs/HSK_MERGE.md §8.
+BP2 addition (browser recheck 2026-09-25 16:20, cosmetic): phrase-span popovers show the linked word headword+pinyin (越 yuè for 越来越, 下 xià for 一下); use the tapped span surface (with its reading when available) as the popover headword.
 STATUS 2026-09-25 16:00: design docs/HSK_MERGE.md; briefs B0–B7 merged on main (characters stage core + app, zh characters.json/ruby/legacy map, ja ruby + kanji units, migration core + boot hook + tools/diff_hsk_migration.js, flag-off golden harness); B8 review + browser walk done (no blockers), polish round in progress. Remaining: polish merge, republish wave of live languages, Japanese rebuild with kanji stage, then the final switch (needs the user's real hsk_pinyin export and the pinyin-first decision).
+EVIDENCE 2026-09-25 16:30: user supplied the real hsk_pinyin export (saved at .cache/hsk-switch/hsk_pinyin.real.json, untracked): v2 with zero word/sentence/character records, showChars=false, mixChars=true, charsAfterHsk4=false. tools/diff_hsk_migration.js on it: unmapped 0, roundtrip differences 0, derived views all same, RESULT PASS. Because the export carries no progress, the populated-record proof rests on the migration_checks fixtures; the real-export condition for the final switch is met. Browser walk (B8 + popover recheck) is 10/10. Still needed before the switch: BP/BP2 merged, republish wave, hsk branch first, rollback hash 3aeecc4, parity list §5.
 hsk (`../hsk`, read-only until the user says go) kept evolving after the
 2026-09-23 extraction: characters stage (v2.2/v2.3, 10 new / 16 drilled per
 day, unlocks after HSK 3), learning-order switch (characters before/after
@@ -119,7 +121,7 @@ ship with that switch.
 A pack-gated "Script" tab for non-Latin packs, distinct from hsk's
 characters stage: letter/jamo → sound, recognition, syllable and word
 reading, using the pack's own words as examples, TTS for the sound; unlocked
-before A1 with a "skip, I can read" option; placement untouched. Data: a
+before A1 with a "skip, I can read" option that is reversible from the Progress tab (a toggle like the characters learning-order chips, user 2026-09-25 16:05); placement untouched. Data: a
 small per-pack table (`pack/script.json`: symbol, name, romanisation, sound
 note, example word id, joining forms where the script has them). Consumers:
 ko (Hangul, 40 jamo), ru (Cyrillic, 33), fa (32, joining forms), ja (kana,

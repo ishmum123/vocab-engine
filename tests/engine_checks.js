@@ -18,6 +18,7 @@ const PACK = loadConst(path.join(ZH, "pack.js"), "PACK");
 const WORDS = loadConst(path.join(ZH, "words.js"), "WORDS");
 const SENTENCES = loadConst(path.join(ZH, "sentences.js"), "SENTENCES");
 const LESSONS = loadConst(path.join(ZH, "lessons.js"), "LESSONS");
+const PASSAGES = loadConst(path.join(ZH, "sentences.js"), "PASSAGES");
 const BY_ID = {}; WORDS.forEach(w=>{ BY_ID[w.id] = w; });
 console.log(`Loaded zh pack: ${WORDS.length} words, ${SENTENCES.length} sentences, ${LESSONS.length} lessons`);
 
@@ -1295,13 +1296,18 @@ const appBootChecks = (async function(){
 let __renderCalls = 0;
 const __wrappedRender = render;
 render = function(){ __renderCalls++; return __wrappedRender.apply(this, arguments); };
+let __announced = "";
+const __wrappedAnnounce = announce;
+announce = function(h){ __announced = h; return __wrappedAnnounce.apply(this, arguments); };
 return {
-  glossHTML, glossBox, getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
+  getAnnounced:()=>__announced,
+  glossHTML, glossBox, startPassage, readResults, passageSentenceHTML, getRD:()=>RD, getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
   setHasSpeech: v => { hasSpeech = v; },
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
 };`;
-    const fn = new Function("document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS", fnBody);
-    const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, pack, WORDS, SENTENCES, LESSONS);
+    // PASSAGES only when env.passages is given (undefined -> no Read tab, as before).
+    const fn = new Function("document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS","PASSAGES", fnBody);
+    const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, pack, WORDS, SENTENCES, LESSONS, env && env.passages);
     return { api, document, ss, setItemCalls, window };
   }
   async function bootApp(getVoicesResult, env){
@@ -1440,6 +1446,58 @@ return {
       (appHtml.match(/\$\{glossBox\(\)\}/g) || []).length === 2 && !/<div class="gloss" id="gloss" hidden>/.test(appHtml));
     await tick(); await tick();
   }catch(e){ check(`rtl gloss scenario does not throw (got: ${e.message})`, false); }
+
+  // Span display glosses (spans[i][3]) reach the tap-to-gloss popover, the screen-reader
+  // announcement and the results weak-word list; a span without one, and a pack without
+  // any, fall back to the word's gloss. Taps are simulated on the real rendered markup:
+  // the tap span's attributes (entity-decoded, as a browser's dataset would be) become the
+  // click target dispatched to #pbox's listener, exactly the path a real tap takes.
+  try{
+    const { api, document } = await bootApp([{ lang:"zh-CN", name:"x" }], { passages: PASSAGES });
+    const unesc = v => String(v).replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    const text = h => unesc(String(h).replace(/<[^>]*>/g, ""));
+    // Renders passage pid, taps the span of wordId in sentence si; returns popover + live text.
+    const tapIn = (pid, si, wordId) => {
+      api.startPassage(PASSAGES.find(p => p.id === pid));
+      const panel = document.getElementById("panel").innerHTML;
+      const sent = (panel.match(new RegExp(`<div class="psent[^"]*" data-si="${si}">[\\s\\S]*?</div>`)) || [""])[0];
+      const tag = (sent.match(new RegExp(`<span class="pw" data-pw="${wordId}"[^>]*>`)) || [""])[0];
+      const attrs = {}; tag.replace(/([-a-z]+)="([^"]*)"/g, (_, k, v) => { attrs[k] = unesc(v); });
+      const cls = new Set();
+      const target = { dataset: { pw: attrs["data-pw"], pg: attrs["data-pg"] }, classList: { add: c => cls.add(c), remove: c => cls.delete(c) } };
+      target.closest = sel => sel === "[data-pw]" ? target : null;
+      (document.getElementById("pbox")._listeners.click || []).forEach(f => f({ target }));
+      return { tag, pop: document.getElementById("gloss").innerHTML, live: api.getAnnounced(), on: cls.has("on") };
+    };
+    const t1 = tapIn("p0003", 4, "w0115");
+    check("span gloss: p0003 你下午几点回家？ 点 span carries data-pg", /data-pg="o&#39;clock; a little/.test(t1.tag) || /data-pg="o'clock; a little/.test(t1.tag));
+    check("span gloss: tapping 点 in p0003 shows the span gloss (o'clock ...) in the popover, not the word gloss alone",
+      t1.on && /o'clock/.test(text(t1.pop)) && text(t1.pop).trim() !== "点 diǎn point; dot" && !/<span class="ge">point; dot<\/span>/.test(t1.pop));
+    check("span gloss: the screen-reader announcement uses the span gloss too", /o'clock/.test(text(t1.live)) && text(t1.live) === text(t1.pop));
+    const t2 = tapIn("p0023", 9, "w0563");
+    check("span gloss: phrase unit 越来越 (p0023) shows 'more and more', not 越's own gloss", /more and more/.test(text(t2.pop)) && !/to exceed/.test(text(t2.pop)));
+    const t3 = tapIn("p0024", 1, "w0006");
+    check("span gloss: phrase unit 一下 (p0024) shows '(V+一下) briefly, a bit', not 下's own gloss", /briefly, a bit/.test(text(t3.pop)) && !/downwards/.test(text(t3.pop)));
+    const t4 = tapIn("p0003", 4, "w0028");
+    check("span gloss: a span without a gloss (你 in p0003) has no data-pg and falls back to the word gloss",
+      !/data-pg/.test(t4.tag) && /<span class="ge">/.test(t4.pop) && text(t4.pop).includes(VC.gloss(BY_ID.w0028)));
+    // Results weak-word list: a word tapped at a glossed span lists the sense that was seen.
+    tapIn("p0003", 4, "w0115");
+    const rd = api.getRD(); rd.answers = rd.p.questions.map(() => ({ ok: true, reopened: false, given: null })); rd.resultsDone = true;
+    api.readResults();
+    const weak = (document.getElementById("panel").innerHTML.match(/<div id="weak">[\s\S]*?<\/div>/) || [""])[0];
+    check("span gloss: results weak-word list shows the tapped span's gloss for 点 (o'clock), not 'point; dot'",
+      /点/.test(weak) && /o'clock/.test(text(weak)) && !/<span class="ge">point; dot<\/span>/.test(weak));
+    // A pack without span glosses renders exactly as the markup minus data-pg (no other change).
+    let diff = 0, withPg = 0;
+    PASSAGES.forEach(p => p.sentences.forEach((s, i) => {
+      const bare = Object.assign({}, s, { spans: (s.spans || []).map(x => x.slice(0, 3)) });
+      const a = api.passageSentenceHTML(s, i, false), b = api.passageSentenceHTML(bare, i, false);
+      if(/data-pg=/.test(a)) withPg++;
+      if(a.replace(/ data-pg="[^"]*"/g, "") !== b || /data-pg=/.test(b)) diff++;
+    }));
+    check(`span gloss: spans without a 4th element render identically apart from data-pg (${withPg} glossed sentences, ${diff} differing)`, withPg > 0 && diff === 0);
+  }catch(e){ check(`span gloss scenario does not throw (got: ${e.message})`, false); }
 
   // Service-worker registration: guarded (no navigator.serviceWorker / file:// -> no-op),
   // registers the sibling sw.js over http(s), and shows the update toast only when a
