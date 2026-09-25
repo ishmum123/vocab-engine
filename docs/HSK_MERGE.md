@@ -185,3 +185,9 @@ Flag-off packs: zh with `characters` stripped, the synthetic packs, and each sib
 5. **Recall order.** The design uses the engine's weakest-first, where hsk picks at random in unified mode. The random choice was a brief artefact, not a finding.
 6. **Real snapshot source.** The user needs to export `hsk_pinyin` from the device they actually use.
 7. **The brief's "10 new / 16 drilled".** That is v2.2 (b5b5f24). hsk HEAD replaced it with sets of 10 and a 20-item drill, and this design follows HEAD.
+
+
+## 8. Decisions taken at implementation (2026-09-25)
+- B6: the migration section in core.js is `migrateLegacy(pack, legacyMap, oldRecord)` (not `migrateLegacy(raw, LEGACY, pack)`), the backup key is `hsk_pinyin.bak` (not `vocab_zh_legacy_backup`); §4 is superseded on those two points. The hsk record's own field names (e.g. `charsAfterHsk4`) must appear in that section, so engine_checks [10] exempts only the lines between core.js's "legacy migration" header and its "export" header, capped at 150 lines and asserted by a check. Alternative considered and deferred: a `fields` rename map in `pack.legacy` keeping the engine fully generic; revisit only if a second legacy consumer appears.
+- B4 proceeds word-first (open question 1); `pack.pronFirst` remains a hook for BP.
+- B7: ruby ranges cover only the kanji part of a token; counter units keep 〜 in `t` but not in `reading`; one unit per word, so duplicate headwords give duplicate `t` (方, 〜分, 大変, 結構) — B8 review to decide whether to merge them.
