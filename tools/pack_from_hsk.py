@@ -40,6 +40,12 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# English for hsk sentences whose upstream `en` is unusable (the hsk repo is read-only):
+# sentence text -> English. The build fails if any PLACEHOLDER_ string survives.
+EN_OVERRIDES = {
+    "我们应该看自己的优点，也要改变缺点。": "We should look at our own strengths, and also change our weaknesses.",
+}
 OUT = os.path.join(ROOT, "packs", "zh")
 
 
@@ -152,7 +158,7 @@ def main(argv):
             else:
                 unplaced.append((sid, s["zh"], tok))
         ruby.sort(key=lambda r: r[0])
-        rec = {"id": sid, "t": s["zh"], "en": s["en"], "lv": str(s["lv"]), "words": ids, "pron": s["py"]}
+        rec = {"id": sid, "t": s["zh"], "en": EN_OVERRIDES.get(s["zh"], s["en"]), "lv": str(s["lv"]), "words": ids, "pron": s["py"]}
         if ruby:
             rec["ruby"] = ruby
         out_sent.append(rec)
@@ -196,15 +202,20 @@ def main(argv):
             "bare": 6,
             "learnKinds": ["charPick", "charRead"],
             "reviewKinds": ["charRead", "charSound"],
+            "testKinds": {"charRead": 40, "charSound": 30, "charPick": 30},
         },
         "legacy": {"key": "hsk_pinyin", "format": "hsk-v2"},
     }
 
-    # ---- characters: one unit per word, same order as words.json (docs/HSK_MERGE.md §2.1)
+    # ---- characters: one unit per word, same order as words.json (docs/HSK_MERGE.md §2.1).
+    # Unit id = "c" + the word id's digits (w0416 -> c0416): ids follow word ids and are
+    # never renumbered (they are progress keys).
     characters = []
-    for i, w in enumerate(words):
+    for w in words:
+        if not re.fullmatch(r"w\d+", w["id"]):
+            raise SystemExit(f"pack_from_hsk: word id {w['id']!r} is not w<digits>; unit ids derive from it")
         characters.append({
-            "id": f"c{i + 1:04d}",
+            "id": "c" + w["id"][1:],
             "t": w["w"],
             "words": [w["id"]],
             "lv": w["lv"],
@@ -216,6 +227,13 @@ def main(argv):
         "s": {s["t"]: s["id"] for s in out_sent},
         "c": {c["t"]: c["id"] for c in characters},
     }
+
+    unused = set(EN_OVERRIDES) - {x["t"] for x in out_sent}
+    if unused:
+        raise SystemExit(f"pack_from_hsk: EN_OVERRIDES keys match no sentence: {sorted(unused)}")
+    ph = sorted({m for part in (words, out_sent, lessons) for m in re.findall(r"PLACEHOLDER_\w+", json.dumps(part, ensure_ascii=False))})
+    if ph:
+        raise SystemExit(f"pack_from_hsk: placeholder text in the output (add EN_OVERRIDES): {ph}")
 
     os.makedirs(OUT, exist_ok=True)
     dump(os.path.join(OUT, "pack.json"), pack)

@@ -74,7 +74,8 @@ Optional. A **character stage** teaches written units (hanzi, kanji-words, …) 
   "mastered": 3,
   "bare": 6,
   "learnKinds": ["charPick","charRead"],
-  "reviewKinds": ["charRead","charSound"]
+  "reviewKinds": ["charRead","charSound"],
+  "testKinds": {"charRead":40,"charSound":30,"charPick":30}
 }
 ```
 
@@ -84,11 +85,12 @@ Optional. A **character stage** teaches written units (hanzi, kanji-words, …) 
 | `stages` | `[{after, levels}]`, non-empty | yes | Each stage sits after word level `after` (a `pack.levels[].id`) and covers `levels` (a non-empty list of `pack.levels[].id`, in the same namespace `characters.json`'s `lv` uses). `after` values must be non-decreasing in `pack.levels` order, and every `levels` id may appear in exactly one stage. |
 | `setSize` | positive int | no (`pack.setSize`) | Units per learn set, chunked in level order then file order within a stage. |
 | `mastered` | positive int | no (3) | Streak at which a unit's tier becomes "mastered" (bare-form drilling). |
-| `bare` | positive int, `> mastered` | no (6) | Streak at which a unit's tier becomes "bare" (plain text, no ruby). |
+| `bare` | positive int, `> mastered` | no (6) | Streak at which a unit's tier becomes "bare" (written form without its reading; the reading stays in the markup, hidden, so the token keeps its width). |
 | `learnKinds` | `[string]`, non-empty | yes | Item kinds taught for each new unit, drawn from `charRead`, `charSound`, `charPick`, `charRecall` (see "Drill items" in `docs/HSK_MERGE.md` §2.5). |
 | `reviewKinds` | `[string]`, non-empty | yes | Item kinds used once a unit is in Review/Recall, from the same set. |
+| `testKinds` | `{kind: weight}`, non-empty | no (`{"charRead":40,"charSound":30,"charPick":30}`) | Kind mix for the Test tab's Characters N: each item's kind is drawn with these relative weights (kinds from the same set, weights positive numbers). The test's pool is the 20 weakest recorded units, topped up with learned words' unrecorded units (level order, then file order); the button shows once characters have started. |
 
-`tools/validate_pack.py` checks `stages` (existing level ids, `after` order, one stage per level), the thresholds (`bare > mastered`), and that `learnKinds`/`reviewKinds` are known kinds.
+`tools/validate_pack.py` checks `stages` (existing level ids, `after` order, one stage per level, every `levels` id at or before the stage's own `after` in `pack.levels` order), the thresholds (`bare > mastered`), that `learnKinds`/`reviewKinds` are known kinds, and that `testKinds`, when present, maps known kinds to positive weights.
 
 ## pack/characters.json
 
@@ -98,13 +100,13 @@ Required when `pack.characters` is set (and must be absent otherwise). Holds the
 
 | field | type | meaning |
 |---|---|---|
-| `id` | `c0001`…, unique | Progress key. Never renumber. |
+| `id` | `c0001`…, unique | Progress key. Builders derive it from the unit's `words[0]` id (`w0416` → `c0416`), so ids follow word ids and are never renumbered when units are added or left out; a pack with gaps in unit ids is normal. |
 | `t` | non-empty string | Written form, shown large. |
 | `words` | `[wordId]`, non-empty | Linked words, ids from this pack's `words.json`. `words[0]` supplies the gloss and the audio. |
-| `lv` | levelId | Must be one of `pack.levels[].id`, and covered by one of `pack.characters.stages[].levels` — decides which stage the unit belongs to. |
+| `lv` | levelId | Must be one of `pack.levels[].id`, equal to the `lv` of `words[0]`, and covered by one of `pack.characters.stages[].levels` — decides which stage the unit belongs to. |
 | `reading` | string | Optional. Answer for `charSound` and the ruby text. Defaults to the `pron` of `words[0]`. |
 
-`tools/validate_pack.py` checks unique ids, that every `words` id exists, and that `lv` is both a pack level and covered by a stage.
+`tools/validate_pack.py` checks unique ids, that every `words` id exists, and that `lv` is a pack level, equals the level of `words[0]`, and is covered by a stage.
 
 ## words.json
 
@@ -134,7 +136,7 @@ Required when `pack.characters` is set (and must be absent otherwise). Holds the
 | `words` | `[wordId]` | Word ids used in the sentence, resolved at pack-build time with no runtime lookup. A cloze candidate must pass four rules. It is at the sentence's own level. It is not a function word. It is not repeated in `words`. Its forms (`w` plus every `alt`) appear exactly once in `t` overall, where overlapping hits count as one. That occurrence must also not sit inside a longer pack word or compound, such as 为 inside 为什么. |
 | `pron` | string | Optional display-only pronunciation of the whole sentence. |
 | `audio` | URL string | Optional recorded audio. When present it plays instead of TTS. Relative URLs resolve against the built HTML file's location, not the pack directory, so ship audio beside the built page or use absolute URLs. |
-| `ruby` | `[[start, end, reading, wordId]]` | Optional, only meaningful with `pack.characters`. Per-token readings for characters tiering: each tuple is a UTF-16 offset range into `t` (`end` exclusive, same convention as `passages.json` `spans`), the reading text for that range, and the `characters.json` unit's `words[0]` id that range belongs to (so 这个 maps to its base word). Tuples are sorted, non-overlapping, and each covers non-blank text without splitting a surrogate pair. A sentence with `ruby` renders `<ruby>t<rt>reading</rt></ruby>` per token below the `bare` tier and plain `t` at or above it. |
+| `ruby` | `[[start, end, reading, wordId]]` | Optional, only meaningful with `pack.characters`. Per-token readings for characters tiering: each tuple is a UTF-16 offset range into `t` (`end` exclusive, same convention as `passages.json` `spans`), the reading text for that range, and the `characters.json` unit's `words[0]` id that range belongs to (so 这个 maps to its base word). Tuples are sorted, non-overlapping, and each covers non-blank text without splitting a surrogate pair. A sentence with `ruby` renders `<ruby>t<rt>reading</rt></ruby>` per token below the `bare` tier and `<ruby class="bare">t<rt>reading</rt></ruby>` at or above it, with that `<rt>` hidden (`visibility:hidden`), so a token's width and the line's wrapping never change across tiers. With pron hidden or the mix preference off the sentence renders as plain text, as without characters. |
 
 ## lessons.json
 
@@ -172,6 +174,7 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 | `sentences[].t` | string | One sentence of the passage, rendered in order. |
 | `sentences[].en` | string | English translation, shown in question feedback and results. |
 | `sentences[].words` | `[wordId]` | Linked pack words. Each is tappable for its gloss: at its `spans` when it has any, otherwise wherever its `w`, an `alt` or its bare form is visible in `t` (core.js `passageSegments`, longest match wins, so 为什么 beats 为, and a surface hit never covers a span). A linked word with neither is shown as a chip under the sentence, so every linked word stays tappable. |
+| `sentences[].ruby` | `[[start, end, reading, wordId]]` | Optional, only meaningful with `pack.characters`. Same format, rules and rendering as `sentences.json` `ruby`, per passage sentence; a token crossing a tap-span edge renders plain. |
 | `sentences[].spans` | `[[start, end, wordId]]` | Optional. Where each linked word sits in `t`, as written by the builder from its tagger tokens (`packbuilder passages`), so inflected forms (mele, compra, va) are tappable in place. Offsets are UTF-16 code units (JavaScript string indices; equal to character indices for text without characters above U+FFFF), `end` exclusive. Spans are sorted and do not overlap, each `wordId` is in `words`, and a word may have several spans (one per occurrence). A multi-token unit the builder links as one word (per favore) is one span. `words` stays the full list: a word without a span falls back to surface matching, and packs without `spans` render exactly as before. Invalid spans are ignored by the app. |
 | `questions[].q` | string | Target-language question. |
 | `questions[].en` | string | Optional English translation of `q`, shown under it. |
@@ -224,9 +227,9 @@ An object with up to three optional keys, each a map from an old-app string key 
 - Script fields: `rtl` is a bool, `langTag` is a BCP-47 tag, `fontFamily` has no `;`, `{`, `}`, `<`, `>`, `\`, `/*` or `url(`, every `fonts` entry is a Google Fonts family name, and `lineHeight` is 1–4. A pack with `rtl` true and neither `fontFamily` nor `fonts` gets a warning.
 - Lesson answers are among their options.
 - `passages.json`, when present: unique ids, `lv` is a pack level, `title`/`text` non-empty, non-empty `sentences` with `t`, `en` and known `words` ids, optional `spans` (a list of `[start, end, wordId]` with integer UTF-16 offsets, `0 <= start < end <= len(t)`, sorted, non-overlapping, not splitting a surrogate pair, `wordId` in that sentence's `words`, covering non-blank text), non-empty `questions` with `q`, `type` mc or tf, mc `options` of 4 distinct strings with `answer` 0–3, tf `answer` a bool and no options, known `words` ids, and `sentence` a valid index. A sentence `t` missing from `text` and a question with empty `words` are warnings.
-- `pack.characters`, when present: `stages` is a non-empty list of `{after, levels}` with existing level ids, `after` non-decreasing in `pack.levels` order, and every level id covered by exactly one stage; `mastered`/`setSize` positive ints and `bare > mastered`; `learnKinds`/`reviewKinds` non-empty lists of known kinds. `characters.json` must exist exactly when `pack.characters` does, each error naming which side is missing.
-- `characters.json`, when present: unique ids, non-empty `t`, non-empty `words` with known word ids, and `lv` both a pack level and covered by a `pack.characters.stages[].levels`.
-- `sentences[].ruby`, when present: same offset rules as `passages.json` `spans` (sorted, non-overlapping, in-bounds, no split surrogate pairs, non-blank), plus a non-empty `reading` and a `wordId` that is both in the sentence's `words` and some `characters.json` unit's `words[0]`.
+- `pack.characters`, when present: `stages` is a non-empty list of `{after, levels}` with existing level ids, `after` non-decreasing in `pack.levels` order, and every level id covered by exactly one stage; `mastered`/`setSize` positive ints and `bare > mastered`; `learnKinds`/`reviewKinds` non-empty lists of known kinds; `testKinds`, when present, a non-empty object of known kinds to positive weights; every `stages[].levels` id at or before that stage's `after` in `pack.levels` order. `characters.json` must exist exactly when `pack.characters` does, each error naming which side is missing.
+- `characters.json`, when present: unique ids, non-empty `t`, non-empty `words` with known word ids, and `lv` a pack level, equal to the level of `words[0]`, and covered by a `pack.characters.stages[].levels`.
+- `sentences[].ruby` (and `passages.json` `sentences[].ruby`), when present: same offset rules as `passages.json` `spans` (sorted, non-overlapping, in-bounds, no split surrogate pairs, non-blank), plus a non-empty `reading` and a `wordId` that is both in the sentence's `words` and some `characters.json` unit's `words[0]`.
 - `pack.legacy` and `legacy.json` must exist together, and every value in `legacy.json`'s `w`/`s`/`c` maps is a real `words.json`/`sentences.json`/`characters.json` id (duplicate values across one map are a warning).
 - The generated `.js` files are in sync.
 

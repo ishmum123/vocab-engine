@@ -132,8 +132,8 @@ return {
   stepFrom: step => { todayStepState.step = step; todayStep(); },
   enterStep: step => { todayStepState = { step }; todayStep(); },
   goto: t => { tab = t; testSel = null; RD = null; render(); },
-  legacyNotice: () => legacyNotice,
-  sentenceRowHTML, sentenceRevealBlock, readSentence, charDrillItem, passageSentenceHTML, hasChars: () => HAS_CHARACTERS,
+  legacyNotice: () => legacyNotice, legacyFail: () => legacyFail, readOnly: () => storeReadOnly, getPrep: () => todayPrep,
+  rubyTextHTML, sentenceRowHTML, sentenceRevealBlock, readSentence, charDrillItem, passageSentenceHTML, hasChars: () => HAS_CHARACTERS,
 };`;
   const names = ["document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
   const args = [document, window, { userAgent:"CharsAppChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
@@ -173,7 +173,7 @@ function playDrill(api, maxItems){
   }
   throw new Error("drill did not finish");
 }
-const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, "").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&");
+const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, "").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&");
 
 (async function main(){
   // ---------------------------------------------------------------- [1] strip
@@ -203,7 +203,7 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     h = api.html("panel");
     check("characters next: choiceSeen set, not deferred", api.getProg().chars.choiceSeen === true && api.getProg().chars.defer === false);
     check("after answering: card gone, Start today back", !/id="charChoice"/.test(h) && /id="go"/.test(h));
-    check("before any unit record: Review line is 20 items (characters started)", /1\. Review<\/td><td>20 items, weakest first, words and 字/.test(h));
+    check("before any unit record: Review line is 20 items, words only (no unit in the plan yet)", /1\. Review<\/td><td>20 items, weakest first, words<\/td>/.test(h) && !api.getPrep().review.some(x => x.unit));
 
     // Start today: snapshot taken, Review (word-only: no records yet) is 20 items.
     api.el("go").click();
@@ -236,6 +236,10 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
       cs.units.every(u => recs[u.id] && recs[u.id].s === 2) && Object.keys(recs).length === 10);
     check("the drill's Continue moved on to the Listen step", api.getState().step === 3 && api.getD() && api.getCur().key.startsWith("w:"));
     check("next unit set is now set 2", VC.nextCharSet(["1","2","3"], CHARACTERS, PACK, api.getProg()).index === 1);
+    check("the Start-today snapshot persists across steps (same object, still set 1, stage unchanged, reviewSize 20)",
+      api.getState().snap === st.snap && st.snap.cset.index === 0 && st.snap.stage.kind === "chars" && st.snap.reviewSize === 20);
+    api.stepFrom(4);
+    check("... and still after Recall/Sentences steps", api.getState().snap === st.snap && st.snap.cset.index === 0);
   }
   {
     const { api } = await boot();
@@ -276,15 +280,19 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     api.setProg(seedC()); api.today();
     const h = api.html("panel");
     check("seed C: no choice card, Review line 20 items with units", !/id="charChoice"/.test(h) && /20 items, weakest first, words and 字/.test(h));
+    const prep = api.getPrep().review;
     api.el("go").click();
     const D = api.getD();
     const items = [api.getCur(), ...D.q];
+    const keyOf = x => x.unit ? "c:" + x.unit.id : "w:" + x.word.id;
+    check("Start today runs exactly the Review plan the line was computed from", items.map(x => x.key).sort().join() === prep.map(keyOf).sort().join() && api.getState().review === null);
     const nUnit = items.filter(x => x.key.startsWith("c:")).length;
     check(`Review builds 20 items containing unit items (${nUnit} unit, ${20 - nUnit} word)`, items.length === 20 && nUnit > 0 && nUnit < 20);
     check("Review unit items use the pack reviewKinds (form stimulus)", items.filter(x => x.key.startsWith("c:")).every(x => /class="big wd"/.test(x.html)));
     let err = null, shown = [];
     try{ shown = playDrill(api); }catch(e){ err = e; }
     check(`Review renders and plays every item without error${err ? ` (${err.message})` : ""}`, !err && shown.length === 20);
+
     // Recall (step 3) from the same snapshot.
     api.stepFrom(3);
     const R = api.getD();
@@ -294,6 +302,16 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     err = null;
     try{ shown = playDrill(api); }catch(e){ err = e; }
     check(`Recall plays through without error${err ? ` (${err.message})` : ""}`, !err && shown.length === 8);
+  }
+  {
+    // Characters started and units recorded, but every recorded unit is bare (well below
+    // the learned words in the ranking): the plan holds no unit, so the line says "words".
+    const { api } = await boot();
+    const q = seedB(); VC.answerCharChoice(q, true);
+    VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).slice(0, 40).forEach(u => { q.chars.c[u.id] = { r:9, w:0, s:9 }; });
+    api.setProg(q); api.today();
+    const h = api.html("panel"), prep = api.getPrep().review;
+    check("units recorded but crowded out of the plan: Review line says words only", VC.recordedUnits(CHARACTERS, q, PACK).length === 40 && !prep.some(x => x.unit) && /1\. Review<\/td><td>20 items, weakest first, words<\/td>/.test(h));
   }
   {
     // Snapshot keeps Review word-only when it was taken before characters started.
@@ -318,7 +336,8 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     api.setProg(p);
     const row = api.sentenceRowHTML(s);
     check(`ruby below bare: ${s.t.slice(ta[0], ta[1])} gets <ruby> with its reading`, row.includes(`<ruby>${s.t.slice(ta[0], ta[1])}<rt>${ta[2]}</rt></ruby>`));
-    check(`bare at/above bare: ${s.t.slice(tb[0], tb[1])} renders plain`, !row.includes(`<ruby>${s.t.slice(tb[0], tb[1])}<rt>`));
+    check(`bare at/above bare: ${s.t.slice(tb[0], tb[1])} keeps its <rt>, hidden (class "bare")`, !row.includes(`<ruby>${s.t.slice(tb[0], tb[1])}<rt>`) && row.includes(`<ruby class="bare">${s.t.slice(tb[0], tb[1])}<rt>${tb[2]}</rt></ruby>`));
+    check("CSS: a bare token's <rt> is visibility:hidden (keeps its width)", /\.hasruby ruby\.bare rt\{visibility:hidden\}/.test(appHtml));
     check("ruby replaces the pron line (no .sp), line box class set", !/class="sp"/.test(row) && /class="st hasruby"/.test(row));
     check("reveal block and read item also render ruby", /<ruby>/.test(api.sentenceRevealBlock(s)) && /<ruby>/.test(api.readSentence(s).html));
     // Every sentence renders back to its own text (ruby readings aside), with and without a highlighted word.
@@ -331,6 +350,28 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
       if(t1 !== x.t || t2 !== x.t) bad++;
     });
     check(`all ${SENTENCES.length} sentences render to their own text under ruby, with and without highlight (${bad} bad)`, bad === 0);
+    // B8 (390px rewrap): a token's width must not change across tiers. Width proxy: the
+    // number of <ruby> elements, the <rt> contents and the base text; the markup may differ
+    // only by class="bare". All units below bare, all bare, and a mix (by unit parity).
+    {
+      const allUnits = f => { const q = seedC(); CHARACTERS.forEach((u, i) => { q.chars.c[u.id] = f(i); }); return q; };
+      const below = allUnits(() => ({ r:1, w:0, s:1 })), bare = allUnits(() => ({ r:6, w:0, s:6 })), mixed = allUnits(i => i % 2 ? { r:6, w:0, s:6 } : { r:1, w:0, s:1 });
+      const proxy = h => `${count(h, /<ruby[ >]/g)}#${[...h.matchAll(/<rt>([\s\S]*?)<\/rt>/g)].map(m => m[1]).join("|")}#${stripTags(h)}`;
+      const norm = h => h.replace(/<ruby class="bare">/g, "<ruby>");
+      let nRuby = 0, varied = 0, bareSeen = 0;
+      SENTENCES.forEach(x => {
+        if(!Array.isArray(x.ruby) || !x.ruby.length) return;
+        nRuby++;
+        const e = BY_ID[(x.words || [])[0]];
+        const out = [below, bare, mixed].flatMap(q => { api.setProg(q); return [api.sentenceRowHTML(x), api.sentenceRowHTML(x, e)]; });
+        if(/<ruby class="bare">/.test(out[2])) bareSeen++;
+        if(!(proxy(out[0]) === proxy(out[2]) && proxy(out[0]) === proxy(out[4]) && proxy(out[1]) === proxy(out[3]) && proxy(out[1]) === proxy(out[5])
+          && norm(out[0]) === norm(out[2]) && norm(out[0]) === norm(out[4]) && norm(out[1]) === norm(out[3]) && norm(out[1]) === norm(out[5]))) varied++;
+      });
+      check(`all ${SENTENCES.length} zh sentences (${nRuby} with ruby): ruby count, <rt> contents and text are tier-invariant, markup differs only by class="bare" (${varied} varied)`,
+        nRuby > 0 && varied === 0 && bareSeen === nRuby);
+      api.setProg(p);
+    }
     const offRow = off.api.sentenceRowHTML(s);
     p.showPron = false; const noPron = api.sentenceRowHTML(s); p.showPron = true;
     off.api.getProg().showPron = false; const offNoPron = off.api.sentenceRowHTML(s);
@@ -399,19 +440,37 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
   console.log("\n[7] Test tab: Characters N");
   {
     const { api } = await boot();
+    const deferred = seedB(); VC.answerCharChoice(deferred, false);
+    api.setProg(deferred); api.goto("test");
+    check("unlocked but deferred (not started): no Characters test", VC.charsUnlocked(PACK, WORDS, deferred) && !VC.charsStarted(PACK, WORDS, CHARACTERS, deferred) && !/id="tChars"/.test(api.html("panel")));
     api.setProg(seedB()); api.goto("test");
-    check("no unit recorded: no Characters test", !/id="tChars"/.test(api.html("panel")));
+    check("started, no unit recorded yet: Characters 20 (hsk parity: shown once started)", /id="tChars">Characters 20</.test(api.html("panel")));
+    api.el("tChars").click();
+    let items = [api.getCur(), ...api.getD().q];
+    const lw0 = VC.learnedWords(WORDS, PACK, seedB());
+    const fresh = VC.newCharUnits(CHARACTERS, lw0, seedB(), PACK, 20);
+    check("no records: the pool is the first 20 learned words' units, level then file order (VC.newCharUnits)",
+      items.length === 20 && fresh.length === 20 && fresh.every(u => items.some(x => x.key === "c:" + u.id)));
+    api.goto("test");
     const p5 = seedB(); VC.answerCharChoice(p5, true);
-    VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).slice(0, 5).forEach(u => { p5.chars.c[u.id] = { r:1, w:0, s:1 }; });
+    const rec5 = VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).slice(100, 105);
+    rec5.forEach(u => { p5.chars.c[u.id] = { r:1, w:0, s:1 }; });
     api.setProg(p5); api.goto("test");
-    check("5 recorded units: Characters 5", /id="tChars">Characters 5</.test(api.html("panel")));
+    check("5 recorded units: Characters 20 (topped up with learned words' unrecorded units)", /id="tChars">Characters 20</.test(api.html("panel")));
+    api.el("tChars").click();
+    items = [api.getCur(), ...api.getD().q];
+    const top = VC.newCharUnits(CHARACTERS, VC.learnedWords(WORDS, PACK, p5), p5, PACK, 15);
+    check("5 recorded: all 5 first, then the 15 first unrecorded units",
+      items.length === 20 && rec5.every(u => items.some(x => x.key === "c:" + u.id)) && top.every(u => items.some(x => x.key === "c:" + u.id)) && top.every(u => !p5.chars.c[u.id]));
+    api.goto("test");
     api.setProg(seedC()); api.goto("test");
     check("40 recorded units: Characters 20 (capped like the other free tests)", /id="tChars">Characters 20</.test(api.html("panel")));
     api.el("tChars").click();
-    const items = [api.getCur(), ...api.getD().q];
+    items = [api.getCur(), ...api.getD().q];
     const recs = api.getProg().chars.c;
-    check("Characters test: 20 unit items, all recorded units, reviewKinds (form stimulus)",
-      items.length === 20 && items.every(x => x.key.startsWith("c:") && recs[x.key.slice(2)] && /class="big wd"/.test(x.html)));
+    check("Characters test: 20 unit items, all recorded units", items.length === 20 && items.every(x => x.key.startsWith("c:") && recs[x.key.slice(2)]));
+    check("Characters test kinds come from testKinds (charRead, charSound, charPick; never charRecall)",
+      items.every(x => x.label === "What does it mean?" || x.label === "How is it said?" || (x.label === "How is it written?" && /hear-stage|class="med"/.test(x.html) && !x.html.includes(VC.escapeHtml(VC.unitGloss(CHARACTERS.find(u => "c:" + u.id === x.key), BY_ID))))));
     check("Characters test draws the weakest first (all 10 weak units included)",
       VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).slice(0, 10).every(u => items.some(x => x.key === "c:" + u.id)));
     let err = null, r = null;
@@ -447,6 +506,7 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     api.el("ordAfter").click();
     h = api.html("panel");
     check("order chip 'after': defer on, strip re-rendered with one merged stage last", api.getProg().chars.defer === true && /class="chip on" id="ordAfter"/.test(h) && segsOf(h).join("|") === "HSK 1|HSK 2|HSK 3|HSK 4|字");
+    check("deferred with no unit record (unlocked, not started): order chips but no mix chip", !VC.charsStarted(PACK, WORDS, CHARACTERS, api.getProg()) && /id="ordBefore"/.test(h) && !/id="toggleMix"/.test(h));
     api.goto("today");
     check("deferred: Today's Learn is HSK 4 set 1", /2\. Learn<\/td><td>HSK 4, set 1</.test(api.html("panel")));
     api.goto("progress"); api.el("ordBefore").click();
@@ -486,6 +546,9 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     const st = memStorage({});
     const { api } = await boot({ storage: st, legacy: true });
     const exp = VC.migrateLegacy(PACK, LEGACY, clone(seed));
+    // The learner's own showPron (pack default: on) survives the import (hsk has none).
+    const SHOWPRON_BEFORE = name === "C" ? false : true;
+    api.getProg().showPron = SHOWPRON_BEFORE;
     api.goto("progress");
     const prev = JSON.stringify(api.getProg());
     api.el("imptxt").value = JSON.stringify(seed);
@@ -499,6 +562,7 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     check(`seed ${name}: retired settings listed`, /left out: showChars/.test(sh));
     api.el("impApply").click(); await tick();
     const p = api.getProg();
+    check(`seed ${name}: legacy import keeps the current showPron (${p.showPron})`, p.showPron === SHOWPRON_BEFORE);
     check(`seed ${name}: applied: records keyed by id, chars/flags mapped, theme kept`,
       JSON.stringify(p.w) === JSON.stringify(exp.prog.w) && JSON.stringify(p.chars.c) === JSON.stringify(exp.prog.chars.c) && JSON.stringify(p.sets) === JSON.stringify(exp.prog.sets)
       && p.chars.choiceSeen === seed.charsChoiceSeen && p.theme === seed.theme);
@@ -557,18 +621,39 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     let err = null, r;
     try{ r = await boot({ storage: memStorage({ [LKEY]: JSON.stringify(LSEED_C) }, { throwGet: () => true }), legacy: true }); }catch(e){ err = e; }
     check(`localStorage throwing on every read: boot completes read-only, renders Today${err ? ` (${err.message})` : ""}`, !err && /id="go"|id="charChoice"/.test(r.api.html("panel")) && Object.keys(r.api.getProg().w).length === 0);
+    // Failure paths (B8): a legacy record is (or may be) there but was not imported. Today
+    // says so and why, and the session saves nothing, so a later boot can still migrate.
+    const failCase = async (name, st, why, expectWrites) => {
+      let e = null, x = null;
+      try{ x = await boot({ storage: st, legacy: true }); }catch(err){ e = err; }
+      if(e){ check(`${name}: boot completes (${e.message})`, false); return null; }
+      const h0 = x.api.html("panel");
+      check(`${name}: no migration, Today renders with the not-imported notice (${why.source})`,
+        Object.keys(x.api.getProg().w).length === 0 && /id="go"/.test(h0) && /id="legacyFail"/.test(h0) && /found but not imported/.test(h0) && why.test(h0) && x.api.readOnly());
+      const before = st.writes.slice();
+      x.api.el("themebtn").click(); await tick();
+      x.api.getProg().sessions = 5; x.api.today();
+      check(`${name}: nothing persisted this session (no ${SKEY}; writes ${JSON.stringify(expectWrites)})`,
+        !st.map.has(SKEY) && JSON.stringify(st.writes) === JSON.stringify(expectWrites) && JSON.stringify(before) === JSON.stringify(expectWrites) && !st.writes.includes(LKEY));
+      return x;
+    };
     const st2 = memStorage({ [LKEY]: JSON.stringify(LSEED_C) }, { throwGet: k => k === LKEY });
-    err = null; try{ r = await boot({ storage: st2, legacy: true }); }catch(e){ err = e; }
-    check("legacy key unreadable: no migration, no writes to it or the backup, Today renders", !err && Object.keys(r.api.getProg().w).length === 0 && !st2.writes.includes(BAK) && /id="go"/.test(r.api.html("panel")));
+    await failCase("legacy key unreadable", st2, /could not be read \(storage error\)/, []);
     const st3 = memStorage({ [LKEY]: JSON.stringify(LSEED_C) }, { throwSet: true });
-    err = null; try{ r = await boot({ storage: st3, legacy: true }); }catch(e){ err = e; }
-    check("storage writes throwing: backup can't be secured, so no migration; no crash", !err && Object.keys(r.api.getProg().w).length === 0 && /id="go"/.test(r.api.html("panel")) && !r.api.legacyNotice());
+    await failCase("backup write throwing", st3, /safety copy \([^)]*\) could not be saved/, []);
     const stB = memStorage({ [LKEY]: JSON.stringify(LSEED_C), [BAK]: "FIRST" }, { throwGet: k => k === BAK });
-    err = null; try{ r = await boot({ storage: stB, legacy: true }); }catch(e){ err = e; }
-    check("backup key unreadable: no migration (it might hold a backup), nothing written", !err && Object.keys(r.api.getProg().w).length === 0 && stB.map.get(BAK) === "FIRST" && !stB.writes.length);
+    await failCase("backup key unreadable", stB, /safety copy \([^)]*\) could not be checked/, []);
+    check("backup key unreadable: the existing backup is untouched", stB.map.get(BAK) === "FIRST");
     const st4 = memStorage({ [LKEY]: JSON.stringify({ v:3 }) });
-    r = await boot({ storage: st4, legacy: true });
-    check("unconvertible legacy record: not migrated, nothing written", Object.keys(r.api.getProg().w).length === 0 && !st4.map.has(BAK) && !st4.map.has(SKEY));
+    const x4 = await failCase("unconvertible legacy record", st4, /could not be converted \(/, []);
+    // A later boot can still migrate: the legacy key becomes readable again.
+    const st2b = memStorage(Object.fromEntries(st2.map));
+    const later = await boot({ storage: st2b, legacy: true });
+    check("after a failed boot, a later boot migrates (own key still empty)", Object.keys(later.api.getProg().w).length === Object.keys(LSEED_C.w).length && st2b.map.has(SKEY) && /id="legacyNotice"/.test(later.api.html("panel")) && !later.api.legacyFail());
+    // "Start without it": lifts the hold, saves from here on, old record untouched.
+    x4.api.el("legacySkip").click(); await tick();
+    check("Start without it: notice gone, session saves, legacy key untouched",
+      !/id="legacyFail"/.test(x4.api.html("panel")) && !x4.api.readOnly() && st4.map.has(SKEY) && st4.map.get(LKEY) === JSON.stringify({ v:3 }) && !st4.map.has(BAK));
     const st5 = memStorage({ [LKEY]: JSON.stringify(LSEED_C) });
     r = await boot({ storage: st5 });
     check("no legacy.js: the legacy key is ignored", Object.keys(r.api.getProg().w).length === 0 && !st5.map.has(BAK));
@@ -591,7 +676,16 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     const h = on.api.passageSentenceHTML(s, si, false), h0 = plain.api.passageSentenceHTML(s0, si, false);
     const A = s.t.slice(ta[0], ta[1]), B = s.t.slice(tb[0], tb[1]);
     check(`below bare: ${A} renders <ruby> with its reading inside its tap span`, new RegExp(`data-pw="${ta[3]}"[^>]*><ruby>${A}<rt>${ta[2]}</rt></ruby></span>`).test(h));
-    check(`at bare: ${B} renders plain`, new RegExp(`data-pw="${tb[3]}"[^>]*>${B}</span>`).test(h));
+    check(`at bare: ${B} keeps its reading hidden (class "bare") inside its tap span`, new RegExp(`data-pw="${tb[3]}"[^>]*><ruby class="bare">${B}<rt>${tb[2]}</rt></ruby></span>`).test(h));
+    {
+      // Passage tokens: the same width invariance across tiers as sentence rows.
+      const q1 = JSON.parse(JSON.stringify(p)), q2 = JSON.parse(JSON.stringify(p));
+      withRuby.sentences.forEach(x => (x.ruby || []).forEach(r => { const u = ubw.get(r[3]); q1.chars.c[u.id] = { r:1, w:0, s:1 }; q2.chars.c[u.id] = { r:6, w:0, s:6 }; }));
+      let varied = 0;
+      withRuby.sentences.forEach((x, i) => { on.api.setProg(q1); const a = on.api.passageSentenceHTML(x, i, false); on.api.setProg(q2); const b = on.api.passageSentenceHTML(x, i, false); if(a !== b.replace(/<ruby class="bare">/g, "<ruby>")) varied++; });
+      check(`passage: every sentence's markup is the same below bare and at bare apart from class="bare" (${varied} varied)`, varied === 0);
+      on.api.setProg(p);
+    }
     check("ruby line box class on the passage text", /class="ptxt hasruby"/.test(h) && !/hasruby/.test(h0));
     check("tap spans unchanged and text intact under ruby", count(h, /data-pw=/g) === count(h0, /data-pw=/g) && stripTags((h.match(/<div class="ptxt[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "") === s.t);
     let bad = 0;
@@ -603,6 +697,25 @@ const stripTags = h => h.replace(/<rt>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+>/g, 
     check("showPron off: no ruby", on.api.passageSentenceHTML(s, si, false) === h0);
     check("no characters stage: passage ruby ignored", off.api.passageSentenceHTML(s, si, false) === plain.api.passageSentenceHTML(s0, si, false));
     check("CSS: passage ruby line box overrides the passage line height", /\.psent \.ptxt\.hasruby\{line-height:2\.3\}/.test(appHtml));
+  }
+
+  // ---------------------------------------------------------------- [13] B8 nits
+  console.log("\n[13] astral ruby, HAS_CHARACTERS from charsConfig");
+  {
+    const { api } = await boot();
+    // 𠮷 is one astral character, two UTF-16 code units: offsets are code units.
+    const t = "𠮷a𠮷b";
+    const toks = [{ start:0, end:2, reading:"jí", tier:"ruby" }, { start:3, end:5, reading:"jí2", tier:"bare" }];
+    const h = api.rubyTextHTML({ t }, toks);
+    check(`rubyTextHTML: astral characters keep whole pairs (got ${h})`, h === `<ruby>𠮷<rt>jí</rt></ruby>a<ruby class="bare">𠮷<rt>jí2</rt></ruby>b`);
+    const hb = api.rubyTextHTML({ t }, [{ start:1, end:3, reading:"x", tier:"ruby" }]);
+    check("rubyTextHTML: a token over the whole text renders its text back", stripTags(api.rubyTextHTML({ t }, [{ start:0, end:5, reading:"x", tier:"ruby" }])) === t && stripTags(hb) === t);
+  }
+  {
+    const odd = Object.assign({}, PACK, { characters: true });
+    let err = null, r = null;
+    try{ r = await boot({ pack: odd }); }catch(e){ err = e; }
+    check("pack.characters not an object (true): HAS_CHARACTERS off (charsConfig null), no crash", !err && !r.api.hasChars() && !/charChoice|<ruby/.test(r.api.html("panel")));
   }
 
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);

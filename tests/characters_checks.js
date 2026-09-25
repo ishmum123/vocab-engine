@@ -491,8 +491,73 @@ function flagOffEquality(){
   });
 }
 
+
+// B8: pack.characters.testKinds, charTestPlan (Test tab Characters N, hsk parity) and
+// the option builders with fewer than 3 candidates.
+function b8Checks(F){
+  const { pack, words, units } = F;
+  const byId = byIdOf(words);
+  console.log(`\n================ B8 (${F.name})`);
+  const withTk = tk => Object.assign({}, pack, { characters: Object.assign({}, pack.characters, { testKinds: tk }) });
+  const noTk = Object.assign({}, pack, { characters: Object.assign({}, pack.characters) }); delete noTk.characters.testKinds;
+  check("[B8] testKinds absent: default charRead 40 / charSound 30 / charPick 30",
+    util.isDeepStrictEqual(VC.charsConfig(noTk).testKinds, { charRead:40, charSound:30, charPick:30 }));
+  check("[B8] testKinds custom weights kept", util.isDeepStrictEqual(VC.charsConfig(withTk({ charRecall:1, charRead:3 })).testKinds, { charRead:3, charRecall:1 }));
+  check("[B8] testKinds: unknown kinds and bad weights dropped; nothing left -> default",
+    util.isDeepStrictEqual(VC.charsConfig(withTk({ charRead:2, nope:5, charSound:0, charPick:-1, charRecall:"3" })).testKinds, { charRead:2 }) &&
+    util.isDeepStrictEqual(VC.charsConfig(withTk({ nope:1 })).testKinds, { charRead:40, charSound:30, charPick:30 }) &&
+    util.isDeepStrictEqual(VC.charsConfig(withTk(["charRead"])).testKinds, { charRead:40, charSound:30, charPick:30 }));
+
+  // Pool: learned = every word of the first stage's levels.
+  const lv0 = pack.characters.stages[0].levels;
+  const sets = {}; VC.levelIds(pack).forEach(lv => { sets[lv] = lv0.includes(lv) ? VC.nSets(VC.wordsByLevel(words, pack)[lv], VC.setSizeOf(pack)) : 0; });
+  const prog = VC.normalizeProg({ sets, chars: { c: {} } }, pack);
+  const learned = VC.learnedWords(words, pack, prog);
+  const stage = VC.charStageUnits(lv0, units, pack);
+  let plan = VC.charTestPlan(units, learned, prog, pack, 20, mulberry32(1));
+  const fresh = VC.newCharUnits(units, learned, prog, pack, 20);
+  check("[B8] charTestPlan, no records: the first 20 learned words' units in level/file order",
+    plan.length === 20 && plan.map(x => x.unit.id).join() === fresh.map(u => u.id).join() && fresh.every(u => learned.some(w => w.id === u.words[0])));
+  stage.slice(0, 30).forEach((u, i) => { prog.chars.c[u.id] = i < 5 ? rec(0, 3) : rec(4); });
+  plan = VC.charTestPlan(units, learned, prog, pack, 20, mulberry32(2));
+  check("[B8] charTestPlan, 30 recorded: 20 recorded units, weakest (5 missed) first",
+    plan.length === 20 && plan.every(x => prog.chars.c[x.unit.id]) && plan.slice(0, 5).every(x => prog.chars.c[x.unit.id].w === 3));
+  const p3 = VC.normalizeProg({ sets, chars: { c: {} } }, pack); stage.slice(0, 3).forEach(u => { p3.chars.c[u.id] = rec(1); });
+  plan = VC.charTestPlan(units, learned, p3, pack, 20, mulberry32(3));
+  check("[B8] charTestPlan, 3 recorded: those 3, then 17 unrecorded units, no duplicates",
+    plan.length === 20 && plan.slice(0, 3).every(x => p3.chars.c[x.unit.id]) && plan.slice(3).every(x => !p3.chars.c[x.unit.id]) && new Set(plan.map(x => x.unit.id)).size === 20);
+  const cnt = { charRead:0, charSound:0, charPick:0, charRecall:0 }; const rng = mulberry32(4);
+  for(let i = 0; i < 300; i++) VC.charTestPlan(units, learned, p3, pack, 20, rng).forEach(x => { cnt[x.kind]++; });
+  const tot = 6000, sh = k => cnt[k] / tot;
+  console.log(`    kind mix over ${tot}: ${JSON.stringify(cnt)}`);
+  check("[B8] charTestPlan kind mix ~ 40/30/30 (each within 2.5 points), never charRecall",
+    Math.abs(sh("charRead") - 0.4) < 0.025 && Math.abs(sh("charSound") - 0.3) < 0.025 && Math.abs(sh("charPick") - 0.3) < 0.025 && cnt.charRecall === 0);
+  check("[B8] charTestPlan without pack.characters: []", VC.charTestPlan(units, learned, p3, stripChars(pack), 20).length === 0);
+  check("[B8] pickWeighted: single kind always wins; rng edge 0.999999 stays in range",
+    VC.pickWeighted({ charPick: 5 }, () => 0.5) === "charPick" && VC.pickWeighted({ a:1, b:1 }, () => 0.999999) === "b" && VC.pickWeighted({ a:1, b:1 }, () => 0) === "a");
+
+  // Fewer than 3 candidates: no crash, no duplicate, never the answer.
+  const u0 = units[0], u1 = units.find(u => u.lv === u0.lv && u.t !== u0.t && VC.unitGloss(u, byId) !== VC.unitGloss(u0, byId) && VC.unitReading(u, byId) !== VC.unitReading(u0, byId));
+  const w0 = byId[u0.words[0]], w1 = byId[u1.words[0]];
+  const tiny = [[u0], [u0, u1]];
+  let bad = 0;
+  tiny.forEach(pool => {
+    const wpool = pool.map(u => byId[u.words[0]]);
+    const co = VC.charOpts(u0, pool, byId), so = VC.charSoundOpts(u0, pool, byId), ro = VC.charReadOpts(u0, wpool, byId);
+    if(!(Array.isArray(co) && co.length === pool.length - 1 && co.every(x => x.t !== u0.t))) bad++;
+    if(!(Array.isArray(so) && so.length === pool.length - 1 && so.every(x => x !== VC.unitReading(u0, byId)))) bad++;
+    if(!(Array.isArray(ro) && ro.length === pool.length - 1 && ro.every(x => x.id !== w0.id))) bad++;
+    ["charRead","charSound","charPick","charRecall"].forEach(k => {
+      const it = VC.charItem(k, u0, { units: pool, words: wpool, byId });
+      if(!(it.options.length === pool.length && it.options.includes(it.answer) && new Set(it.options).size === it.options.length)) bad++;
+    });
+  });
+  check(`[B8] charOpts/charSoundOpts/charReadOpts with 0 or 1 candidates: that many options, never the answer; items keep the answer (${bad} bad; ${w1.id})`, bad === 0);
+}
+
 suite(zhLike());
 suite(jaLike());
+b8Checks(zhLike());
 flagOffEquality();
 
 console.log(`\n${fails === 0 ? "ALL PASSED" : "FAILED"}: ${passes} passed, ${fails} failed`);

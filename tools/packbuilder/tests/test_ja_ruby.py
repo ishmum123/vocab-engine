@@ -131,13 +131,25 @@ class Units(unittest.TestCase):
     def test_units_contain_kanji_in_level_order(self):
         units = ja().character_units(self.WORDS)
         self.assertEqual([u["t"] for u in units], ["行く", "〜年", "勉強", "経済"])
-        self.assertEqual([u["id"] for u in units], ["c0001", "c0002", "c0003", "c0004"])
+        # ids follow word ids (w0002 -> c0002), never positions: kana-only words leave gaps
+        self.assertEqual([u["id"] for u in units], ["c0002", "c0004", "c0003", "c0006"])
         for u in units:
             self.assertTrue(KANJI_RE.search(u["t"]))
             self.assertTrue(KANA_ONLY_RE.match(u["reading"]))
             self.assertEqual(len(u["words"]), 1)
         self.assertEqual(units[1]["reading"], "ねん")          # 〜 is no part of the reading
-        self.assertEqual(units[0], {"id": "c0001", "t": "行く", "words": ["w0002"], "lv": "A1", "reading": "いく"})
+        self.assertEqual(units[0], {"id": "c0002", "t": "行く", "words": ["w0002"], "lv": "A1", "reading": "いく"})
+
+    def test_unit_ids_stable_when_words_are_added(self):
+        before = {u["t"]: u["id"] for u in ja().character_units(self.WORDS)}
+        more = [{"id": "w0007", "w": "食べる", "lv": "A1", "pron": "たべる"}] + self.WORDS
+        after = {u["t"]: u["id"] for u in ja().character_units(more)}
+        self.assertEqual(after["食べる"], "c0007")
+        self.assertEqual({t: after[t] for t in before}, before)
+
+    def test_unit_id_needs_w_digits_word_id(self):
+        with self.assertRaises(ValueError):
+            ja().character_units([{"id": "x12", "w": "行く", "lv": "A1", "pron": "いく"}])
 
     def test_config_matches_design(self):
         ch = Japanese.characters

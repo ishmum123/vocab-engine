@@ -110,7 +110,12 @@
   "reviewKinds": [
    "charRead",
    "charSound"
-  ]
+  ],
+  "testKinds": {
+   "charRead": 40,
+   "charSound": 30,
+   "charPick": 30
+  }
  },
  "legacy": {
   "key": "hsk_pinyin",

@@ -1135,7 +1135,24 @@ function charsConfig(pack){
     bare: typeof c.bare === "number" ? c.bare : CHAR_BARE,
     learnKinds: kinds(c.learnKinds, ["charPick","charRead"]),
     reviewKinds: kinds(c.reviewKinds, ["charRead","charSound"]),
+    testKinds: testKinds(c.testKinds),
   };
+}
+// pack.characters.testKinds: {kind: weight} for the Test tab's Characters N (the predecessor app's mix,
+// charRead 40 / charSound 30 / charPick 30, by default). Unknown kinds and non-positive
+// or non-finite weights are dropped; nothing left means the default.
+const CHAR_TEST_KINDS = { charRead:40, charSound:30, charPick:30 };
+function testKinds(tk){
+  const out = {};
+  if(isObj(tk)) for(const k of CHAR_KINDS) if(typeof tk[k] === "number" && isFinite(tk[k]) && tk[k] > 0) out[k] = tk[k];
+  return Object.keys(out).length ? out : Object.assign({}, CHAR_TEST_KINDS);
+}
+// One kind drawn from a {kind: weight} map (rng in [0, 1)).
+function pickWeighted(weights, rng){
+  const ks = Object.keys(weights); const total = ks.reduce((a, k) => a + weights[k], 0);
+  let x = (rng || Math.random)() * total;
+  for(const k of ks){ x -= weights[k]; if(x < 0) return k; }
+  return ks[ks.length - 1];
 }
 
 // ---- progress (prog.chars)
@@ -1465,6 +1482,15 @@ function newCharUnits(units, learned, prog, pack, n){
   const ok = new Set((units || []).filter(u => ids.has((u.words || [])[0]) && !hasCharRec(recs, u.id)).map(u => u.id));
   return charStageUnits(levelIds(pack), (units || []).filter(u => ok.has(u.id)), pack).slice(0, n);
 }
+// Test tab's Characters N (the predecessor app's test): the n weakest recorded units,
+// topped up to n with learned words' unrecorded units (newCharUnits: level order, then
+// file order); each gets a kind drawn from pack.characters.testKinds. [{kind, unit}].
+function charTestPlan(units, learned, prog, pack, n, rng){
+  const cfg = charsConfig(pack); if(!cfg) return [];
+  const rec = weakFirst(recordedUnits(units, prog, pack), n, charRecs(prog), undefined, rng);
+  const pool = rec.length >= n ? rec : rec.concat(newCharUnits(units, learned, prog, pack, n - rec.length));
+  return pool.map(unit => ({ kind: pickWeighted(cfg.testKinds, rng), unit }));
+}
 
 // ------------------------------------------------------------------ legacy migration
 // One-way import of a predecessor app's progress into this pack's shape (design: the
@@ -1606,7 +1632,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   unitWord, unitReading, unitGloss, unitByWord, recordedUnits,
   charStageUnits, charSets, charSetTaught, nextCharSet, charStages, stagePath, nextStage, charsUnlocked, charsStarted, showCharChoice,
   charTier, sentenceTokenTier, rubyTiers, charOpts, recallCharOpts, charSoundOpts, charReadOpts, charItem,
-  learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits,
+  learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits, charTestPlan, pickWeighted,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
