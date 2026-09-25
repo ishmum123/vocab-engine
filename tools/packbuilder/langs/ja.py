@@ -2535,18 +2535,20 @@ class Japanese(LanguageSpec):
                 pieces[i][1] = [new]
                 self.stats["passage kana: 来 / 言 by the kana after it"] += 1
 
-    def _agree_word(self, text, a, b, x, y, rd, word):
+    def _agree_word(self, text, a, b, x, y, rd, word, after_span=False):
         """A span's token [x, y) read rd, linked to `word`: when the token is
         exactly the kanji run of the word's headword (箱, 間, 外 in 箱いっぱい, その間,
-        外で) at a word start (no kanji or digit before it) and the word's own
-        reading of that run differs, the word's reading (Sudachi: ばこ, かん, がい).
-        Not for AGREE_SKIP kanji."""
+        外で) and the word's own reading of that run differs, the word's reading
+        (Sudachi: ばこ, かん, がい). After a kanji or digit only when that
+        character ends another linked span (after_span: 毎日|外 そと); after a
+        name or other unlinked text the Sudachi reading stays (松本城 じょう, a
+        suffix). Not for AGREE_SKIP kanji."""
         if not word or not word.get("pron"):
             return rd
         m = re.match(f"^([^{HIRA}{KATA}]+)([{HIRA}]*)$", word["w"])
         if not m or text[x:y] != m.group(1) or x != a or any(ch in self.AGREE_SKIP for ch in m.group(1)):
             return rd
-        if x and (KANJI_RE.match(text[x - 1]) or DIGIT_RE.match(text[x - 1])):
+        if x and (KANJI_RE.match(text[x - 1]) or DIGIT_RE.match(text[x - 1])) and not after_span:
             return rd
         pr, ok = word["pron"].strip("〜"), m.group(2)
         stem = pr if not ok else (pr[:len(pr) - len(ok)] if pr.endswith(ok) else "")
@@ -2707,7 +2709,8 @@ class Japanese(LanguageSpec):
                 self.stats.clear()
                 self.stats.update(saved)
                 if r is not None:
-                    rd = self._agree_word(text, a, b, r[0], r[1], r[2], words.get(wid))
+                    rd = self._agree_word(text, a, b, r[0], r[1], r[2], words.get(wid),
+                                          after_span=any(q == a for _p, q, _w in spans))
                     if rd != r[2]:
                         log["agree"].append((text[r[0]:r[1]], r[2], rd))
                     out.append([r[0], r[1], rd, w])

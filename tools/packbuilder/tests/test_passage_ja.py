@@ -427,6 +427,24 @@ class TextRuby(unittest.TestCase):
         r, _ = self.ruby("田中さんは", [(0, 2, "たなか"), (2, 4, None), (4, 5, None)], [(2, 4, "w59"), (4, 5, "w2")])
         self.assertEqual(r, [[0, 2, "たなか", None]])
 
+    def test_linked_word_reading_after_another_span_not_after_a_name(self):
+        words = {"w1": {"w": "外", "pron": "そと"}, "w2": {"w": "毎日", "pron": "まいにち"},
+                 "w3": {"w": "城", "pron": "しろ"}}
+        segs = {"毎日外で": [(0, 2, "まいにち"), (2, 3, "がい"), (3, 4, None)],
+                "松本城": [(0, 2, "まつもと"), (2, 3, "じょう")],
+                "外で": [(0, 1, "がい"), (1, 2, None)]}
+        sp = rspec(segs, {})
+        log = defaultdict(list)
+        # 毎日|外: 外 is its own span after the span 毎日: the word's そと
+        r = sp.text_ruby("毎日外で", "", [(0, 2, "w2"), (2, 3, "w1")], lambda w: True, log, words)
+        self.assertEqual(r, [[0, 2, "まいにち", "w2"], [2, 3, "そと", "w1"]])
+        # 松本 (a name, no span) + 城: the suffix reading stays
+        r = sp.text_ruby("松本城", "", [(2, 3, "w3")], lambda w: True, log, words)
+        self.assertEqual(r, [[0, 2, "まつもと", None], [2, 3, "じょう", "w3"]])
+        # at a text start the word's reading wins
+        r = sp.text_ruby("外で", "", [(0, 1, "w1")], lambda w: True, log, words)
+        self.assertEqual(r, [[0, 1, "そと", "w1"]])
+
     def test_word_id_only_when_allowed(self):
         r, _ = self.ruby("会社", [(0, 2, "かいしゃ")], [(0, 2, "w1")], ok=lambda w: False)
         self.assertEqual(r, [[0, 2, "かいしゃ", None]])
