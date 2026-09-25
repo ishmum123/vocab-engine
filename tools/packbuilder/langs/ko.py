@@ -1207,7 +1207,8 @@ class _PassageAlias(dict):
 
 
 # ---- script primer (docs/SCRIPT_PRIMER.md ss3) -------------------------------
-# Hangul: 47 units in 7 sets. One jamo in two roles is two units (ㄱ initial,
+# Hangul: 47 units in 7 sets; the silent ㅇ comes first, with the vowels, so
+# set 1 already spells words (아이, 오, 우유). One jamo in two roles is two units (ㄱ initial,
 # ㄱ final). Blocks are split by Unicode arithmetic; example romanisation is
 # Revised Romanization block by block (a final moves onto a following ㅇ, ㄹㄹ is
 # ll; no other sound change -- the ex ranking avoids finals before the last block).
@@ -1228,6 +1229,8 @@ KO_LIAISON = {"ㄳ": ("ㄱ", "ㅅ"), "ㄵ": ("ㄴ", "ㅈ"), "ㄶ": ("ㄴ", "ㅎ"
 
 # (set, group, slug, glyph, name, roman, alt, confuse slugs, note)
 KO_SCRIPT = [
+    (1, "consonant", "ieung", "ㅇ", "이응", "(silent)", [], ["h", "m"],
+     "silent at the start of a block (아 = a); ng at the end"),
     (1, "vowel", "a", "ㅏ", "아", "a", [], ["eo", "ya"], "a as in 'father'"),
     (1, "vowel", "eo", "ㅓ", "어", "eo", [], ["a", "yeo"], "open o, like 'u' in 'cut'"),
     (1, "vowel", "o", "ㅗ", "오", "o", [], ["u", "yo"], "o as in 'go', no glide"),
@@ -1241,8 +1244,6 @@ KO_SCRIPT = [
     (2, "consonant", "m", "ㅁ", "미음", "m", [], ["b", "ieung"], "m"),
     (2, "consonant", "b", "ㅂ", "비읍", "b", ["p"], ["p", "m"], "soft b/p"),
     (2, "consonant", "s", "ㅅ", "시옷", "s", [], ["j", "ss"], "s; sh before ㅣ"),
-    (2, "consonant", "ieung", "ㅇ", "이응", "(silent)", [], ["h", "m"],
-     "silent at the start of a block (아 = a); ng at the end"),
     (3, "consonant", "j", "ㅈ", "지읒", "j", [], ["ch", "s"], "soft j/ch"),
     (3, "consonant", "ch", "ㅊ", "치읓", "ch", [], ["j", "h"], "ch with a puff of air"),
     (3, "consonant", "k", "ㅋ", "키읔", "k", [], ["g", "kk"], "k with a puff of air"),
@@ -1280,7 +1281,7 @@ KO_SCRIPT = [
 KO_SCRIPT_NOTES = [
     {"st": "hangul", "set": 1, "h": "Blocks",
      "body": "Hangul is written in syllable blocks. A vowel never stands alone: a block with no "
-             "consonant sound starts with a silent ㅇ, so ㅏ is written 아."},
+             "consonant sound starts with a silent ㅇ, so ㅏ is written 아 and 아이 is ai."},
     {"st": "hangul", "set": 2, "h": "Building a block",
      "body": "The consonant goes left of a tall vowel (나, 이) or on top of a flat one (노, 누)."},
     {"st": "hangul", "set": 5, "h": "Three kinds of consonant",

@@ -4,17 +4,26 @@ and `syll` composition examples -- as pack/script.json. Pure: no files, no
 Env, so tests call build_script on any word list. Deterministic: every choice
 is ordered by (tier, level, spec penalty, position, file order).
 
-`ex` (up to 3 per unit): words from the first two levels whose text holds the
-unit spelled with its own glyph and whose every other symbol is taught at or
-before the unit's set (earlier stages count as taught). Tiers, first non-empty
-wins: first level readable, second level readable, first level with exactly one
-unknown unit, second level with one unknown. Within a tier: the unknown unit
-taught soonest, then spec.script_ex_penalty, then the unit word-initial, then
-file (frequency) order. Anything past tier 1 is reported.
+`ex` (up to 3 per unit): words whose text holds the unit spelled with its own
+glyph and whose every other needed symbol is taught at or before the unit's set
+(earlier stages count as taught). spec.script_ex_policy(unit) gives the most
+unknown units allowed (default 1) and how many levels the pool spans (default
+2; ja katakana: 2 unknowns and a third level). Tiers, first non-empty wins:
+levels before the last-resort (third) level first, then fewer unknown units,
+then the lower level. So by default: first level readable, second level
+readable, first level with one unknown, second level with one unknown. Within
+a tier: the unknown unit taught soonest, then spec.script_ex_penalty, then the
+unit word-initial, then file (frequency) order. Anything past tier 1 is
+reported in the stats.
 
-`syll`: the spec's composition examples (ko blocks) that occur in first-level
-words, whose parts are all taught at or before the unit's set, ranked by how
-often they occur, then first occurrence. Up to 3.
+A token is (unitId, exact, pos[, need]). need False (default True): the token
+names the unit for examples only and is not needed to read the word (ja: a
+yōon unit, whose parts き + ゃ carry the readability).
+
+`syll`: the spec's composition examples (ko blocks, ja yōon) that occur in
+first-level words, given to their owner units (default: every part) whose set
+is at or after every part's, ranked by how often they occur, then first
+occurrence. Up to 3.
 """
 from collections import Counter
 
@@ -42,6 +51,10 @@ def _unit_out(u):
     return out
 
 
+def _need(tok):
+    return tok[3] if len(tok) > 3 else True
+
+
 def build_script(spec, words):
     """-> (script.json dict, stats dict), or (None, None) when the spec has no primer."""
     table = spec.script_units()
@@ -51,7 +64,7 @@ def build_script(spec, words):
     units = [dict(u) for u in table]
     rank = {u["id"]: (stage_keys.index(u["st"]), u["set"]) for u in units}
     glyph = {u["id"]: u["t"].split()[-1] for u in units}
-    levels = list(spec.level_ids[:2])
+    levels = list(spec.level_ids[:3])
 
     pool = []           # (level index, file index, word, roman, toks)
     for i, w in enumerate(words):
@@ -72,28 +85,33 @@ def build_script(spec, words):
     for i, w in enumerate(words):
         if w.get("lv") != levels[0]:
             continue
-        for t, parts, roman in spec.script_syllables(spec.script_text(w) or ""):
+        for sy in spec.script_syllables(spec.script_text(w) or ""):
+            t = sy[0]
             syll_count[t] += 1
             syll_first.setdefault(t, len(syll_first))
-            syll_info.setdefault(t, (parts, roman))
+            syll_info.setdefault(t, (sy[1], sy[2], sy[3] if len(sy) > 3 else sy[1]))
 
-    fallback_a2, unreadable, no_ex = [], [], []
+    flags = {"second": [], "last": [], 1: [], 2: []}
+    no_ex = []
     for u in units:
         key = rank[u["id"]]
+        max_unknown, n_levels = spec.script_ex_policy(u)
         tiers = {}
         for lvi, i, w, roman, toks in pool:
-            pos = [p for uid, exact, p in toks if uid == u["id"] and exact]
+            if lvi >= n_levels:
+                continue
+            pos = [t[2] for t in toks if t[0] == u["id"] and t[1]]
             if not pos:
                 continue
-            unknown = {uid if uid is not None else ("?", n) for n, (uid, _, _) in enumerate(toks)
-                       if uid is None or rank[uid] > key}
-            if len(unknown) > 1:
+            unknown = {t[0] if t[0] is not None else ("?", n) for n, t in enumerate(toks)
+                       if _need(t) and (t[0] is None or rank[t[0]] > key)}
+            if len(unknown) > max_unknown:
                 continue
-            tier = (len(unknown), lvi)
-            # one-unknown tier: the unknown taught soonest first (a symbol-less
-            # unknown -- a hamza seat, a ko double final -- last)
-            soon = [rank[x] if isinstance(x, str) else (99, 0) for x in unknown]
-            sk = (min(soon, default=(0, 0)), spec.script_ex_penalty(toks), 0 if min(pos) == 0 else 1, i)
+            tier = (lvi >= 2, len(unknown), lvi)
+            # the unknown taught soonest first (a symbol-less unknown -- a hamza
+            # seat, a ko double final -- last)
+            soon = sorted(rank[x] if isinstance(x, str) else (99, 0) for x in unknown)
+            sk = (soon, spec.script_ex_penalty(toks), 0 if min(pos) == 0 else 1, i)
             tiers.setdefault(tier, []).append((sk, w["id"], spec.script_text(w), roman))
         ex = []
         for tier in sorted(tiers):
@@ -105,17 +123,19 @@ def build_script(spec, words):
                 ex.append([wid, roman])
                 if len(ex) == EX_MAX:
                     break
-            if tier[0]:
-                unreadable.append(u["id"])
             if tier[1]:
-                fallback_a2.append(u["id"])
+                flags[tier[1]].append(u["id"])
+            if tier[2] == 1:
+                flags["second"].append(u["id"])
+            if tier[2] >= 2:
+                flags["last"].append(u["id"])
             break
         if not ex:
             no_ex.append(u["id"])
         u["ex"] = ex
 
-        cands = [t for t, (parts, _) in syll_info.items()
-                 if u["id"] in parts and all(rank.get(p, (99, 0)) <= key for p in parts)]
+        cands = [t for t, (parts, _, owners) in syll_info.items()
+                 if u["id"] in owners and all(rank.get(p, (99, 0)) <= key for p in parts)]
         cands.sort(key=lambda t: (-syll_count[t], syll_first[t]))
         u["syll"] = [{"t": t, "parts": [glyph[p] for p in syll_info[t][0]], "roman": syll_info[t][1]}
                      for t in cands[:SYLL_MAX]]
@@ -131,8 +151,10 @@ def build_script(spec, words):
     stats = {
         "units": {k: sum(1 for u in units if u["st"] == k) for k in stage_keys},
         "sets": {k: max((u["set"] for u in units if u["st"] == k), default=0) for k in stage_keys},
-        "ex_fallback_second_level": fallback_a2,
-        "ex_one_unknown_unit": unreadable,
+        "ex_fallback_second_level": flags["second"],
+        "ex_fallback_third_level": flags["last"],
+        "ex_one_unknown_unit": flags[1],
+        "ex_two_unknown_units": flags[2],
         "ex_none": no_ex,
         "syll_units": sum(1 for u in units if u["syll"]),
     }

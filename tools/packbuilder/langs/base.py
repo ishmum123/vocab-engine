@@ -497,13 +497,21 @@ class LanguageSpec:
         return word.get("w")
 
     def script_tokens(self, text):
-        """text -> [(unitId or None, exact, pos)]: one entry per unit occurrence, in
-        order. None unitId: a script symbol with no unit (never readable). exact
+        """text -> [(unitId or None, exact, pos[, need])]: one entry per unit
+        occurrence, in order. need False: names the unit for examples only, not
+        needed to read the word (ja yōon: its parts carry readability). None
+        unitId: a script symbol with no unit (never readable). exact
         False: read as that unit but not spelled with its glyph (ko ㅅ final read as
         ㄷ final): counts for readability, never as an example of the unit. pos: the
         reading position (ko: the block index). Returns None when the text holds
         anything outside the script (space, hyphen, Latin): never an example."""
         return None
+
+    def script_ex_policy(self, unit):
+        """(most unknown units allowed in an example, levels the example pool spans)
+        for one unit. Default (1, 2): one unknown only when nothing is readable,
+        first two levels. ja katakana: (2, 3)."""
+        return 1, 2
 
     def script_ex_ok(self, word):
         """False drops a word from the example pool (ja: は/へ particles)."""
@@ -519,7 +527,8 @@ class LanguageSpec:
         return 0
 
     def script_syllables(self, text):
-        """Composition examples in text: [(t, [unitId...], roman)] (ko blocks)."""
+        """Composition examples in text: [(t, [part unitId...], roman[, [owner
+        unitId...]])] (ko blocks, ja yōon). Owners (default: the parts) get it as syll."""
         return []
 
     def script_say(self, unit):

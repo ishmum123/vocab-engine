@@ -86,6 +86,23 @@ expectError("ex word after the second level", "ko", fx => {
   const w = fx.words.find(x => x.lv === "B1" && x.w.includes("아") === false && /[나다라마바사]/.test(x.w)) || fx.words.find(x => x.lv === "B1");
   w.w = "나" + w.w; unit(fx, "ko-a").ex = [[w.id, "na"]];
 }, /ERROR script unit ko-a\.ex\[0\] word \S+ is level 'B1', after the second level/);
+// A later stage (ja katakana) may take a third-level example as a last resort:
+// a warning there, still an error for a first-stage unit.
+function jaWithB1(){
+  const fx = FX.ja(); fx.pack.levels.push({ id: "B1", label: "B1" });
+  fx.words.push({ id: "jB1_01", w: "カメラ", en: "camera", lv: "B1", pron: "カメラ" },
+                { id: "jB1_02", w: "傘", en: "umbrella", lv: "B1", pron: "かさ" });
+  return fx;
+}
+expectError("ex word from the third level on a first-stage unit", "ja", fx => {
+  Object.assign(fx, jaWithB1()); unit(fx, "ja-ka").ex = [["jB1_02", "kasa"]];
+}, /ERROR script unit ja-ka\.ex\[0\] word jB1_02 is level 'B1', after the second level/);
+{
+  const fx = jaWithB1(); unit(fx, "ja-ka-ka").ex = [["jB1_01", "kamera"]];
+  const r = runValidate(mkPack(fx));
+  check("later stage: ex word from the third level is a warning", r.status === 0 &&
+    /WARN  script unit ja-ka-ka\.ex\[0\] word jB1_01 is from level 'B1', the third level/.test(r.out) && !/ERROR/.test(r.out), r.out);
+}
 expectError("syll.t not in a first-level word", "ko", fx => { unit(fx, "ko-n").syll = [{ t: "노", parts: ["ㄴ", "ㅗ"], roman: "no" }]; }, /ERROR script unit ko-n\.syll\[0\]\.t '노' does not occur in any first-level word/);
 expectError("joins bad value", "fa", fx => { unit(fx, "fa-be").joins = "left"; }, /ERROR script unit fa-be\.joins must be one of/);
 expectError("note on an unknown stage set", "ko", fx => { fx.script.notes.push({ st: "hangul", set: 9, h: "x", body: "y" }); }, /ERROR script notes\[1\] \('hangul', set 9\) is not a known stage set/);

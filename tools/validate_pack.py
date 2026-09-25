@@ -756,6 +756,11 @@ def check_script_data(pack, script, stage_keys, words, rep):
     level_ids = [lv.get("id") for lv in pack.get("levels") or [] if isinstance(lv, dict)]
     first_lv = level_ids[0] if level_ids else None
     second_lv = level_ids[1] if len(level_ids) > 1 else None
+    third_lv = level_ids[2] if len(level_ids) > 2 else None
+    # A later stage (ja katakana) teaches a script the first two levels barely use
+    # (62 katakana words in ja A1+A2), so its examples may come from the third
+    # level as a last resort: a warning there, an error for the first stage.
+    first_stage = next(iter(stage_keys), None)
     by_id = {w["id"]: w for w in words if isinstance(w, dict) and is_str(w.get("id"))}
     first_texts = [t for w in words if isinstance(w, dict) and w.get("lv") == first_lv
                    for t in (w.get("w"), w.get("pron")) if is_str(t)]
@@ -819,7 +824,10 @@ def check_script_data(pack, script, stage_keys, words, rep):
                 if w is None:
                     rep.err(f"{where}.ex[{j}] word {e[0]!r} is not a word id")
                     continue
-                if w.get("lv") not in (first_lv, second_lv):
+                if w.get("lv") == third_lv and third_lv is not None and u.get("st") != first_stage:
+                    rep.warn(f"{where}.ex[{j}] word {e[0]} is from level {w.get('lv')!r}, the third level "
+                             f"(allowed as a last resort for a later stage)")
+                elif w.get("lv") not in (first_lv, second_lv):
                     rep.err(f"{where}.ex[{j}] word {e[0]} is level {w.get('lv')!r}, after the second level")
                 elif w.get("lv") != first_lv:
                     rep.warn(f"{where}.ex[{j}] word {e[0]} is from level {w.get('lv')!r}, not the first level")
