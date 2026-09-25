@@ -1466,6 +1466,126 @@ function newCharUnits(units, learned, prog, pack, n){
   return charStageUnits(levelIds(pack), (units || []).filter(u => ok.has(u.id)), pack).slice(0, n);
 }
 
+// ------------------------------------------------------------------ legacy migration
+// One-way import of a predecessor app's progress into this pack's shape (design: the
+// merge plan in docs/, §4). zh: the hsk trainer's "hsk_pinyin" record. Every hsk release
+// (v1, v2, v2.1 sentences, v2.2 characters, v2.3/HEAD path flags) stored v:1 or v:2 and
+// only ever added fields, so one reader covers them all. Pure and DOM-free.
+//
+// legacyMap is the pack's LEGACY const (legacy.js): {w: hanzi -> word id, s: sentence
+// text -> sentence id, c: hanzi -> character unit id}.
+//
+// migrateLegacy(pack, legacyMap, oldRecord), oldRecord an object or its JSON string:
+//   {ok:false, reason}  not a JSON object, an unknown legacy version, or no pack.legacy
+//   {ok:true, prog, unmapped, dropped, already}
+//     prog      normalizeProg output carrying the marker prog.legacy = {key, format}
+//     unmapped  [{path, value, reason}]: every part of the old record with no place in
+//               prog (a key the maps lack, an unknown field, a value of the wrong type).
+//               Nothing is discarded silently. Acceptance for the real switch: empty.
+//     dropped   [{path, value}]: fields retired on purpose (LEGACY_DROPPED).
+//     already   true when oldRecord carries the marker, i.e. it is already migrated:
+//               prog = normalizeProg(oldRecord) and both lists empty. A second run is a no-op.
+// Field mapping: v -> PROG_VERSION; w[hanzi] -> w[wordId] and s[text] -> s[sentId] with
+// r/w/s (and w's prov/d) verbatim; c[hanzi] -> chars.c[unitId]; sets, lessons, sessions,
+// theme, placedOnce, soundsOpened as-is; mixChars/charsAfterHsk4/charsChoiceSeen ->
+// chars.mix/defer/choiceSeen; showPron takes the pack default.
+//
+// Caller contract (boot hook and import path, not in this file):
+// - Boot: migrate only when pack.legacy is set, storageKey(pack) holds nothing and the
+//   legacy key (pack.legacy.key) holds a record. Never write or delete the legacy key.
+// - Before the first save of prog, copy the raw legacy string to legacyBackupKey(pack),
+//   unless that key already holds something (the first backup is never overwritten).
+// - Report a non-empty unmapped list to the learner; those parts survive in the backup.
+// - Import: isLegacyRecord() tells a legacy export from native progress.
+const LEGACY_DROPPED = ["showChars","dismissedSoundsHint"];
+const LEGACY_ONLY_FIELDS = ["showChars","dismissedSoundsHint","c","mixChars","charsAfterHsk4","charsChoiceSeen"];
+const NATIVE_ONLY_FIELDS = ["chars","showPron","read"];
+function legacyBackupKey(pack){ return `${pack.legacy.key}.bak`; }
+function legacyMarker(pack){ return { key: String(pack.legacy.key || ""), format: String(pack.legacy.format || "") }; }
+function hasLegacyMarker(data){ return isObj(data) && isObj(data.legacy) && typeof data.legacy.key === "string"; }
+// True when data looks like a legacy export rather than this engine's own progress.
+function isLegacyRecord(pack, legacyMap, data){
+  if(!isObj(pack && pack.legacy) || !isObj(data) || hasLegacyMarker(data)) return false;
+  if(NATIVE_ONLY_FIELDS.some(f => data[f] !== undefined)) return false;
+  if(data.v === 2 && PROG_VERSION !== 2) return true;
+  if(LEGACY_ONLY_FIELDS.some(f => data[f] !== undefined)) return true;
+  const known = b => isObj(data[b]) && isObj(legacyMap && legacyMap[b]) && Object.keys(data[b]).some(k => hasOwn(legacyMap[b], k));
+  return known("w") || known("s");
+}
+function migrateLegacy(pack, legacyMap, oldRecord){
+  if(!isObj(pack) || !isObj(pack.legacy)) return {ok:false, reason:"pack has no legacy block"};
+  let data = oldRecord;
+  if(typeof data === "string"){ const p = parseStored(data); if(!p.ok) return p; data = p.data; }
+  if(!isObj(data)) return {ok:false, reason:"not a JSON object"};
+  const lv = levelIds(pack);
+  if(hasLegacyMarker(data)){
+    const v = validateProgShape(data, lv); if(!v.ok) return v;
+    return {ok:true, already:true, prog: normalizeProg(data, pack), unmapped:[], dropped:[]};
+  }
+  if(data.v !== undefined && data.v !== 1 && data.v !== 2) return {ok:false, reason:`unknown legacy progress version ${data.v}`};
+  const maps = isObj(legacyMap) ? legacyMap : {};
+  const unmapped = [], dropped = [];
+  const miss = (path, value, reason) => { unmapped.push({path, value, reason}); };
+  const cfg = charsConfig(pack);
+  const isNum = x => typeof x === "number" && isFinite(x);
+  const numOrBool = x => isNum(x) || typeof x === "boolean";
+  // One record bucket: keys through the map, known fields verbatim, the rest reported.
+  function recMap(bucket, map, wordFlags){
+    const src = data[bucket], dst = {};
+    if(src === undefined) return dst;
+    if(!isObj(src)){ miss(bucket, src, "not an object"); return dst; }
+    const m = isObj(map) ? map : {};
+    for(const k of Object.keys(src)){
+      const rec = src[k], path = `${bucket}.${k}`;
+      if(!hasOwn(m, k)){ miss(path, rec, "key not in the legacy map"); continue; }
+      if(!isObj(rec)){ miss(path, rec, "record is not an object"); continue; }
+      const id = m[k];
+      if(hasOwn(dst, id)){ miss(path, rec, `maps to ${id}, already taken`); continue; }
+      const r = {};
+      for(const f of Object.keys(rec)){
+        const val = rec[f];
+        if(["r","w","s"].includes(f)){ if(isNum(val)) r[f] = val; else miss(`${path}.${f}`, val, "not a number"); }
+        else if(wordFlags && (f === "prov" || f === "d")){ if(numOrBool(val)) r[f] = val; else miss(`${path}.${f}`, val, "not a number or boolean"); }
+        else miss(`${path}.${f}`, val, "unknown record field");
+      }
+      dst[id] = r;
+    }
+    return dst;
+  }
+  const out = { legacy: legacyMarker(pack) };
+  const handled = new Set(["v","w","s","c","sets","lessons","sessions","theme","placedOnce","soundsOpened",
+    "mixChars","charsAfterHsk4","charsChoiceSeen", ...LEGACY_DROPPED]);
+  out.w = recMap("w", maps.w, true);
+  out.s = recMap("s", maps.s, false);
+  out.sets = {};
+  if(data.sets !== undefined){
+    if(!isObj(data.sets)) miss("sets", data.sets, "not an object");
+    else for(const k of Object.keys(data.sets)){
+      const n = data.sets[k];
+      if(!lv.includes(k)) miss(`sets.${k}`, n, "not a pack level");
+      else if(!Number.isInteger(n) || n < 0) miss(`sets.${k}`, n, "not a non-negative integer");
+      else out.sets[k] = n;
+    }
+  }
+  if(data.lessons !== undefined){ if(isObj(data.lessons)) out.lessons = Object.assign({}, data.lessons); else miss("lessons", data.lessons, "not an object"); }
+  if(data.sessions !== undefined){ if(isNum(data.sessions)) out.sessions = data.sessions; else miss("sessions", data.sessions, "not a number"); }
+  if(data.theme !== undefined){ if(data.theme === null || data.theme === "light" || data.theme === "dark") out.theme = data.theme; else miss("theme", data.theme, "not null, light or dark"); }
+  for(const f of ["placedOnce","soundsOpened"]) if(data[f] !== undefined){ if(numOrBool(data[f])) out[f] = data[f]; else miss(f, data[f], "not a boolean or number"); }
+  const flagMap = { mixChars:"mix", charsAfterHsk4:"defer", charsChoiceSeen:"choiceSeen" };
+  if(cfg){
+    out.chars = { v:CHARS_PROG_VERSION, c: recMap("c", maps.c, false) };
+    for(const f of Object.keys(flagMap)) if(data[f] !== undefined){ if(typeof data[f] === "boolean") out.chars[flagMap[f]] = data[f]; else miss(f, data[f], "not a boolean"); }
+  } else {
+    for(const f of ["c", ...Object.keys(flagMap)]) if(data[f] !== undefined) miss(f, data[f], "pack has no characters stage");
+  }
+  for(const f of LEGACY_DROPPED) if(data[f] !== undefined) dropped.push({path:f, value:data[f]});
+  for(const k of Object.keys(data)) if(!handled.has(k)) miss(k, data[k], "unknown field");
+  const prog = normalizeProg(out, pack);
+  const v = validateProgShape(prog, lv);
+  if(!v.ok) return {ok:false, reason:`migrated progress is invalid: ${v.reason}`};
+  return {ok:true, already:false, prog, unmapped, dropped};
+}
+
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
@@ -1486,7 +1606,8 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   unitWord, unitReading, unitGloss, unitByWord, recordedUnits,
   charStageUnits, charSets, charSetTaught, nextCharSet, charStages, stagePath, nextStage, charsUnlocked, charsStarted, showCharChoice,
   charTier, sentenceTokenTier, rubyTiers, charOpts, recallCharOpts, charSoundOpts, charReadOpts, charItem,
-  learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits };
+  learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits,
+  LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
 })(typeof window!=="undefined" ? window : (typeof globalThis!=="undefined" ? globalThis : null));
