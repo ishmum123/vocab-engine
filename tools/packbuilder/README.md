@@ -230,6 +230,23 @@ Pack layout: `<repo>` is a language repo (`tools/passages_src.json`, `pack/words
 
 The link context is pickled with the spec attributes the fresh build set (`bind_lexicon` handles such as es `_lex`, fr/id `_lx`, derived sets such as de `pluralia_tantum`); a cached run restores them instead of re-running `bind_lexicon`, whose lexicon edits are already in the pickle. A cached run gives the same output as a fresh one.
 
+### Passage tagging and derived caches
+
+`Linker.pretag` sets `spec.passage_tagging` (default False, restored afterwards, also on error) for the whole passage tagging run (`passage_text`, `tag_texts`, `fix_token`/`fix_sentence`, `passage_retag`). Spec code that writes a derived cache under `.cache/derived` from inside tagging checks `core.util.derived_write_ok(spec)` and skips the write: ja `_build_groups` (the word-groups file is keyed by the corpus but built from the texts handed to the tagger, so passage tagging would overwrite it), fa's Stanza memo (passage texts stay in memory). The defect class is any cache whose contents depend on the tagger input but whose key does not. As a tripwire, `pretag` compares every file in `.cache/derived` (size, mtime) before and after tagging and fails the run naming any that changed. Caches built in `load_context` (the build's own passes over the corpus and dictionaries, and the passages context pickle) are not affected. ko (in-memory analyser) and zh (`passage_linker`, no tagger) write nothing while tagging. The context pickle stores `spec.__getstate__()` (the instance `__dict__` unless a spec overrides it; ja drops its unpicklable Sudachi tokenizer).
+
+Also generic, off unless a spec defines them: `passage_uncounted(toks, resolved)` returns token indices that are grammar, not words; such a token with no pack id is neither counted nor listed as out of pack (classify). `passage_words_counted` makes the words-per-passage band use the counted tokens.
+
+### Japanese (ja) passages
+
+ja is spaCy-free (SudachiPy, `tag_texts`); run with the japanese repo's `.venv`. Hooks (`langs/ja.py`):
+
+- `passage_join = ""`, `passage_unspaced` (report `ws_words` = linked words), `passage_words_counted` (the band counts counted tokens: pack particles count, grammar tokens outside the pack do not).
+- `passage_text(text, names, lexicon)`: text unchanged; builds `passage_lemma_alias` once from `pack/words.json`: an `alt` spelling owned by exactly one word and no headword -> that word's lemma (みんな -> 皆, 所 -> ところ), plus ごろ -> 頃 when the pack has 頃 but no ごろ (7時ごろ). Declared names are removed from it (あかり is not 明かり).
+- `passage_retag(toks, names)` (`passage_retag_names`): a declared name is one PROPN token, never a pack word; a name Sudachi split is joined (あおば + 町 -> あおば町), longest declared name first.
+- `passage_uncounted`: an AUX or PART token (ん, れる, たり, けど, って), a VERB/ADJ in auxiliary use after て/で (ている, てしまう, てくる, てほしい), する after a noun, and other auxiliary-capable verbs left unresolved (かもしれない, なさい) are not counted when they link nothing.
+- `tag_texts` while `passage_tagging`: the word groups (display lemma per Sudachi atom) are built once over the cached corpus plus the passage texts, as in the build, not from the passages alone (いつ is not 何時 なんじ); `_build_groups` does not save them.
+- `__getstate__`: the Sudachi tokenizer is dropped for pickling and rebuilt on use.
+
 ### Linker-level passage hooks
 
 Self-checks (all languages, report only, printed after the span summary in `--check` and write mode, never errors): per level, the mc answer keys that appear verbatim in the passage text (key >= 4 characters, case-folded; numerals exempt: a key with a digit or a NUM token), as `self-check: level L: n/m mc keys verbatim ...: pid qj 'key', ...`; and per question, `self-check: pid qj: none of its words [...] appears in sentence i` when none of its resolved word ids has a span in that sentence or a headword/lemma spelling visible in its text. With these lines removed, ko, it and fr `--check` output is unchanged.

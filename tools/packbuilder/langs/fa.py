@@ -986,11 +986,13 @@ class Persian(LanguageSpec):
                             toks.append([tok.text, w.lemma or tok.text, w.upos, feats,
                                          [[x.text, x.lemma, x.upos] for x in tok.words] if len(tok.words) > 1 else None])
                     raw[t] = toks
-            tmp = cache.with_suffix(".part")
-            with gzip.GzipFile(tmp, "wb", mtime=0) as g:
-                for t in sorted(raw):
-                    g.write((json.dumps([t, raw[t]], ensure_ascii=False) + "\n").encode("utf-8"))
-            tmp.replace(cache)
+            from ..core.util import derived_write_ok
+            if derived_write_ok(self):      # passage tagging keeps its texts in memory only
+                tmp = cache.with_suffix(".part")
+                with gzip.GzipFile(tmp, "wb", mtime=0) as g:
+                    for t in sorted(raw):
+                        g.write((json.dumps([t, raw[t]], ensure_ascii=False) + "\n").encode("utf-8"))
+                tmp.replace(cache)
         for t in texts:
             # Clitic=Yes: a host + enclitic(s) token kept whole
             # Clitic=Yes: a host + enclitic(s) token kept whole; Host= its host word's UPOS

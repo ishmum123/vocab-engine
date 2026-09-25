@@ -26,6 +26,16 @@ def write_json(path, obj, compact=True):
     path.write_text(txt + "\n")
 
 
+def derived_write_ok(spec):
+    """May spec code write a derived cache (.cache/derived) now? False while
+    passages.Linker.pretag tags passage texts (spec.passage_tagging): a cache
+    built from the texts handed to the tagger (ja word groups, fa's Stanza memo)
+    would then hold passage texts, and one keyed by the corpus alone would be
+    clobbered. Every writer reachable from tagging checks this; pretag also
+    fails when any derived file changes while it runs (passages._derived_state)."""
+    return not getattr(spec, "passage_tagging", False)
+
+
 def file_sig(path):
     st = path.stat()
     return f"{path.name}:{st.st_size}"

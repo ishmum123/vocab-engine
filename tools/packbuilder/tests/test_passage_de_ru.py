@@ -431,14 +431,18 @@ class HookOwners(unittest.TestCase):
             self.assertEqual(bool(sp.nouns_capitalised), m == "de", m)
             self.assertEqual(bool(sp.passage_lemma_alias), m in ("de", "fa", "ko"), m)
             self.assertEqual(bool(sp.passage_adverb_from), m == "ru", m)
-            self.assertEqual(own(sp, "passage_retag"), m in ("ru", "fr", "id", "fa", "ko"), m)
+            self.assertEqual(own(sp, "passage_retag"), m in ("ru", "fr", "id", "fa", "ko", "ja"), m)
             self.assertEqual(own(sp, "passage_no_link"), m == "ru", m)
             self.assertEqual(own(sp, "passage_post_resolve"), m in ("es", "de", "fr", "id", "fa"), m)
             self.assertEqual(bool(sp.passage_form_base), m == "fr", m)
             self.assertEqual(bool(sp.passage_names_never_link), m == "id", m)
-            for h in ("passage_text", "passage_fallback_ok", "passage_phrase_ranges"):
+            self.assertEqual(own(sp, "passage_text"), m in ("fr", "id", "ja"), m)
+            for h in ("passage_fallback_ok", "passage_phrase_ranges"):
                 self.assertEqual(own(sp, h), m in ("fr", "id"), (m, h))
+            self.assertEqual(hasattr(sp, "passage_uncounted"), m == "ja", m)
+            self.assertEqual(bool(getattr(sp, "passage_words_counted", False)), m == "ja", m)
             self.assertFalse(sp.passage_mode, m)
+            self.assertFalse(sp.passage_tagging, m)
 
 
 if __name__ == "__main__":

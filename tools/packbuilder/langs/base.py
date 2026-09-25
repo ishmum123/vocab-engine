@@ -301,6 +301,7 @@ class LanguageSpec:
     truecase_after = ""         # a capitalised word right after one of these characters is truecased like a sentence start (es: «¡¿)
     truecase_after_end = ""     # ... and a capitalised word after one of these plus a space mid-text, if the lexicon reads it lowercase (es: !? in "¡Perfecto! Compro")
     surface_reading_fallback = False   # a counted token whose reading is out of pack links the most frequent other dictionary reading of its surface that is a pack word (es: leo -> leer, negra -> negro)
+    passage_tagging = False     # True while passages.Linker.pretag tags passage texts: derived-cache writers skip (core.util.derived_write_ok)
     passage_mode = False        # True while passages.Linker resolves a sentence (post_resolve, then passage_post_resolve): gates passage-only rules inside post_resolve (de); never set by the corpus build
     passage_particle_links = False     # a token post_resolve set to None whose lowercase surface prefixes the verb it was rejoined to counts and links as that verb (de: "steht ... auf" -> aufstehen)
     passage_lemma_alias = {}    # tagger lemma -> pack lemma for the classify lemma fallback (de: vieler -> viel, chefin -> chef)

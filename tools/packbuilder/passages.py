@@ -145,7 +145,7 @@ def load_context(spec):
     # attributes edited in place), pickled with the lexicon it points to; the
     # repo path is the caller's
     from .core.english import _STEM, EN_VOCAB
-    state = {k: v for k, v in spec.__dict__.items() if k != "repo"}
+    state = {k: v for k, v in spec.__getstate__().items() if k != "repo"}   # __getstate__: ja drops its Sudachi tokenizer
     english = (set(EN_VOCAB), dict(_STEM))
     for old in env.derived.glob("passages_ctx_*.pkl"):
         old.unlink()
@@ -256,6 +256,28 @@ class Linker:
         todo = list(dict.fromkeys(k for k in keys if k not in self.tagged))
         if not todo:
             return
+        # passage tagging (spec.passage_tagging, core.util.derived_write_ok):
+        # no derived cache may change while passage texts go through the
+        # tagger (a cache built from tagger input, keyed by the corpus, would
+        # hold passage text: ja word groups). Writers check the flag; the
+        # tripwire below fails the run if any derived file changed anyway
+        derived = sp.repo / ".cache" / "derived" if getattr(sp, "repo", None) else None
+        before = _derived_state(derived)
+        prior = getattr(sp, "passage_tagging", False)
+        sp.passage_tagging = True
+        try:
+            self._pretag(todo)
+        finally:
+            sp.passage_tagging = prior
+        after = _derived_state(derived)
+        changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+        if changed:
+            raise SystemExit(f"passages: tagging passage texts changed derived cache files {changed}; "
+                             "guard their writer with core.util.derived_write_ok(spec)")
+
+    def _pretag(self, todo):
+        from .core.tag import doc_tokens, tag_docs, truecase, truecase_after
+        sp = self.spec
         known = (lambda w: bool(self.lexicon.readings(w))) if sp.truecase_after_end else None
         base = []
         for t, _en, names in todo:
@@ -335,6 +357,9 @@ class Linker:
         from .core.sentences import phrase_spans
         sp = self.spec
         resolved = self.lexicon.resolve_sentence(toks, self.groups)
+        # spec.passage_uncounted (ja): grammar tokens outside the pack (ん,
+        # れる, たり, ている's aux verbs) are not counted when they link nothing
+        uncounted = sp.passage_uncounted(toks, resolved) if hasattr(sp, "passage_uncounted") else set()
         ranges = []
         _, ph_tok, _ = phrase_spans(toks, sp, self.key_to_id, en, ranges)
         tok_phrase = {i: pid for a, b, pid in ranges for i in range(a, b + 1) if i in ph_tok}
@@ -422,6 +447,8 @@ class Linker:
             may_link = not (lem in PHRASE_HEADS and (nxt in PHRASE_HEADS[lem] or
                                                      sp.art_prep.get(nxt) in PHRASE_HEADS[lem])) \
                 and i not in no_link        # spec.passage_no_link: ru "друг другу" is not friend
+            if wid is None and i in uncounted:
+                continue
             out.append((text_t, lem, wid, may_link, i))
         return out
 
@@ -543,6 +570,13 @@ class Linker:
                     extra.append(wid)
         ids = ws + extra
         return ids, cl, make_spans(text, offsets, recs, ids), claimed
+
+
+def _derived_state(d):
+    """{file name: (size, mtime_ns)} of a derived cache directory ({} if absent)."""
+    if d is None or not d.is_dir():
+        return {}
+    return {p.name: (p.stat().st_size, p.stat().st_mtime_ns) for p in sorted(d.iterdir()) if p.is_file()}
 
 
 def token_offsets(text, toks, fold=None, joiners=""):
@@ -805,6 +839,8 @@ def run(spec, check_only=False, out=sys.stdout):
             perr.append(f"out-of-pack lemmas without a reason: {[oop_name.get(k, k) for k in unlisted]}")
         # a linker's n_words (zh, unspaced): the sentences' tokens after segmentation
         nw = sum(lk.n_words(tk) for tk in sent_toks) if hasattr(lk, "n_words") else n_words(text)
+        if getattr(spec, "passage_words_counted", False):
+            nw = len(counted)       # ja (unspaced): the counted tokens after segmentation
         lo, hi = rules["words_per_passage"][lv]
         if not lo <= nw <= hi:
             perr.append(f"{nw} words outside {lo}-{hi}")

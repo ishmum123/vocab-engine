@@ -607,6 +607,99 @@ class Japanese(LanguageSpec):
         self.function_lemmas = set(self.function_lemmas)
         self.function_verbs = set(self.function_verbs)
 
+    # ---- reading passages (passages.py only; the corpus build never reads these)
+    passage_join = ""               # unspaced: sentences join without a space
+    passage_unspaced = True         # report ws_words: the linked word count
+    passage_words_counted = True    # length band: the counted tokens (particles the pack has count)
+
+    _passage_grouped = False        # passages: corpus word groups built (tag_texts, while spec.passage_tagging)
+    _passage_grouping = False
+
+    def _passage_corpus_texts(self):
+        """The cached corpus texts as stage_tag feeds them to the tagger."""
+        from ..core.sources import corpus_path
+        from ..core.tag import truecase, truecase_stats
+        from ..core.util import Env
+        rows = json.loads(gzip.decompress(corpus_path(Env(self)).read_bytes()).decode("utf-8"))["rows"]
+        low, cap = truecase_stats(rows, self.word_re, self.sentence_openers)
+        return [self.tag_text(truecase(r[1], low, cap, self.word_re)) for r in rows]
+
+
+    passage_retag_names = True      # passage_retag gets the declared names (no capitals mark them)
+
+    def passage_text(self, text, names, lexicon):
+        """Passages (Linker.pretag, before tagging): text unchanged; loads
+        passage_lemma_alias: each pack alt spelling that belongs to one word
+        and is no headword -> that word's lemma (kana みんな: 皆, kanji 所:
+        ところ), for classify's lemma fallback."""
+        if not self.passage_lemma_alias and self.repo is not None:
+            words = json.loads((self.repo / "pack" / "words.json").read_text())
+            heads = {w["lemma"] for w in words} | {w["w"] for w in words}
+            owners = defaultdict(set)
+            for w in words:
+                for a in w.get("alt") or ():
+                    owners[a].add(w["lemma"])
+            self.passage_lemma_alias = {a: next(iter(o)) for a, o in owners.items() if len(o) == 1 and a not in heads}
+            # voiced after a time word (7時ごろ): the pack's 頃 "around (a time)", which the
+            # corpus groups keep apart as ごろ
+            if "頃" in heads and "ごろ" not in heads:
+                self.passage_lemma_alias.setdefault("ごろ", "頃")
+        for n in names:
+            self.passage_lemma_alias.pop(n, None)     # a declared name is never a pack word (あかり: not 明かり)
+        return text
+
+    def passage_retag(self, toks, names=frozenset()):
+        """Passages: a declared name is one PROPN token, never a pack word
+        (あかり is not 明かり "light"; あおば町 split by Sudachi is joined)."""
+        if not names:
+            return toks
+        out, i = [], 0
+        while i < len(toks):
+            j, acc = i, ""
+            hit = None
+            while j < len(toks) and len(acc) < max(map(len, names)):
+                acc += toks[j][0]
+                j += 1
+                if acc in names:
+                    hit = j
+            if hit is not None:
+                surf = "".join(t[0] for t in toks[i:hit])
+                out.append([surf, surf, "PROPN", toks[i][3]])
+                i = hit
+            else:
+                out.append(toks[i])
+                i += 1
+        return out
+
+    def passage_uncounted(self, toks, resolved):
+        """Passages: token indices that are grammar, not words, and are not
+        counted for coverage or length when they link nothing (passages.Linker
+        .classify): a particle or auxiliary outside the pack (ん, れる, たり,
+        けど, って, について), a verb or adjective in auxiliary use after て
+        (ている, てしまう, てくる, てほしい), する after the noun it makes a
+        verb (勉強する), and the other grammar verbs post_resolve leaves
+        unlinked (かもしれない, 〜なさい)."""
+        out = set()
+        for i, (surf, lemma, upos, ms) in enumerate(toks):
+            f = feats_of(ms)
+            pos = f.get("Pos", "")
+            prev = toks[i - 1] if i else None
+            if upos in ("AUX", "PART"):     # classify skips it only when it links nothing (たり, けど)
+                out.add(i)
+            elif upos in ("VERB", "ADJ") and "非自立可能" in pos and prev is not None and prev[0] in ("て", "で"):
+                out.add(i)
+            elif resolved[i] is None and upos == "VERB" and (
+                    (lemma == "する" and prev is not None and prev[2] == "NOUN") or "非自立可能" in pos):
+                out.add(i)
+        return out
+
+    def __getstate__(self):
+        """Pickling (the passages context cache holds this spec through the
+        lexicon): the Sudachi tokenizer does not pickle; _tokenizer rebuilds it."""
+        d = dict(self.__dict__)
+        d["_tok"] = None
+        return d
+
     # ---- tagging (SudachiPy) ---------------------------------------------------
     def tagger_desc(self):
         import sudachipy
@@ -710,6 +803,20 @@ class Japanese(LanguageSpec):
         """Two passes: the first builds the word groups (headword, spellings,
         reading) over the whole corpus; the second yields the tagged tokens
         (lazily: the corpus is 230k sentences). See _build_groups."""
+        if self.passage_tagging and not self._passage_grouping:
+            # passages: the word groups (display lemma per Sudachi atom) come
+            # from the corpus plus the passages, as in the build, not from the
+            # few hundred passage texts alone (いつ is not 何時 なんじ); built
+            # once, never saved (_build_groups)
+            texts = list(texts)
+            if not self._passage_grouped:
+                self._passage_grouping = True
+                try:
+                    self.tag_texts(self._passage_corpus_texts() + texts)
+                finally:
+                    self._passage_grouping = False
+                self._passage_grouped = True
+            return (self._tokens(text) for text in texts)
         atoms = defaultdict(lambda: [Counter(), Counter(), 0])
         kana_verb = Counter()           # (hiragana verb surface, atom key) -> tokens
         for text in texts:
@@ -964,6 +1071,9 @@ class Japanese(LanguageSpec):
         state = {"reading": self._reading, "forced": self.forced, "norms": self._norms, "norm_top": self._norm_top,
                  "sound_splits": self._sound_splits,
                  "stats": {"reading homographs split": n_homograph}}
+        from ..core.util import derived_write_ok
+        if not derived_write_ok(self):
+            return          # passage tagging (corpus + passages) never overwrites the corpus groups file
         with gzip.GzipFile(self._groups_path(), "wb", mtime=0) as g:
             g.write(json.dumps(state, ensure_ascii=False, sort_keys=True).encode("utf-8"))
 
