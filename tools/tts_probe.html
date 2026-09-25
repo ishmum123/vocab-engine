@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTS probe (script primer S0)</title>
+<!-- Dev-only probe for docs/SCRIPT_PRIMER.md §5 (brief S0). Self-contained; no network. -->
+<style>
+  :root { --bg:#fff; --fg:#111; --mut:#666; --line:#ddd; --ok:#1a7f37; --bad:#c62828; --warn:#b26a00; --btn:#f2f2f2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121212; --fg:#eee; --mut:#9a9a9a; --line:#333; --ok:#4caf50; --bad:#ef5350; --warn:#ffb74d; --btn:#262626; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:12px 16px 40px; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui,-apple-system,sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:22px 0 6px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+  p.mut, .mut { color:var(--mut); font-size:13px; }
+  button, select { font:inherit; color:var(--fg); background:var(--btn); border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+  button:active { transform:scale(.97); }
+  select { max-width:100%; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
+  .voices { font-size:12px; margin:4px 0 8px; padding-left:18px; }
+  .sym { border:1px solid var(--line); border-radius:8px; padding:8px; margin:8px 0; }
+  .sym .g { font-size:34px; line-height:1; min-width:48px; display:inline-block; }
+  .sym .rn { color:var(--mut); font-size:13px; }
+  .cands { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px; margin-top:6px; }
+  .cand { display:flex; flex-direction:column; align-items:stretch; text-align:left; padding:6px 8px; }
+  .cand .k { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.04em; }
+  .cand .t { font-size:20px; }
+  .cand .d { font-size:12px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  textarea { width:100%; min-height:160px; font:12px/1.3 ui-monospace,Menlo,monospace; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; }
+  #status { font-size:13px; min-height:1.4em; }
+  [dir=rtl] { unicode-bidi:isolate; }
+</style>
+</head>
+<body>
+<h1>TTS probe: script primer carriers</h1>
+<p class="mut">Tap a candidate to hear it. Duration is measured from onstart to onend. Under 120 ms, an error, or no end within 3 s marks it unusable. The number cannot tell you <em>what</em> was said: listen and note right/wrong yourself.</p>
+<div class="row">
+  <button id="runAll">Run all (selected voice per language)</button>
+  <button id="runAllVoices">Run all × every voice</button>
+  <button id="stop">Stop</button>
+</div>
+<div id="status" class="mut"></div>
+<div id="langs"></div>
+<h2>Results (JSON)</h2>
+<div class="row"><button id="copy">Copy JSON</button><button id="clear">Clear</button></div>
+<textarea id="out" readonly></textarea>
+
+<script>
+"use strict";
+// Candidates per docs/SCRIPT_PRIMER.md §5 step 2: bare glyph, carrier syllable, letter name, example word.
+// Each symbol: [glyph, roman, {bare, carrier, name, word}] (missing key = not applicable).
+const DATA = {
+  ko: { label:"Korean (ko-KR)", tag:"ko-KR", dir:"ltr", syms:[
+    ["ㄱ","g/k",{bare:"ㄱ",carrier:"가",name:"기역",word:"가다"}],
+    ["ㄴ","n",  {bare:"ㄴ",carrier:"나",name:"니은",word:"나라"}],
+    ["ㄷ","d/t",{bare:"ㄷ",carrier:"다",name:"디귿",word:"다리"}],
+    ["ㄹ","r/l",{bare:"ㄹ",carrier:"라",name:"리을",word:"라면"}],
+    ["ㅁ","m",  {bare:"ㅁ",carrier:"마",name:"미음",word:"마음"}],
+    ["ㅅ","s",  {bare:"ㅅ",carrier:"사",name:"시옷",word:"사람"}],
+    ["ㅇ","-/ng",{bare:"ㅇ",carrier:"아",name:"이응",word:"아이"}],
+    ["ㅏ","a",  {bare:"ㅏ",carrier:"아",word:"아이"}],
+    ["ㅓ","eo", {bare:"ㅓ",carrier:"어",word:"어머니"}],
+    ["ㅐ","ae", {bare:"ㅐ",carrier:"애",word:"개"}],
+  ]},
+  ru: { label:"Russian (ru-RU)", tag:"ru-RU", dir:"ltr", syms:[
+    ["б","b",  {bare:"б",carrier:"ба",name:"бэ",word:"брат"}],
+    ["в","v",  {bare:"в",carrier:"ва",name:"вэ",word:"вода"}],
+    ["г","g",  {bare:"г",carrier:"га",name:"гэ",word:"год"}],
+    ["ж","zh", {bare:"ж",carrier:"жа",name:"жэ",word:"жена"}],
+    ["р","r",  {bare:"р",carrier:"ра",name:"эр",word:"рука"}],
+    ["щ","shch",{bare:"щ",carrier:"ща",name:"ща",word:"ещё"}],
+    ["ы","y",  {bare:"ы",carrier:"мы",name:"ы",word:"сыр"}],
+    ["я","ya", {bare:"я",carrier:"мя",name:"я",word:"мясо"}],
+    ["ь","(soft)",{bare:"ь",name:"мягкий знак",word:"мать"}],
+    ["ъ","(hard)",{bare:"ъ",name:"твёрдый знак",word:"подъезд"}],
+  ]},
+  fa: { label:"Persian (fa-IR)", tag:"fa-IR", dir:"rtl", alt:"ar", syms:[
+    ["ب","b",  {bare:"ب",carrier:"بَ",name:"به",word:"بابا"}],
+    ["پ","p",  {bare:"پ",carrier:"پَ",name:"په",word:"پدر"}],
+    ["ت","t",  {bare:"ت",carrier:"تَ",name:"ته",word:"تو"}],
+    ["س","s",  {bare:"س",carrier:"سَ",name:"سین",word:"سلام"}],
+    ["ش","sh", {bare:"ش",carrier:"شَ",name:"شین",word:"شب"}],
+    ["خ","kh", {bare:"خ",carrier:"خَ",name:"خه",word:"خانه"}],
+    ["ق","q",  {bare:"ق",carrier:"قَ",name:"قاف",word:"قلب"}],
+    ["ژ","zh", {bare:"ژ",carrier:"ژَ",name:"ژه",word:"ژاپن"}],
+    ["ع","'",  {bare:"ع",carrier:"عَ",name:"عین",word:"عشق"}],
+    ["ه","h",  {bare:"ه",carrier:"هَ",name:"هه",word:"هفت"}],
+  ]},
+  ja: { label:"Japanese (ja-JP)", tag:"ja-JP", dir:"ltr", syms:[
+    ["あ","a",  {bare:"あ",word:"あめ"}],
+    ["か","ka", {bare:"か",word:"かさ"}],
+    ["は","ha", {bare:"は",carrier:"はは",word:"はな"}],
+    ["へ","he", {bare:"へ",carrier:"へや",word:"へた"}],
+    ["っ","(geminate)",{bare:"っ",carrier:"あっ",word:"きって"}],
+    ["ー","(long)",{bare:"ー",carrier:"カー",word:"コーヒー"}],
+    ["ゃ","ya (small)",{bare:"ゃ",carrier:"きゃ",word:"おきゃく"}],
+    ["きゃ","kya",{bare:"きゃ",word:"きゃく"}],
+    ["シ","shi",{bare:"シ",word:"シャツ"}],
+    ["ツ","tsu",{bare:"ツ",word:"ツアー"}],
+  ]},
+};
+const KINDS = ["bare","carrier","name","word"];
+const MIN_MS = 120, END_TIMEOUT = 3000, START_TIMEOUT = 4000;
+
+const synth = window.speechSynthesis;
+const results = [];
+let voices = [], stopFlag = false, keep = [];
+const $ = s => document.querySelector(s);
+const norm = l => (l || "").replace(/_/g, "-").toLowerCase();
+const voicesFor = code => voices.filter(v => norm(v.lang).split("-")[0] === code);
+const selVoice = {};   // code -> voiceURI ("" = lang tag only, no explicit voice)
+
+function loadVoices() {
+  return new Promise(res => {
+    if (!synth) return res([]);
+    let done = false;
+    const fin = () => { if (done) return; done = true; res(synth.getVoices()); };
+    const v = synth.getVoices();
+    if (v.length) { setTimeout(() => res(synth.getVoices()), 300); return; } // let late voices arrive
+    synth.addEventListener("voiceschanged", () => setTimeout(fin, 300));
+    setTimeout(fin, 2000);
+  });
+}
+
+function speakMeasure(text, tag, voice) {
+  return new Promise(resolve => {
+    if (!synth) return resolve({ ms: 0, status: "no-speechSynthesis" });
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = voice ? voice.lang.replace(/_/g, "-") : tag;
+    if (voice) u.voice = voice;
+    u.rate = 1;
+    keep.push(u); if (keep.length > 20) keep.shift(); // Chrome GCs utterances and drops onend
+    let t0 = 0, settled = false, tEnd = null;
+    const done = r => { if (settled) return; settled = true; clearTimeout(tStart); clearTimeout(tEnd); resolve(r); };
+    const tStart = setTimeout(() => { synth.cancel(); done({ ms: 0, status: "no-start" }); }, START_TIMEOUT);
+    u.onstart = () => {
+      t0 = performance.now(); clearTimeout(tStart);
+      tEnd = setTimeout(() => { synth.cancel(); done({ ms: Math.round(performance.now() - t0), status: "no-end" }); }, END_TIMEOUT);
+    };
+    u.onend = () => {
+      const ms = t0 ? Math.round(performance.now() - t0) : 0;
+      done({ ms, status: !t0 ? "end-without-start" : ms < MIN_MS ? "short" : "ok" });
+    };
+    u.onerror = e => done({ ms: t0 ? Math.round(performance.now() - t0) : 0, status: "error:" + (e.error || "?") });
+    synth.speak(u);
+  });
+}
+
+function fmt(r) {
+  const cls = r.status === "ok" ? "ok" : r.status === "short" ? "warn" : "bad";
+  return `<span class="${cls}">${r.ms} ms${r.status === "ok" ? "" : " · " + r.status}</span>`;
+}
+
+function record(code, voice, sym, kind, text, r) {
+  results.push({ lang: code, voice: voice ? voice.name : "(lang tag only)", voiceLang: voice ? voice.lang : DATA[code].tag,
+    local: voice ? voice.localService : null, sym, kind, text, ms: r.ms, status: r.status,
+    usable: r.status === "ok", ua: navigator.userAgent.slice(0, 120) });
+  $("#out").value = JSON.stringify(results, null, 1);
+}
+
+async function play(code, i, kind, btn, voice) {
+  const [g, , c] = DATA[code].syms[i];
+  const d = btn.querySelector(".d");
+  d.textContent = "…";
+  const r = await speakMeasure(c[kind], DATA[code].tag, voice);
+  d.innerHTML = fmt(r);
+  record(code, voice, g, kind, c[kind], r);
+  return r;
+}
+
+function currentVoice(code) {
+  const uri = selVoice[code];
+  return uri ? voices.find(v => v.voiceURI === uri) || null : null;
+}
+
+function render() {
+  const root = $("#langs"); root.innerHTML = "";
+  for (const [code, L] of Object.entries(DATA)) {
+    const vs = voicesFor(code);
+    const altVs = L.alt ? voicesFor(L.alt) : [];
+    const sec = document.createElement("section");
+    const vlist = vs.length
+      ? vs.map(v => `<li>${v.name} · ${v.lang} · ${v.localService ? "local" : "network"}${v.default ? " · default" : ""}</li>`).join("")
+      : `<li class="bad">No ${code} voice on this device.</li>`;
+    const altNote = L.alt ? `<li class="mut">${L.alt} voices (fallback option, not ${code}): ${altVs.length ? altVs.map(v => v.name + " " + v.lang).join(", ") : "none"}</li>` : "";
+    const opts = [`<option value="">(lang tag ${L.tag} only, browser picks)</option>`]
+      .concat(vs.concat(altVs).map(v => `<option value="${v.voiceURI}">${v.name} (${v.lang})</option>`)).join("");
+    sec.innerHTML = `<h2>${L.label}</h2><ul class="voices">${vlist}${altNote}</ul>
+      <div class="row"><label>Voice <select data-code="${code}">${opts}</select></label>
+      <button data-run="${code}">Run ${code}</button></div>`;
+    const sel = sec.querySelector("select");
+    if (selVoice[code] === undefined) selVoice[code] = vs[0] ? vs[0].voiceURI : "";
+    sel.value = selVoice[code];
+    sel.onchange = () => { selVoice[code] = sel.value; };
+    sec.querySelector("[data-run]").onclick = () => runLang(code, [currentVoice(code)]);
+    L.syms.forEach(([g, rn, c], i) => {
+      const box = document.createElement("div"); box.className = "sym";
+      box.innerHTML = `<span class="g" dir="${L.dir}">${g}</span> <span class="rn">${rn}</span><div class="cands"></div>`;
+      const cands = box.querySelector(".cands");
+      for (const k of KINDS) {
+        if (!c[k]) continue;
+        const b = document.createElement("button"); b.className = "cand";
+        b.dataset.code = code; b.dataset.i = i; b.dataset.kind = k;
+        b.innerHTML = `<span class="k">${k}</span><span class="t" dir="${L.dir}">${c[k]}</span><span class="d mut">tap to play</span>`;
+        b.onclick = () => play(code, i, k, b, currentVoice(code));
+        cands.appendChild(b);
+      }
+      sec.appendChild(box);
+    });
+    root.appendChild(sec);
+  }
+}
+
+async function runLang(code, voiceList) {
+  stopFlag = false;
+  for (const voice of voiceList) {
+    const btns = [...document.querySelectorAll(`.cand[data-code="${code}"]`)];
+    for (const b of btns) {
+      if (stopFlag) return;
+      $("#status").textContent = `${code} · ${voice ? voice.name : "lang tag"} · ${b.querySelector(".t").textContent} (${b.dataset.kind})`;
+      await play(code, +b.dataset.i, b.dataset.kind, b, voice);
+      await new Promise(r => setTimeout(r, 600)); // 150 ms gave false ~70 ms "short" runs on Apple Yuna/Kyoko/Majed
+    }
+  }
+}
+
+async function runAll(everyVoice) {
+  for (const code of Object.keys(DATA)) {
+    if (stopFlag) break;
+    const alt = DATA[code].alt ? voicesFor(DATA[code].alt) : [];
+    const vs = everyVoice ? [null, ...voicesFor(code), ...alt] : [currentVoice(code)];
+    await runLang(code, vs);
+  }
+  $("#status").textContent = stopFlag ? "Stopped." : `Done: ${results.length} results.`;
+  window.__probeDone = true;
+}
+
+$("#runAll").onclick = () => { stopFlag = false; runAll(false); };
+$("#runAllVoices").onclick = () => { stopFlag = false; runAll(true); };
+$("#stop").onclick = () => { stopFlag = true; synth && synth.cancel(); };
+$("#copy").onclick = async () => {
+  $("#out").select();
+  try { await navigator.clipboard.writeText($("#out").value); $("#status").textContent = "Copied."; }
+  catch { document.execCommand("copy"); $("#status").textContent = "Copied (fallback)."; }
+};
+$("#clear").onclick = () => { results.length = 0; $("#out").value = ""; };
+
+window.__probe = { DATA, results, get voices() { return voices; } };
+(async () => {
+  voices = await loadVoices();
+  if (!synth) $("#status").textContent = "speechSynthesis not available in this browser.";
+  else $("#status").textContent = `${voices.length} voices total on this device.`;
+  render();
+  // Android often delivers voices late; re-render when the list changes.
+  if (synth) synth.addEventListener("voiceschanged", () => {
+    const v = synth.getVoices(); if (v.length !== voices.length) { voices = v; render(); $("#status").textContent = `${voices.length} voices total on this device.`; }
+  });
+  window.__probeReady = true;
+})();
+</script>
+</body>
+</html>
