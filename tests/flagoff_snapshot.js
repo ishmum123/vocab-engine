@@ -114,7 +114,7 @@ const FLAGOFF_PACKS = [
 function readJsonIfPresent(p) { return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null; }
 function stripFlagOnFields(packJson, wordsJson, sentencesJson) {
   const pack = packJson ? Object.assign({}, packJson) : null;
-  if (pack) delete pack.characters;
+  if (pack) { delete pack.characters; delete pack.legacy; }
   const sentences = Array.isArray(sentencesJson)
     ? sentencesJson.map(s => { const c = Object.assign({}, s); delete c.ruby; return c; })
     : sentencesJson;
@@ -166,7 +166,10 @@ function loadPack(dir) {
   const sentences = loadConst(path.join(dir, "sentences.js"), "SENTENCES");
   const lessons = tryLoadConst(path.join(dir, "lessons.js"), "LESSONS") || [];
   const passages = tryLoadConst(path.join(dir, "sentences.js"), "PASSAGES") || [];
-  return { pack, words, sentences, lessons, passages };
+  // Flag-off view: the goldens were captured before the characters merge, so the
+  // fields it adds (pack.characters, pack.legacy, sentence ruby) are stripped here too.
+  const off = stripFlagOnFields(pack, words, sentences);
+  return { pack: off.pack, words: off.words, sentences: off.sentences, lessons, passages };
 }
 
 // A deterministic (non-random) fixture: level 0 = untouched defaults, level 1 =
