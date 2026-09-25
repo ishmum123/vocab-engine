@@ -63,6 +63,11 @@ DIGIT_RE = re.compile(r"[0-9０-９]")
 NUMERAL_RE = re.compile(r"^[0-9０-９,，.．一二三四五六七八九十百千万億何数幾]+$")
 
 
+def _u16(text, i):
+    """Python str index -> UTF-16 code-unit index (passages.utf16_index)."""
+    return i + sum(1 for ch in text[:i] if ord(ch) > 0xFFFF)
+
+
 def hira(s):
     """Katakana -> hiragana (ー kept); kana iteration marks spelled out
     (Wiktionary writes ほぼ's reading ほゞ)."""
@@ -255,7 +260,7 @@ SURFACE_LEMMA = {"ください": ("ください", "VERB", "クダサイ"), "下�
 DIALECT_ONLY = {"よう": ("ADV", "INTJ", "NOUN"),   # よう noun: the ように/ような grammar
                 "もん": ("NOUN", "PART"),
                 "しよう": ("NOUN",)}      # しよう: volitional する (どうしようもない) Sudachi tags 仕様          # もん: casual もの ("because", "thing"), not 門
-READING_FIX = {"私": "ワタシ", "明日": "アシタ", "何": "ナニ"}
+READING_FIX = {"私": "ワタシ", "明日": "アシタ", "何": "ナニ", "富士山": "フジサン"}
 # verbs used as auxiliaries after て/で (ている, てしまう, てみる ...): no link
 # unless listed here (てください is the request word)
 AUX_VERB_KEEP = {"ください"}
@@ -2407,6 +2412,418 @@ class Japanese(LanguageSpec):
             return None
         return a, b, rd
 
+    # ---- passage readings (ruby, docs/PACK_SCHEMA.md passages.json) -------------------
+    # Counters whose sound changes after a number (_counter_sounds): counter ->
+    # (reading, class). A class names the numbers that double (いっ, ろっ, はっ,
+    # じゅっ): h and k after 1 6 8 10, s and t after 1 8 10. h also turns the
+    # counter's h into p after a doubled number (いっぱい) and into b after 3 and 何
+    # (さんばい); a class ending in 3 voices the counter after 3 and 何 (さんがい).
+    COUNTER_SOUNDS = {"杯": ("はい", "h"), "本": ("ほん", "h"), "匹": ("ひき", "h"), "泊": ("はく", "h"),
+                      "回": ("かい", "k"), "個": ("こ", "k"), "課": ("か", "k"), "ヶ月": ("かげつ", "k"),
+                      "か月": ("かげつ", "k"), "カ月": ("かげつ", "k"), "ヵ月": ("かげつ", "k"),
+                      "箇月": ("かげつ", "k"), "階": ("かい", "k3"), "軒": ("けん", "k3"),
+                      "冊": ("さつ", "s"), "週間": ("しゅうかん", "s"), "週": ("しゅう", "s"),
+                      "歳": ("さい", "s"), "才": ("さい", "s"), "足": ("そく", "s3"),
+                      "点": ("てん", "t"), "頭": ("とう", "t"), "通": ("つう", "t")}
+    COUNTER_TAILS = {"日": ("にち", "か"), "人": ("にん", "り")}
+    # Sudachi readings of a verb kanji read in the dictionary's other word or
+    # colloquially (来る きたる, 言う ゆう): 来 by the kana after it (_passage_kana_rules)
+    KURU = (("る", "く"), ("れ", "く"), ("な", "こ"), ("よ", "こ"), ("ら", "こ"), ("さ", "こ"), ("い", "こ"),
+            ("ま", "き"), ("て", "き"), ("た", "き"), ("そ", "き"))
+    # kanji the linked word's reading never overrides (_agree_word): readings that
+    # change with what follows (来 き/こ/く, 何 なに/なん) or with a number (一 いっ);
+    # 数: one pack word (w0417 "number", pron すう) links both the noun かず (本の数)
+    # and the prefix すう, so Sudachi's reading is kept
+    AGREE_SKIP = set("来何一二三四五六七八九十百千万数")
+    _ONES = {1: "いち", 2: "に", 3: "さん", 4: "よん", 5: "ご", 6: "ろく", 7: "なな", 8: "はち", 9: "きゅう"}
+    _NATIVE_TSU = {1: "ひと", 2: "ふた", 3: "みっ", 4: "よっ", 5: "いつ", 6: "むっ", 7: "なな", 8: "やっ", 9: "ここの"}
+    _P = str.maketrans("はひふへほ", "ぱぴぷぺぽ")
+    _B = str.maketrans("はひふへほ", "ばびぶべぼ")
+    _G = str.maketrans("かきくけこさしすせそ", "がぎぐげござじずぜぞ")
+
+    @staticmethod
+    def _small_int(s):
+        """1..99 written in digits or kanji (二十三), else None."""
+        n = s.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+        if n.isdigit():
+            return int(n) if 0 < int(n) < 100 else None
+        m = re.fullmatch(r"(?:([二三四五六七八九]?)(十))?([一二三四五六七八九]?)", s)
+        if not s or not m:
+            return None
+        return (KANJI_NUM.get(m.group(1), 1) * 10 if m.group(2) else 0) + KANJI_NUM.get(m.group(3), 0)
+
+    def _counter_sounds(self, pieces):
+        """Passages (after the shared kana rules): a number + counter reads with
+        its sound change, which Sudachi's per-morpheme readings miss (一 いち + 杯
+        ばい, 一 いち + 週間): 一杯 いっ|ぱい, 一週間 いっ|しゅうかん, 三階 さん|がい,
+        1杯 1|ぱい (a digit stays a digit: only the counter's reading changes),
+        何本 なん|ぼん. A kanji numeral + つ is the native count (四つ よっ|つ).
+        Numbers 1..99 only."""
+        for i in range(len(pieces) - 1):
+            b, nb = pieces[i][0], pieces[i + 1][0]
+            if nb == "つ" and b in "一二三四五六七八九" and b:
+                n = KANJI_NUM[b]
+                if "".join(pieces[i][1] or []) != self._NATIVE_TSU[n]:
+                    pieces[i][1] = [self._NATIVE_TSU[n]]
+                    self.stats["passage kana: native count before つ (四つ よっつ)"] += 1
+                continue
+            if nb not in self.COUNTER_SOUNDS or pieces[i + 1][1] is None:
+                continue
+            cr, cls = self.COUNTER_SOUNDS[nb]
+            digits = bool(DIGIT_RE.search(b))
+            if b == "何":
+                n, nr = None, "なん"
+            else:
+                n = self._small_int(b)
+                if n is None:
+                    continue
+                tens, u = divmod(n, 10)
+                nr = ("" if tens < 2 else self._ONES[tens]) + ("じゅう" if tens else "") + (self._ONES[u] if u else "")
+            doubled = n is not None and ((n % 10 in (1, 8)) or (n % 10 == 6 and cls[0] in "hk") or n % 10 == 0)
+            voiced = n is None or n % 10 == 3
+            new_c = cr
+            if doubled:
+                nr = nr[:-1] + "っ"                  # いち いっ, ろく ろっ, はち はっ, じゅう じゅっ
+                if cls == "h":
+                    new_c = cr[:1].translate(self._P) + cr[1:]
+            elif voiced and cls == "h":
+                new_c = cr[:1].translate(self._B) + cr[1:]
+            elif voiced and cls.endswith("3"):
+                new_c = cr[:1].translate(self._G) + cr[1:]
+            changed = False
+            if "".join(pieces[i + 1][1]) != new_c:
+                pieces[i + 1][1] = [new_c]
+                changed = True
+            if not digits and "".join(pieces[i][1] or []) != nr:
+                pieces[i][1] = [nr]
+                changed = True
+            if changed:
+                self.stats["passage kana: number + counter sound change (一杯 いっぱい)"] += 1
+
+    def _passage_kana_rules(self, pieces):
+        """Passages (after the shared kana rules): 来 read by the kana after it
+        (来る く, 来ない こ, 来ます き: Sudachi reads 来る as きたる "coming"), 言 as
+        い (Sudachi's colloquial ゆう)."""
+        for i, (b, r) in enumerate(pieces):
+            if r is None or not b.startswith(("来", "言")):
+                continue
+            rd = "".join(r)
+            after = b[1:] or "".join(x for x, _ in pieces[i + 1:i + 2])
+            new = None
+            if b[0] == "言" and rd.startswith("ゆ"):
+                new = "い" + rd[1:]
+            elif b[0] == "来" and not KANJI_RE.match(after[:1] or "x"):
+                want = next((k for a, k in self.KURU if after.startswith(a)), None)
+                tail = hira(b[1:])
+                if want and rd.endswith(tail) and rd[:len(rd) - len(tail)] != want:
+                    new = want + tail
+            if new and new != rd:
+                pieces[i][1] = [new]
+                self.stats["passage kana: 来 / 言 by the kana after it"] += 1
+
+    def _agree_word(self, text, a, b, x, y, rd, word):
+        """A span's token [x, y) read rd, linked to `word`: when the token is
+        exactly the kanji run of the word's headword (箱, 間, 外 in 箱いっぱい, その間,
+        外で) at a word start (no kanji or digit before it) and the word's own
+        reading of that run differs, the word's reading (Sudachi: ばこ, かん, がい).
+        Not for AGREE_SKIP kanji."""
+        if not word or not word.get("pron"):
+            return rd
+        m = re.match(f"^([^{HIRA}{KATA}]+)([{HIRA}]*)$", word["w"])
+        if not m or text[x:y] != m.group(1) or x != a or any(ch in self.AGREE_SKIP for ch in m.group(1)):
+            return rd
+        if x and (KANJI_RE.match(text[x - 1]) or DIGIT_RE.match(text[x - 1])):
+            return rd
+        pr, ok = word["pron"].strip("〜"), m.group(2)
+        stem = pr if not ok else (pr[:len(pr) - len(ok)] if pr.endswith(ok) else "")
+        if stem and KANA_ONLY_RE.match(stem) and stem != rd:
+            return stem
+        return rd
+
+    def _split_reading(self, text, x0, c, x1, r):
+        """The reading r of text[x0:x1] cut at c: (left, right, from Sudachi per side).
+        A side with no kanji reads as written; else Sudachi's or the pack's
+        reading of one side that begins or ends r (the other side's first sound
+        may be voiced by rendaku); else each side's own Sudachi reading."""
+        L, R = text[x0:c], text[c:x1]
+        plain = lambda x: x[:1].translate(_VOICE) + x[1:]        # noqa: E731
+        if not KANJI_RE.search(L) and r.startswith(hira(L)):
+            return None, r[len(L):], False
+        if not KANJI_RE.search(R) and r.endswith(hira(R)):
+            return r[:len(r) - len(R)], None, False
+        if not KANJI_RE.search(L) and DIGIT_RE.search(L):
+            # a number read with its counter (3日 みっか, 1人 ひとり): the counter
+            # keeps its own tail of the reading
+            for tail in self.COUNTER_TAILS.get(R, ()):
+                if r.endswith(tail) and len(tail) < len(r):
+                    return r[:len(r) - len(tail)], tail, False
+        cands_l = [self._span_reading(L)] + [p for p in self._pack_readings().get(L, ())]
+        cands_r = [self._span_reading(R)] + [p for p in self._pack_readings().get(R, ())]
+        for x in cands_l:
+            if x and r.startswith(x) and len(x) < len(r):
+                return x, r[len(x):], False
+        for x in cands_r:
+            if x and len(x) < len(r) and plain(r[len(r) - len(x):]) == plain(x):
+                return r[:len(r) - len(x)], r[len(r) - len(x):], False
+        return (cands_l[0] if KANJI_RE.search(L) else None), (cands_r[0] if KANJI_RE.search(R) else None), True
+
+    def _pack_readings(self):
+        """spelling -> kana readings from pack/words.json (headword and alts) and
+        characters.json units (passages: splitting a reading at a tap edge)."""
+        if getattr(self, "_pack_rd", None) is None:
+            out = defaultdict(list)
+            pack = self.repo / "pack" if self.repo is not None else None
+            if pack is not None and (pack / "words.json").exists():
+                for w in json.loads((pack / "words.json").read_text()):
+                    rd = (w.get("pron") or "").strip("〜")
+                    if rd and KANA_ONLY_RE.match(rd):
+                        for f in [w["w"]] + list(w.get("alt") or ()):
+                            f = f.strip("〜")
+                            if rd not in out[f]:
+                                out[f].append(rd)
+            if pack is not None and (pack / "characters.json").exists():
+                for c in json.loads((pack / "characters.json").read_text()):
+                    rd = (c.get("reading") or "").strip("〜")
+                    if rd and KANA_ONLY_RE.match(rd) and rd not in out[c["t"].strip("〜")]:
+                        out[c["t"].strip("〜")].append(rd)
+            self._pack_rd = out
+        return self._pack_rd
+
+    def _passage_segments(self, text, en):
+        """Kana segments [(start, end, kana or None)] of a passage text: Sudachi
+        pieces, the shared kana rules (kana_line), then _counter_sounds."""
+        pieces = self._sudachi_pieces(text)
+        segs = self._kana_segments(pieces, text, en, extra=(self._counter_sounds, self._passage_kana_rules))
+        out, at = [], 0
+        for (b, r), (_b, whole) in zip(segs, pieces):
+            # a number read natively with its counter (4日 よっか): _kana_digits keeps
+            # the digit and leaves っか, no reading of 日; the token reads whole
+            m = re.match(r"[0-9０-９]+", r or "")
+            if m and r[m.end():m.end() + 1] == "っ" and whole:
+                r = "".join(whole)
+                self.stats["passage kana: number + counter read whole (4日 よっか)"] += 1
+            if b:
+                out.append((at, at + len(b), r))
+            at += len(b)
+        return out
+
+    def text_ruby(self, text, en, spans, wid_ok, log, words=None):
+        """[[start, end, kana, wordId or None]] (UTF-16) covering every kanji of
+        `text`. spans: [(start, end, wordId)] in code points, the text's tap
+        segments (passages.json spans; for titles, questions and options the
+        linker's). A reading token never crosses a tap-segment edge (the
+        engine renders such a token plain): a kana segment crossing one is cut
+        there (_split_reading). A span holding a kanji is one token read over
+        its segments with the edge kana it shares with the text left out
+        (_token_ruby: 働いて -> 働 はたら, 悪かっ -> 悪 わる), its wordId when wid_ok
+        allows it, else null; failing that (a kanji with no reading), each
+        segment in it is a token. Outside spans each segment holding a kanji
+        is a token with a null wordId (names, unlinked words). A segment
+        _token_ruby cannot read gets Sudachi's reading of its text: the
+        fallback, logged. A span's reading that is not its linked word's
+        (words: id -> words.json entry) is replaced by it (_agree_word).
+        log: lists by kind (fallback, split, agree, bad, uncovered)."""
+        words = words or {}
+        segs = self._passage_segments(text, en)
+        spans = sorted(s for s in spans if s[1] > s[0])
+        cuts = sorted({a for a, _b, _w in spans} | {b for _a, b, _w in spans})
+        cut_segs = []
+        for x0, x1, r in segs:
+            inner = [c for c in cuts if x0 < c < x1]
+            if not inner or r is None:
+                # no cut, or no reading to cut (a kanji left without one is read below)
+                cut_segs += [(p, q, r) for p, q in zip([x0] + inner, inner + [x1])]
+                continue
+            for c in inner:
+                left, right, fb = self._split_reading(text, x0, c, x1, r)
+                log["split"].append((text[x0:x1], r, text[x0:c], left, right, fb))
+                cut_segs.append((x0, c, left))
+                x0, r = c, right
+                if r is None:
+                    break
+            cut_segs.append((x0, x1, r))
+        # a kanji piece with no reading (none from Sudachi): its Sudachi reading per span
+        cut_segs = [(p, q, r if r is not None or not KANJI_RE.search(text[p:q]) else (self._span_reading(text[p:q]) or None))
+                    for p, q, r in cut_segs]
+        parts, at = [], 0
+        for a, b, wid in spans:
+            if a > at:
+                parts.append((at, a, None, False))
+            parts.append((a, b, wid, True))
+            at = b
+        if at < len(text):
+            parts.append((at, len(text), None, False))
+        out = []
+
+        def one(a, b, inside, wid):
+            saved = dict(self.stats)
+            r = self._token_ruby(text, inside, a, b) if inside else None
+            self.stats.clear()
+            self.stats.update(saved)
+            if r is None:
+                rd = hira(self._span_reading(text[a:b]))
+                # edge kana shared with the text, as _token_ruby
+                x, y = a, b
+                while x < y and rd and not KANJI_RE.match(text[x]) and hira(text[x]) == rd[0]:
+                    x, rd = x + 1, rd[1:]
+                while x < y and rd and not KANJI_RE.match(text[y - 1]) and hira(text[y - 1]) == rd[-1]:
+                    y, rd = y - 1, rd[:-1]
+                log["fallback"].append((text[a:b], text[x:y], rd))
+                r = (x, y, rd)
+            out.append([r[0], r[1], r[2], wid])
+
+        for a, b, wid, is_span in parts:
+            if not KANJI_RE.search(text[a:b]):
+                continue
+            inside = [s for s in cut_segs if a <= s[0] and s[1] <= b]
+            w = wid if is_span and wid_ok(wid) else None
+            if is_span:
+                saved = dict(self.stats)
+                r = self._token_ruby(text, inside, a, b)
+                self.stats.clear()
+                self.stats.update(saved)
+                if r is not None:
+                    rd = self._agree_word(text, a, b, r[0], r[1], r[2], words.get(wid))
+                    if rd != r[2]:
+                        log["agree"].append((text[r[0]:r[1]], r[2], rd))
+                    out.append([r[0], r[1], rd, w])
+                    continue
+            for s0, s1, _r in inside:
+                if KANJI_RE.search(text[s0:s1]):
+                    one(s0, s1, [s for s in inside if s[0] == s0], w)
+        for k in out:
+            if not (k[2] and KANA_ONLY_RE.match(k[2])):
+                log["bad"].append((text, text[k[0]:k[1]], k[2]))
+        covered = set()
+        for a, b, _r, _w in out:
+            covered |= set(range(a, b))
+        miss = [i for i, ch in enumerate(text) if KANJI_RE.match(ch) and i not in covered]
+        if miss:
+            log["uncovered"].append((text, "".join(text[i] for i in miss)))
+        return [[_u16(text, a), _u16(text, b), rd, w] for a, b, rd, w in out]
+
+    def passage_ruby(self, lk, passages, names_of):
+        """passages.run hook (spec-level; zh's lives on its linker), before
+        writing: `ruby` on every passage sentence holding a kanji, `titleRuby`,
+        per question `ruby` and (mc) `optionsRuby`, one list per option (lists
+        may be empty). Every kanji is inside a token (text_ruby). A sentence's
+        tap segments are its spans; a title's, question's and option's are the
+        linker's spans for it (lk.tag + lk.links_all). A token's wordId is its
+        span's word when that word is some characters.json unit's words[0]
+        (and, for a sentence, in its words), else null. Only with a
+        characters stage (pack/characters.json). Returns the report lines."""
+        chars_p = self.repo / "pack" / "characters.json" if self.repo is not None else None
+        if chars_p is None or not chars_p.exists():
+            return []
+        word0 = {c["words"][0] for c in json.loads(chars_p.read_text()) if c.get("words")}
+        wp = self.repo / "pack" / "words.json"
+        words = {w["id"]: w for w in json.loads(wp.read_text())} if wp.exists() else {}
+        saved_stats = Counter(self.stats)
+        self.stats = Counter()
+        log = defaultdict(list)
+        n = Counter()
+        skip = self._sentence_ruby_skips(passages)
+
+        def cp_spans(text, spans):
+            # UTF-16 spans -> code points
+            idx = {_u16(text, i): i for i in range(len(text) + 1)}
+            return [(idx[a], idx[b], w) for a, b, w in (s[:3] for s in spans) if a in idx and b in idx]
+
+        def other(text, en, names):
+            toks = lk.tag(text, "", names)
+            _ws, _cl, spans, _lt = lk.links_all(toks, text, "", names)
+            r = self.text_ruby(text, en, cp_spans(text, spans), lambda w: w in word0, log, words)
+            n["other_tok"] += len(r)
+            n["other_null"] += sum(1 for k in r if k[3] is None)
+            return r
+
+        for p, names in zip(passages, names_of):
+            for s in p["sentences"]:
+                ws = set(s.get("words") or ())
+                r = self.text_ruby(s["t"], s["en"], cp_spans(s["t"], s.get("spans") or []),
+                                   lambda w, ws=ws: w in word0 and w in ws, log, words)
+                n["sent"] += 1
+                n["sent_tok"] += len(r)
+                n["sent_null"] += sum(1 for k in r if k[3] is None)
+                if r:
+                    s["ruby"] = r
+                    n["sent_ruby"] += 1
+            p["titleRuby"] = other(p["title"], "", names)
+            n["titles"] += 1
+            for q in p["questions"]:
+                q["ruby"] = other(q["q"], q.get("en", ""), names)
+                n["questions"] += 1
+                if q.get("options"):
+                    q["optionsRuby"] = [other(o, "", names) for o in q["options"]]
+                    n["options"] += len(q["options"])
+        rules = self.stats
+        self.stats = saved_stats
+        self.ruby_log = log
+        fb = Counter((a, b, c) for a, b, c in log["fallback"])
+        sp_fb = Counter((a, r, x, l, rr) for a, r, x, l, rr, f in log["split"] if f)
+        sp_ok = Counter((a, r, x, l, rr) for a, r, x, l, rr, f in log["split"] if not f)
+        fmt = lambda c: ", ".join((f"{k[0]}: {k[1]} {k[2]}" if len(k) == 3 else  # noqa: E731
+                                   f"{k[0]} ({k[1]}) cut {k[3] or '-'}|{k[4] or '-'}") + f" x{c[k]}" for k in sorted(c))
+        lines = ["## Readings", "",
+                 "Reading tokens (`ruby`, langs/ja.py passage_ruby): every kanji of every passage sentence, "
+                 "title, question and option is inside a token; readings from Sudachi through the sentences.json "
+                 "kana rules (kana_line) plus the passage counter rule.", "",
+                 "| | texts | tokens | wordId null |", "|---|---:|---:|---:|",
+                 f"| sentences | {n['sent']} ({n['sent_ruby']} with a kanji) | {n['sent_tok']} | {n['sent_null']} |",
+                 f"| titles, questions, options | {n['titles']} + {n['questions']} + {n['options']} | "
+                 f"{n['other_tok']} | {n['other_null']} |", "",
+                 f"Kanji outside every token: {sum(len(x[1]) for x in log['uncovered'])}"
+                 + (" (" + "; ".join(f"{t!r}: {m}" for t, m in log["uncovered"][:20]) + ")" if log["uncovered"] else "") + ".",
+                 f"Readings not kana: {len(log['bad'])}"
+                 + (" (" + "; ".join(f"{t!r}: {b} {r!r}" for t, b, r in log["bad"][:20]) + ")" if log["bad"] else "") + ".",
+                 f"Fallback readings (Sudachi's reading of the token's own text, the segment reading failing): "
+                 f"{sum(fb.values())}" + (": " + fmt(fb) if fb else "") + ".",
+                 f"Kana segments cut at a tap-span edge: {sum(sp_ok.values()) + sum(sp_fb.values())} "
+                 f"({sum(sp_fb.values())} by each side's own Sudachi reading, the fallback"
+                 + (": " + fmt(sp_fb) if sp_fb else "") + ").",
+                 f"Readings replaced by the linked word's own (_agree_word): {len(log['agree'])}"
+                 + (": " + ", ".join(f"{k[0]} {k[1]}→{k[2]} x{v}" for k, v in sorted(Counter(log["agree"]).items()))
+                    if log["agree"] else "") + ".",
+                 "Kana rules applied (count over all texts): "
+                 + (", ".join(f"{k} x{v}" for k, v in sorted(rules.items())) or "none") + ".",
+                 f"The sentences.json ruby rules (sentence_ruby: linked spans only, a token skipped when its "
+                 f"reading cannot be cut) would give {skip['sent_none']} of {n['sent']} sentences no ruby and "
+                 f"leave {skip['uncovered']} kanji in {skip['sent_uncovered']} sentences without a reading "
+                 f"(tokens skipped: " + (", ".join(f"{k[6:]} x{v}" for k, v in sorted(skip['stats'].items())
+                                                   if k.startswith("ruby: tokens skipped")) or "none")
+                 + "); the passage rules above skip nothing."]
+        return lines
+
+    def _sentence_ruby_skips(self, passages):
+        """Report only: what sentence_ruby (the sentences.json path, over the same
+        Sudachi kana segments without the passage counter rule) would do with
+        each passage sentence's spans."""
+        saved = Counter(self.stats)
+        self.stats = Counter()
+        out = Counter()
+        for pi, p in enumerate(passages):
+            for si, s in enumerate(p["sentences"]):
+                t = s["t"]
+                key = ("passage", pi, si)
+                self._kana_pieces[key] = self._kana_segments(self._sudachi_pieces(t), t, s["en"])
+                idx = {_u16(t, i): i for i in range(len(t) + 1)}
+                where = [("chars", idx[a], idx[b], w) for a, b, w in (x[:3] for x in s.get("spans") or [])]
+                r = self.sentence_ruby(key, {"t": t, "words": s.get("words") or []}, [t], where)
+                del self._kana_pieces[key]
+                if not KANJI_RE.search(t):
+                    continue
+                if r is None:
+                    out["sent_none"] += 1
+                cov = set()
+                for a, b, _r, _w in r or []:
+                    cov |= set(range(a, b))       # BMP text: UTF-16 == code points
+                miss = sum(1 for i, ch in enumerate(t) if KANJI_RE.match(ch) and i not in cov)
+                out["uncovered"] += miss
+                out["sent_uncovered"] += miss > 0
+        stats = self.stats
+        self.stats = saved
+        return {**out, "stats": stats}
+
     def character_units(self, words):
         """Kanji-word units (docs/HSK_MERGE.md ss2.1): every word whose headword
         has a kanji, read by its kana pron, in words.json order within each
@@ -2463,22 +2880,36 @@ class Japanese(LanguageSpec):
             self._kana_lemma_agree(sid, pieces)
         else:
             self.stats["sentence kana from Sudachi readings"] += 1
-            pieces = []
-            for m in self._tokenizer().tokenize(text):
-                srf = m.surface()
-                if KANJI_RE.search(srf):
-                    r = READING_FIX.get(srf, m.reading_form())
-                    pieces.append([srf, [hira(r)] if r and r != "*" else None])
-                else:
-                    pieces.append([srf, None])
+            pieces = self._sudachi_pieces(text)
+        segs = self._kana_segments(pieces, text, en)
+        self._kana_pieces[sid] = segs
+        return "".join(r if r is not None else b for b, r in segs)
+
+    def _sudachi_pieces(self, text):
+        """Kana pieces [written, [kana] or None] of a text from Sudachi: one per
+        morpheme, a kanji morpheme read (READING_FIX first), others kept as written."""
+        pieces = []
+        for m in self._tokenizer().tokenize(text):
+            srf = m.surface()
+            if KANJI_RE.search(srf):
+                r = READING_FIX.get(srf, m.reading_form())
+                pieces.append([srf, [hira(r)] if r and r != "*" else None])
+            else:
+                pieces.append([srf, None])
+        return pieces
+
+    def _kana_segments(self, pieces, text, en, extra=()):
+        """The context rules over kana pieces (kana_line), then `extra` rules
+        (passages: _counter_sounds), then digits (_kana_digits): [(written,
+        kana or None)] tiling the text."""
         self._person_counts(pieces)
         self._kana_rules(pieces, text, en)
         self._day_counts(pieces)
         self._minute_counts(pieces)
         self._naka(pieces, en)
-        segs = [(b, self._kana_digits(b, r) if r is not None else None) for b, r in pieces]
-        self._kana_pieces[sid] = segs
-        return "".join(r if r is not None else b for b, r in segs)
+        for f in extra:
+            f(pieces)
+        return [(b, self._kana_digits(b, r) if r is not None else None) for b, r in pieces]
 
     def _person_counts(self, pieces):
         """一人/二人 fused into a following compound (一人当たり, 二人組): Sudachi

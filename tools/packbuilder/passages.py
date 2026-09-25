@@ -978,10 +978,12 @@ def run(spec, check_only=False, out=sys.stdout):
         print(f"self-check: {pid} q{j}: none of its words {ws} appears in sentence {si}", file=out)
     if errors:
         print(f"passages: {len(errors)} errors", file=out)
-    # a linker's passage_ruby (zh): per-token readings on sentences, titles, questions
-    # and options, returning its report lines
-    extra = lk.passage_ruby(passages, [names_of[id(p)] for p in src["passages"]]) \
-        if hasattr(lk, "passage_ruby") else []
+    # a linker's passage_ruby (zh), else the spec's passage_ruby(lk, ...) (ja):
+    # per-token readings on sentences, titles, questions and options, returning
+    # its report lines
+    pnames = [names_of[id(p)] for p in src["passages"]]
+    extra = lk.passage_ruby(passages, pnames) if hasattr(lk, "passage_ruby") else \
+        spec.passage_ruby(lk, passages, pnames) if hasattr(spec, "passage_ruby") else []
     if not check_only:
         if errors:
             print("passages: not writing pack/passages.json (fix the errors first)", file=out)
