@@ -181,6 +181,11 @@ class Writer(unittest.TestCase):
         self.assertEqual(characters_pack_fields(sp, [{"id": "c0001"}]), {"characters": Japanese.characters, "pronFirst": True})
         self.assertEqual(characters_pack_fields(sp, []), {})
 
+    def test_no_per_character_compose(self):
+        # A kanji's reading depends on its word (時: じ in 6時, とき alone), so ja never
+        # opts in to per-character span readings (docs/PACK_SCHEMA.md "characters").
+        self.assertNotIn("compose", characters_pack_fields(ja(), [{"id": "c0001"}])["characters"])
+
     def test_no_hook_no_ruby_no_file(self):
         sents = [{"t": "a b", "words": ["w0001"]}]
         before = json.dumps(sents)

@@ -661,8 +661,53 @@ function pronFirstSentenceChecks(){
   check("[PF] rubyTiers: word-first pack unchanged (null before start)", VC.rubyTiers(s, F.units, p3, F.pack, false) === null);
 }
 
+// Characters-stage teach card example (core unitExampleSentences, app charTeach): the
+// example shows the taught unit written with ruby whenever some sentence of its word
+// allows it. Synthetic tier order, then every unit of the real zh pack and the real ja pack
+// (../japanese/pack beside this repo, or JA_PACK; skipped with a NOTE when missing).
+function teachExampleChecks(){
+  console.log("\n================ teach-card example picker");
+  const F = jaLike(); const w = F.words.find(x => VC.unitByWord(F.units).get(x.id)); const u = VC.unitByWord(F.units).get(w.id);
+  const other = F.words.find(x => x.id !== w.id);
+  const n = w.w.length;
+  const leak = { id: "x1", t: "王" + w.w, words: [w.id], ruby: [[1, 1 + n, "r", w.id]] };
+  const none = { id: "x2", t: w.w + "王", words: [w.id], ruby: [[n, n + 1, "r", other.id]] };
+  const good = { id: "x3", t: w.w + "。", words: [w.id], ruby: [[0, n, "r", w.id]] };
+  const pick = (pk, k) => VC.unitExampleSentences(u, w, [none, leak, good], pk, k).map(x => x.id).join(",");
+  check(`[TE] tiers: covered with the unit's token, then the unit's token, then the rest (${pick(F.pack, 3)})`, pick(F.pack, 3) === "x3,x1,x2" && pick(F.pack, 1) === "x3");
+  check("[TE] without pack.characters: exampleSentences order", pick(stripChars(F.pack), 3) === VC.exampleSentences(w, [none, leak, good], F.pack, 3).map(x => x.id).join(","));
+  check("[TE] no word -> []", VC.unitExampleSentences(u, null, [good], F.pack, 1).length === 0);
+  check("[TE] rubyCovers: Han outside every token -> false; kana/Latin/digits outside -> true",
+    VC.rubyCovers("王の本", [{ start: 2, end: 3 }]) === false && VC.rubyCovers("6時のabc", [{ start: 1, end: 2 }]) === true);
+  const packs = [["zh", path.join(ROOT, "packs", "zh"), 0], ["ja", process.env.JA_PACK || path.join(ROOT, "..", "japanese", "pack"), null]];
+  for(const [name, dir, expectResidual] of packs){
+    if(!fs.existsSync(path.join(dir, "characters.js"))){ console.log(`NOTE  ${name}: no pack at ${dir}, real-pack teach-example check skipped`); continue; }
+    const L = (f, v) => new Function(fs.readFileSync(path.join(dir, f), "utf8") + `\nreturn ${v};`)();
+    const pack = Object.assign({}, L("pack.js", "PACK"), { pronFirst: true });
+    const words = L("words.js", "WORDS"), sents = L("sentences.js", "SENTENCES"), units = L("characters.js", "CHARACTERS");
+    const byId = byIdOf(words), prog = VC.normalizeProg({}, pack);
+    // The card shows the unit written: sentenceDisplay (teach card: unit's words written)
+    // draws the sentence with ruby and a token of the unit's word is not replaced by its reading.
+    const shows = (un, s) => { const d = VC.sentenceDisplay(s, units, prog, pack, true, null, un.words); return !!d && d.mode === "pieces" && d.pieces.some(p => p.kind === "tok" && un.words.includes(p.wordId) && p.tier !== "pron"); };
+    let withEx = 0, before = 0, after = 0, residual = 0; const bad = [];
+    units.forEach(un => {
+      const ww = VC.unitWord(un, byId); if(!ww) return;
+      const all = VC.exampleSentences(ww, sents, pack, Infinity); if(!all.length) return; withEx++;
+      if(!shows(un, all[0])) before++;
+      const cur = VC.unitExampleSentences(un, ww, sents, pack, 1)[0];
+      if(shows(un, cur)) return;
+      after++;
+      if(all.some(s => shows(un, s))) bad.push(`${un.t}: ${cur.t}`); else residual++;
+    });
+    console.log(`    ${name}: ${units.length} units, ${withEx} with an example; unit not shown written: ${before} with the word's first example, ${after} with the picker (${residual} residual: no sentence of the word allows it)`);
+    check(`[TE] ${name} (all ${units.length} units): the teach example shows the unit written with ruby whenever a sentence of its word allows it (${bad.length} bad${bad[0] ? ": " + bad.slice(0, 3).join(" | ") : ""})`, withEx > 0 && bad.length === 0);
+    if(expectResidual !== null) check(`[TE] ${name}: residual ${residual} (expected ${expectResidual})`, residual === expectResidual);
+  }
+}
+
 suite(zhLike());
 suite(jaLike());
+teachExampleChecks();
 pronFirstChecks(zhLike());
 pronFirstChecks(jaLike());
 pronFirstSentenceChecks();

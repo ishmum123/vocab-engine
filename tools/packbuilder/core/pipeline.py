@@ -73,7 +73,9 @@ def write_characters(env, out_words, sentences):
 
 def characters_pack_fields(sp, units):
     """pack.json keys the characters stage adds, only when units were written:
-    "characters" (spec.characters) and, for a pron_first spec, "pronFirst": true."""
+    "characters" (spec.characters) and, for a pron_first spec, "pronFirst": true.
+    characters.compose (per-character span readings) is never added here: only a pack
+    whose characters read the same in every word opts in (zh, tools/pack_from_hsk.py)."""
     if not units:
         return {}
     out = {"characters": sp.characters}

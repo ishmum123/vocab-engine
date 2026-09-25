@@ -604,6 +604,48 @@ function walk(api, stopAt){
     check(`ja-like: a stem-only token keeps the word's headword; a token longer than the word heads with its surface and kana reading (${jsents.length} sentences, ${jb.length} bad)`, jw.length === 4 && jb.length === 0);
   } catch(e){ check(`section threw: ${e.message}`, false); }
 
+  // ---------------------------------------------------------------- [11] characters.compose
+  // A span longer than its word composes per-character readings only with
+  // pack.characters.compose (zh); without it (ja: 時 reads じ in 6時, とき alone) the other
+  // characters stay written. ja-like fixture: span = two other single-glyph units + the word.
+  console.log("\n[11] per-character span readings only with pack.characters.compose");
+  try {
+    const { jaLike } = require(path.join(__dirname, "fixtures", "chars_packs.js"));
+    const J = jaLike();
+    const one = J.units.filter(u => [...u.t].length === 1 && J.words.find(w => w.id === u.words[0]).pron);
+    const [uw, u2, u3] = one; const JB = Object.fromEntries(J.words.map(w => [w.id, w]));
+    const w = JB[uw.words[0]], r2 = JB[u2.words[0]].pron, r3 = JB[u3.words[0]].pron;
+    const span = u2.t + u3.t + w.w;
+    const readingOf = c => { const u = J.units.find(u => u.t === c); return u ? JB[u.words[0]].pron : ""; };
+    const off = Object.assign({}, J.pack, { pronFirst: true, tts: "ja-JP" });
+    const on = Object.assign({}, off, { characters: Object.assign({}, off.characters, { compose: true }) });
+    const cOff = VC.composeSpanReading(span, w, readingOf, off), cOn = VC.composeSpanReading(span, w, readingOf, on);
+    check(`ja-like, compose unset: other characters written, the word read (${JSON.stringify(cOff)})`,
+      JSON.stringify(cOff) === JSON.stringify([{ start: 0, end: 2, reading: "" }, { start: 2, end: 3, reading: w.pron }]) && VC.spanReadingText(span, w, readingOf, off) === u2.t + u3.t + w.pron);
+    check(`ja-like, compose true: every character read (${VC.spanReadingText(span, w, readingOf, on)})`,
+      JSON.stringify(cOn) === JSON.stringify([{ start: 0, end: 3, reading: r2 + r3 + w.pron }]) && VC.spanReadingText(span, w, readingOf, on) === r2 + r3 + w.pron);
+    check("compose: only boolean true opts in; no characters -> off", VC.charsConfig(Object.assign({}, off, { characters: Object.assign({}, off.characters, { compose: "yes" }) })).compose === false
+      && VC.spanReadingText(span, w, readingOf, { tones: null }) === u2.t + u3.t + w.pron);
+    check("zh pack as shipped sets characters.compose", VC.charsConfig(PACK).compose === true);
+    // App (pfPassage, no ruby): the rendered span, both branches.
+    const psg = [{ id: "jp1", title: "t", sentences: [{ t: span + "です。", en: "x", words: [w.id], spans: [[0, span.length, w.id]] }], questions: [] }];
+    const render = async pk => { const { api } = await boot({ pack: pk, words: J.words, sentences: [], units: J.units, passages: psg }); api.setProg(VC.normalizeProg({ sets: { A1: 3 }, placedOnce: true }, pk)); return stripTags(api.passageSentenceHTML(psg[0].sentences[0], 0, false).replace(/<button[\s\S]*?<\/button>/g, "")); };
+    const hOff = await render(off), hOn = await render(on);
+    check(`app, compose unset: ${hOff}`, hOff.includes(u2.t + u3.t + w.pron) && !hOff.includes(r2));
+    check(`app, compose true: ${hOn}`, hOn.includes(r2 + r3 + w.pron) && !hOn.includes(u2.t));
+    // zh sentence with its ruby removed (so spans compose), compose on vs removed.
+    const zo = Object.assign({}, PACK, { characters: Object.assign({}, PACK.characters) }); delete zo.characters.compose;
+    const f = (() => { for(const p of PASSAGES) for(let si = 0; si < p.sentences.length; si++) if(p.sentences[si].t.includes("我来介绍一下我的家人")){ const x = Object.assign({}, p.sentences[si]); delete x.ruby; return { s: x, si }; } return null; })();
+    if(f){
+      const { api } = await boot({ pack: zo }); api.setProg(seedPF());
+      const t = stripTags(api.passageSentenceHTML(f.s, f.si, false).replace(/<button[\s\S]*?<\/button>/g, ""));
+      check(`zh without compose: 一下 keeps 一 written, xià read (${t})`, /一 ?xià/.test(t) && !/yīxià/.test(t));
+      const { api: a1 } = await boot({ pack: PACK }); a1.setProg(seedPF());
+      const t1 = stripTags(a1.passageSentenceHTML(f.s, f.si, false).replace(/<button[\s\S]*?<\/button>/g, ""));
+      check(`zh with compose (as shipped): 一下 reads yīxià (${t1})`, /yīxià/.test(t1));
+    } else check("zh 我来介绍一下 passage sentence found", false);
+  } catch(e){ check(`section threw: ${e.stack}`, false); }
+
   // ---------------------------------------------------------------- [10] review nits
   console.log("\n[10] r-suffix numbered forms, Escape on a tap, quotes and ellipsis");
   try {

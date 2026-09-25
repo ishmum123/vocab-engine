@@ -955,6 +955,35 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     check("ja-like: a kana word has no show-written tap", !/data-showw/.test(api.wordRowHTML(k)) && api.wordRowHTML(k).includes(`>${k.w}<`));
   }
 
+  // Teach cards on the real packs (core unitExampleSentences): every unit's card, rendered
+  // by charTeach, shows a token of the unit's word written with ruby whenever some sentence
+  // of the word allows it. ja: ../japanese/pack beside this repo, or JA_PACK (NOTE when missing).
+  console.log("\n[15] teach-card examples show the unit written, every unit of the real packs");
+  for(const [name, dir] of [["zh", ZH], ["ja", process.env.JA_PACK || path.join(ROOT, "..", "japanese", "pack")]]){
+    if(!fs.existsSync(path.join(dir, "characters.js"))){ console.log(`NOTE  ${name}: no pack at ${dir}, skipped`); continue; }
+    try {
+      const L = (f, v) => loadConst(path.join(dir, f), v);
+      const pk = L("pack.js", "PACK"), ws = L("words.js", "WORDS"), ss = L("sentences.js", "SENTENCES"), us = L("characters.js", "CHARACTERS");
+      const by = Object.fromEntries(ws.map(w => [w.id, w]));
+      const { api } = await boot({ pack: pk, words: ws, sentences: ss, units: us, lessons: [], passages: [] });
+      const prog0 = VC.normalizeProg({}, pk); api.setProg(prog0);
+      const shows = (u, s) => { const d = VC.sentenceDisplay(s, us, prog0, pk, true, null, u.words); return !!d && d.mode === "pieces" && d.pieces.some(p => p.kind === "tok" && u.words.includes(p.wordId) && p.tier !== "pron"); };
+      let possible = 0, bad = [];
+      for(let i = 0; i < us.length; i += 10){
+        const units = us.slice(i, i + 10);
+        api.charTeach({ units, index: i / 10, total: Math.ceil(us.length / 10) }, { label: "x" }, () => {});
+        const cards = api.html("panel").split('<div class="charteach">').slice(1);
+        units.forEach((u, j) => {
+          const w = by[u.words[0]]; if(!w || !VC.exampleSentences(w, ss, pk, Infinity).some(s => shows(u, s))) return;
+          possible++;
+          const ex = (cards[j] || "").split('<div class="sent')[1] || "";
+          if(!u.words.some(id => new RegExp(`data-tok="${id}"[^>]*><ruby>`).test(ex))) bad.push(u.t);
+        });
+      }
+      check(`${name}: ${possible} of ${us.length} units have a sentence that can show them written; every such card does (${bad.length} bad${bad[0] ? ": " + bad.slice(0, 5).join(" ") : ""})`, possible > 0 && bad.length === 0);
+    } catch(e){ check(`${name}: section threw: ${e.message}`, false); }
+  }
+
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.log(`FAIL  harness threw: ${e.stack}`); process.exit(1); });
