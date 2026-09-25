@@ -8,15 +8,22 @@
 #
 # The pack's .js files are generated from its .json by tools/jsonify_pack.py;
 # tools/validate_pack.py fails if they are stale.
+#
+# Also writes sw.js next to <out.html>: engine/sw.template.js with the build id (POSIX
+# cksum of the built page) and the page's file name filled in. Publish it with the page;
+# app.html registers it (offline use and instant repeat loads, see README).
 set -e
 if [ $# -ne 2 ]; then echo "usage: $0 <packdir> <out.html>" >&2; exit 2; fi
 PACKDIR="${1%/}"
 OUT="$2"
+PAGE="$(basename "$OUT")"
+case "$PAGE" in *[!A-Za-z0-9._-]*) echo "build.sh: output file name '$PAGE' must be [A-Za-z0-9._-] (it goes into sw.js)" >&2; exit 1;; esac
 ENGINE="$(cd "$(dirname "$0")" && pwd)/engine"
 SRC="$ENGINE/app.html"
 CORE="$ENGINE/core.js"
+SWT="$ENGINE/sw.template.js"
 
-for f in "$SRC" "$CORE" "$PACKDIR/pack.js" "$PACKDIR/words.js" "$PACKDIR/sentences.js"; do
+for f in "$SRC" "$CORE" "$SWT" "$PACKDIR/pack.js" "$PACKDIR/words.js" "$PACKDIR/sentences.js"; do
   if [ ! -f "$f" ]; then echo "build.sh: missing $f" >&2; exit 1; fi
 done
 LESSONS="$PACKDIR/lessons.js"
@@ -46,4 +53,13 @@ VE_LESSONS="$LESSONS" VE_CORE="$CORE" awk '
   END { if (!seen_begin || !seen_end || !seen_core) { print "build.sh: PACK-BEGIN/PACK-END markers or core.js tag not found in app.html" > "/dev/stderr"; exit 1 } }
 ' "$SRC" > "$TMP" || { rm -f "$TMP"; exit 1; }
 mv "$TMP" "$OUT"
-echo "Built $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes) from $PACKDIR"
+
+# sw.js: cache name = build id, so any change to the page changes sw.js and busts the cache.
+SW="$(dirname "$OUT")/sw.js"
+SWTMP="$SW.tmp.$$"
+VE_BUILD="$(cksum < "$OUT" | awk '{ printf "%s-%s", $1, $2 }')" VE_PAGE="$PAGE" awk '
+  BEGIN { b = ENVIRON["VE_BUILD"]; p = ENVIRON["VE_PAGE"] }
+  { gsub(/__VE_BUILD__/, b); gsub(/__VE_PAGE__/, p); print }
+' "$SWT" > "$SWTMP" || { rm -f "$SWTMP"; exit 1; }
+mv "$SWTMP" "$SW"
+echo "Built $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes) from $PACKDIR, and $SW"

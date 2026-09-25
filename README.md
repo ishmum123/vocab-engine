@@ -23,14 +23,15 @@ The question types are:
 ```
 engine/core.js            logic with no DOM (VocabCore); shared by the app and the tests
 engine/app.html           UI shell; loads a pack in dev mode, and build.sh inlines everything
-build.sh                  ./build.sh <packdir> <out.html>   (awk only, no Node or Python)
+engine/sw.template.js     service worker; build.sh fills in the build id and writes sw.js
+build.sh                  ./build.sh <packdir> <out.html>   (awk only, no Node or Python; also writes sw.js next to out.html)
 packs/zh/                 Mandarin HSK 1–4 pack, ported from ../hsk (1193 words, 882 sentences, 12 lessons)
 tools/jsonify_pack.py     packs/X/*.json -> *.js consts
 tools/validate_pack.py    schema and referential-integrity check
 tools/pack_from_hsk.py    reproducible hsk -> packs/zh converter
 tools/packbuilder/        shared corpus-based pack builder for language repos (it; see its README)
 tests/engine_checks.js    Node checks, no dependencies
-dist/zh.html              built zh trainer (committed; the tests fail if it is stale)
+dist/zh.html dist/sw.js   built zh trainer + its service worker (committed; the tests fail if either is stale)
 docs/PACK_SCHEMA.md       pack format (authoritative)
 TODO.md                   known gaps and follow-ups
 ```
@@ -59,6 +60,7 @@ italian/
   vocab-engine/          git submodule -> this repo
   pack/                  pack.json words.json sentences.json [lessons.json] + generated .js
   index.html             built output (for example, served by GitHub Pages)
+  sw.js                  service worker written by build.sh next to index.html; publish it too
 ```
 
 Set it up and build with these commands:
@@ -71,6 +73,16 @@ python3 vocab-engine/tools/validate_pack.py pack
 vocab-engine/build.sh pack index.html
 # for dev mode, open vocab-engine/engine/app.html?packdir=../../pack
 ```
+
+### Offline and repeat loads (sw.js)
+
+`build.sh` writes `sw.js` next to the page. The page registers it over http(s) only, so `file://` and dev mode are unaffected. The worker:
+
+- serves the page and same-origin `pack/*.js` cache-first, so repeat visits load instantly and work offline. Other offline navigations inside the site fall back to the cached page;
+- names its cache `ve:<site path>:<build id>`, where the build id is the POSIX `cksum` of the built page. Every rebuild that changes the page changes `sw.js`, and the browser installs the new worker on the next visit. Activation deletes only this site's older caches. All language sites share the `github.io` origin, so the site path in the name keeps them apart;
+- never touches cross-origin requests (Google Fonts, tatoeba.org audio). They go to the network as before.
+
+A new build takes over in the background. The open page keeps running and shows "Updated, reload for the new version". The load after that gets the new build. Commit `sw.js` together with `index.html` every time: a stale `sw.js` keeps serving the old cached page until the next publish that updates it.
 
 To take an engine update, run this and then rebuild:
 

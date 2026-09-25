@@ -32,13 +32,18 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
 (function(){
   // Every other check runs against source files; this one proves dist/zh.html is what
   // build.sh produces from them right now (rebuild to scratch, byte-compare).
-  const tmp = path.join(os.tmpdir(), `vocab_engine_stalecheck_${process.pid}.html`);
+  // Private scratch dir: build.sh also writes sw.js next to its output.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vocab_engine_stalecheck_"));
+  const tmp = path.join(tmpDir, "zh.html");
   try{
     cp.execSync(`sh build.sh packs/zh "${tmp}"`, { cwd: ROOT, stdio: "pipe" });
     const built = fs.readFileSync(tmp, "utf8");
     const shipped = fs.existsSync(path.join(ROOT, "dist", "zh.html")) ? fs.readFileSync(path.join(ROOT, "dist", "zh.html"), "utf8") : null;
     console.log(`\n[0] stale-build guard: fresh build ${built.length} chars; dist/zh.html ${shipped===null ? "MISSING" : shipped.length+" chars"}`);
     check("dist/zh.html matches a fresh ./build.sh packs/zh output (not stale)", built === shipped);
+    const shippedSw = path.join(ROOT, "dist", "sw.js");
+    check("dist/sw.js matches the sw.js a fresh build writes next to the page (not stale)",
+      fs.existsSync(shippedSw) && fs.readFileSync(path.join(tmpDir, "sw.js"), "utf8") === fs.readFileSync(shippedSw, "utf8"));
     const srcs = [...built.matchAll(/<script[^>]*\ssrc=/g)].length;
     const links = [...built.matchAll(/<link[^>]*href="([^"]+)"/g)].map(m=>m[1]).filter(h=>!/^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(h));
     check("built file is self-contained (no <script src>, only Google Fonts links)", srcs === 0 && links.length === 0);
@@ -46,7 +51,7 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   }catch(e){
     console.log(`\n[0] build.sh failed: ${e.message}`);
     check("build.sh runs cleanly", false);
-  }finally{ try{ fs.unlinkSync(tmp); }catch(e){} }
+  }finally{ fs.rmSync(tmpDir, { recursive: true, force: true }); }
 })();
 
 // ------------------------------------------------------------ [1] pack validation
@@ -1222,7 +1227,7 @@ const appBootChecks = (async function(){
     const bodySection = appHtml.slice(appHtml.indexOf("<body>"), appHtml.indexOf("<nav"));
     registerIdsFromHtml(bodySection);
     return {
-      title: "", head: { appendChild(){} }, documentElement: new El("html", {}),
+      title: "", head: { appendChild(){} }, body: new El("body", {}), documentElement: new El("html", {}),
       write(){}, createElement(tag){ return new El(tag, {}); },
       getElementById(id){ return registry.get(id) || null; },
       querySelector(sel){ return this.querySelectorAll(sel)[0] || null; },
@@ -1243,7 +1248,8 @@ const appBootChecks = (async function(){
   // getRenderCalls/ss/setItemCalls/setQueueAndNext/hearItem/hearSentence/dnext/
   // getHasSpeech are test-only hooks added by appending to the script text below, not
   // present in app.html itself.
-  function bootAppSync(getVoicesResult){
+  // env (optional): { navigator, location } overrides for the service-worker checks.
+  function bootAppSync(getVoicesResult, env){
     const document = makeFakeDom();
     const ss = { getVoices: () => getVoicesResult, onvoiceschanged: null };
     const window = {
@@ -1251,7 +1257,8 @@ const appBootChecks = (async function(){
       speechSynthesis: ss,
       SpeechSynthesisUtterance: function(){},
     };
-    const navigator = { userAgent: "EngineChecks/1.0" };
+    const navigator = (env && env.navigator) || { userAgent: "EngineChecks/1.0" };
+    const location = env ? env.location : undefined;
     const setItemCalls = [];
     const localStorage = { getItem(){ return null; }, setItem(k,v){ setItemCalls.push([k,v]); } };
     const matchMedia = () => ({ matches:false });
@@ -1265,12 +1272,12 @@ return {
   setHasSpeech: v => { hasSpeech = v; },
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
 };`;
-    const fn = new Function("document","window","navigator","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS", fnBody);
-    const api = fn(document, window, navigator, localStorage, matchMedia, requestAnimationFrame, PACK, WORDS, SENTENCES, LESSONS);
+    const fn = new Function("document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS", fnBody);
+    const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, PACK, WORDS, SENTENCES, LESSONS);
     return { api, document, ss, setItemCalls };
   }
-  async function bootApp(getVoicesResult){
-    const boot = bootAppSync(getVoicesResult);
+  async function bootApp(getVoicesResult, env){
+    const boot = bootAppSync(getVoicesResult, env);
     await tick();
     await tick();
     return boot;
@@ -1370,9 +1377,121 @@ return {
   check('app.html: word-break:keep-all is scoped to [data-tl][lang|="ko"], not a blanket [data-tl] rule',
     /\[data-tl\]\[lang\|="ko"\]\s*\{[^}]*word-break\s*:\s*keep-all/.test(appHtml) &&
     !/\[data-tl\]\s*\{[^}]*word-break/.test(appHtml));
+
+  // Service-worker registration: guarded (no navigator.serviceWorker / file:// -> no-op),
+  // registers the sibling sw.js over http(s), and shows the update toast only when a
+  // controller was already in charge at load (an update), never on a first install.
+  function fakeSw(controller){
+    const l = {}; const calls = [];
+    return { calls, fire: t => (l[t]||[]).forEach(f => f({})), controller,
+      addEventListener: (t, f) => { (l[t] = l[t] || []).push(f); },
+      register: u => { calls.push(u); return Promise.reject(new Error("no sw.js (dev mode)")); } };
+  }
+  try{
+    const { document } = await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x" }, location: { protocol:"https:" } });
+    check("sw: no navigator.serviceWorker (old browser / Node) -> boot does not throw", document.getElementById("htitle").textContent === "Today");
+    const swFile = fakeSw(null);
+    await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x", serviceWorker: swFile }, location: { protocol:"file:" } });
+    check("sw: file:// -> sw.js is not registered", swFile.calls.length === 0);
+    const swFirst = fakeSw(null);
+    const first = await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x", serviceWorker: swFirst }, location: { protocol:"https:" } });
+    await tick();
+    check("sw: https -> registers the sibling sw.js (relative URL); a failed registration is swallowed", swFirst.calls.length === 1 && swFirst.calls[0] === "sw.js");
+    swFirst.fire("controllerchange");
+    check("sw: first install taking control shows no update toast", first.document.getElementById("swtoast") === null);
+    const swUpd = fakeSw({});
+    const upd = await bootApp([{ lang:"zh-CN", name:"x" }], { navigator: { userAgent:"x", serviceWorker: swUpd }, location: { protocol:"https:" } });
+    swUpd.fire("controllerchange"); swUpd.fire("controllerchange");
+    const toast = upd.document.getElementById("swtoast");
+    check("sw: controller change after a controlled load shows one reload toast", !!toast && /reload for the new version/.test(toast.textContent) && upd.document.body.children.length === 1);
+  }catch(e){ check(`sw registration scenarios do not throw (got: ${e.message})`, false); }
 })();
 
-appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; }).then(() => {
+// ------------------------------------------------------------ [24] service worker
+// Runs the sw.js build.sh writes against a simulated worker global: a Map-backed
+// CacheStorage and a fetch that can be switched offline. Responses are Node's real
+// Response; Request is a stub (Node's rejects cache:"reload").
+async function swChecks(){
+  console.log("\n[24] service worker: build.sh sw.js emission, cache naming, fetch strategy");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vocab_engine_sw_"));
+  try{
+    cp.execSync(`sh build.sh packs/zh "${path.join(dir, "index.html")}"`, { cwd: ROOT, stdio: "pipe" });
+    const src = fs.readFileSync(path.join(dir, "sw.js"), "utf8");
+    const ck = cp.execSync(`cksum < "${path.join(dir, "index.html")}"`).toString().trim().split(/\s+/);
+    const build = `${ck[0]}-${ck[1]}`;
+    check("build.sh writes sw.js next to the page with every placeholder filled", !/__VE_/.test(src));
+    check("sw.js build id is the POSIX cksum (crc-size) of the built page; page name is the output file name",
+      src.includes(`const BUILD = "${build}";`) && src.includes(`const PAGE = "index.html";`));
+    let parses = true; try{ new Function(src); }catch(e){ parses = false; }
+    check("sw.js parses", parses);
+
+    // Any change to the page changes the build id: one extra comment line in pack.js.
+    const pk = path.join(dir, "pack"); fs.cpSync(ZH, pk, { recursive: true });
+    fs.appendFileSync(path.join(pk, "pack.js"), "\n// changed\n");
+    const d2 = path.join(dir, "b2"); fs.mkdirSync(d2);
+    cp.execSync(`sh build.sh "${pk}" "${path.join(d2, "index.html")}"`, { cwd: ROOT, stdio: "pipe" });
+    const src2 = fs.readFileSync(path.join(d2, "sw.js"), "utf8");
+    const b2 = (src2.match(/const BUILD = "([^"]+)"/) || [])[1];
+    check("changing index.html changes the sw.js cache id", !!b2 && b2 !== build);
+    const bad = cp.spawnSync("sh", ["build.sh", "packs/zh", path.join(dir, 'a"b.html')], { cwd: ROOT, encoding: "utf8" });
+    check("build.sh refuses an output name that is unsafe to embed in sw.js, before writing anything",
+      bad.status !== 0 && !fs.existsSync(path.join(dir, 'a"b.html')));
+
+    const ORIGIN = "https://ishmum123.github.io", SCOPE = ORIGIN + "/german/";
+    const store = new Map();
+    const cacheFor = n => { if(!store.has(n)) store.set(n, new Map()); const m = store.get(n);
+      return { match: async k => { const r = m.get(typeof k === "string" ? k : k.url); return r ? r.clone() : undefined; }, put: async (k, r) => { m.set(typeof k === "string" ? k : k.url, r); } }; };
+    const caches = { open: async n => cacheFor(n), keys: async () => [...store.keys()], delete: async n => store.delete(n) };
+    let offline = false; const fetched = [];
+    const fetch = async req => { const u = typeof req === "string" ? req : req.url; fetched.push({ u, cache: req.cache });
+      if(offline) throw new TypeError("Failed to fetch"); return new Response("net:" + u, { status: 200 }); };
+    class Req { constructor(u, init){ this.url = u; this.cache = init && init.cache; this.method = "GET"; this.mode = "cors"; } }
+    const L = {};
+    const self = { location: new URL(SCOPE + "sw.js"), registration: { scope: SCOPE },
+      addEventListener: (t, f) => { L[t] = f; }, skipWaiting: async () => {}, clients: { claim: async () => {} } };
+    new Function("self", "caches", "fetch", "Request", "Response", "URL", src)(self, caches, fetch, Req, Response, URL);
+    const CACHE = `ve:/german/:${build}`;
+    store.set("ve:/german:old", new Map()); // not this site's prefix (no trailing slash)
+    store.set("ve:/german/:old", new Map()); store.set("ve:/french/:old", new Map()); store.set("unrelated", new Map());
+    const until = async (t) => { let w; L[t]({ waitUntil: p => { w = p; } }); await w; };
+    await until("install");
+    check("install precaches the page into ve:<scope path>:<build id>, bypassing the HTTP cache",
+      store.has(CACHE) && store.get(CACHE).has(SCOPE + "index.html") && fetched.some(f => f.u === SCOPE + "index.html" && f.cache === "reload"));
+    await until("activate");
+    check("activate deletes only this site's caches with another build id (other language sites' caches kept)",
+      !store.has("ve:/german/:old") && store.has("ve:/french/:old") && store.has("ve:/german:old") && store.has("unrelated") && store.has(CACHE));
+    const go = async (u, mode, method) => { let r = null;
+      L.fetch({ request: { url: u, method: method || "GET", mode: mode || "no-cors" }, respondWith: p => { r = p; } });
+      return r ? await r : undefined; };
+    offline = true;
+    const nav = await go(SCOPE, "navigate");
+    const navIdx = await go(SCOPE + "index.html?x=1", "navigate");
+    check("offline: navigating to the site root and to index.html (with a query) serves the cached page",
+      !!nav && (await nav.text()) === "net:" + SCOPE + "index.html" && !!navIdx && (await navIdx.text()) === "net:" + SCOPE + "index.html");
+    const other = await go(SCOPE + "missing/page", "navigate");
+    check("offline: any other in-scope navigation falls back to the cached page", !!other && (await other.text()) === "net:" + SCOPE + "index.html");
+    check("cross-origin (Google Fonts, tatoeba.org audio) is never intercepted",
+      (await go("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans")) === undefined &&
+      (await go("https://fonts.gstatic.com/s/x.woff2")) === undefined &&
+      (await go("https://audio.tatoeba.org/sentences/eng/1.mp3")) === undefined);
+    check("same origin outside this site's scope, and non-GET, are not intercepted",
+      (await go(ORIGIN + "/french/index.html", "navigate")) === undefined && (await go(SCOPE + "index.html", "navigate", "POST")) === undefined);
+    offline = false; fetched.length = 0;
+    const p1 = await go(SCOPE + "pack/words.js");
+    offline = true;
+    const p2 = await go(SCOPE + "pack/words.js");
+    check("pack/*.js: cache-first, filled on first fetch, served offline afterwards",
+      !!p1 && fetched.length === 1 && !!p2 && (await p2.text()) === "net:" + SCOPE + "pack/words.js");
+    offline = false; fetched.length = 0;
+    await go(SCOPE, "navigate");
+    check("online: the page is still served from cache (no network hit)", fetched.length === 0);
+    check("other same-origin non-navigation requests pass through untouched", (await go(SCOPE + "LICENSE")) === undefined);
+  }catch(e){ check(`service worker checks do not throw (got: ${e.stack})`, false); }
+  finally{ fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; })
+  .then(() => swChecks().catch(e => { console.error("service worker checks crashed:", e); fails++; })).then(() => {
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
   process.exit(fails ? 1 : 0);
 });
