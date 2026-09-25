@@ -1151,9 +1151,12 @@ const appBootChecks = (async function(){
   if(scriptBlocks.length < 2){ check("app.html has the inline app script (2 plain <script> tags)", false); return; }
   const appSrc = scriptBlocks[scriptBlocks.length - 1][1];
 
+  // Attribute value is optional: a bare attribute (e.g. `data-tl`, no `="..."`) is
+  // valid HTML (TA emits ` data-tl lang="..."`) and must still be picked up, or the
+  // whole-tag scan below fails to close at `>` and the element never registers.
   function extractAttrs(tag){
-    const attrs = {}; const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*"([^"]*)"/g;
-    let m; while((m = re.exec(tag))) attrs[m[1]] = m[2];
+    const attrs = {}; const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*"([^"]*)")?/g;
+    let m; while((m = re.exec(tag))){ if(m[1]) attrs[m[1]] = m[2] !== undefined ? m[2] : ""; }
     return attrs;
   }
   function makeFakeDom(){
@@ -1204,7 +1207,7 @@ const appBootChecks = (async function(){
       querySelectorAll(){ return []; }
     }
     function registerIdsFromHtml(html){
-      const re = /<([a-zA-Z0-9]+)((?:\s+[a-zA-Z_:][-a-zA-Z0-9_:.]*\s*=\s*"[^"]*")*)\s*\/?>/g;
+      const re = /<([a-zA-Z0-9]+)((?:\s+[a-zA-Z_:][-a-zA-Z0-9_:.]*(?:\s*=\s*"[^"]*")?)*)\s*\/?>/g;
       let m;
       while((m = re.exec(html))){
         const attrs = extractAttrs(m[2]);
@@ -1231,31 +1234,46 @@ const appBootChecks = (async function(){
       addEventListener(){},
     };
   }
-  // Boots app.html's inline script against the real zh pack with a fake speechSynthesis
-  // whose getVoices() returns synchronously (the Firefox/Windows case that crashed).
-  // setQueueAndNext/dnext/hearItem/hearSentence/getHasSpeech are test-only hooks added
-  // by appending to the script text below, not present in app.html itself.
-  async function bootApp(getVoicesResult){
+  const tick = () => new Promise(r=>setTimeout(r,0));
+  // Runs app.html's inline script (synchronously) against the real zh pack with a fake
+  // speechSynthesis whose getVoices() returns synchronously (the Firefox/Windows case
+  // that crashed). Returns before the async boot IIFE's continuation (after its first
+  // await) has run, so callers can inspect pre-boot state; call tick() twice (one for
+  // store.load()'s await, one for the microtask it schedules) to let boot finish.
+  // getRenderCalls/ss/setItemCalls/setQueueAndNext/hearItem/hearSentence/dnext/
+  // getHasSpeech are test-only hooks added by appending to the script text below, not
+  // present in app.html itself.
+  function bootAppSync(getVoicesResult){
     const document = makeFakeDom();
+    const ss = { getVoices: () => getVoicesResult, onvoiceschanged: null };
     const window = {
       VocabCore: VC,
-      speechSynthesis: { getVoices: () => getVoicesResult, onvoiceschanged: null },
+      speechSynthesis: ss,
       SpeechSynthesisUtterance: function(){},
     };
     const navigator = { userAgent: "EngineChecks/1.0" };
-    const localStorage = { getItem(){ return null; }, setItem(){} };
+    const setItemCalls = [];
+    const localStorage = { getItem(){ return null; }, setItem(k,v){ setItemCalls.push([k,v]); } };
     const matchMedia = () => ({ matches:false });
     const requestAnimationFrame = fn => setTimeout(fn, 0);
     const fnBody = appSrc + `
+let __renderCalls = 0;
+const __wrappedRender = render;
+render = function(){ __renderCalls++; return __wrappedRender.apply(this, arguments); };
 return {
-  getHasSpeech:()=>hasSpeech, hearItem, hearSentence, dnext,
+  getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
+  setHasSpeech: v => { hasSpeech = v; },
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
 };`;
     const fn = new Function("document","window","navigator","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS", fnBody);
     const api = fn(document, window, navigator, localStorage, matchMedia, requestAnimationFrame, PACK, WORDS, SENTENCES, LESSONS);
-    await new Promise(r=>setTimeout(r,0));
-    await new Promise(r=>setTimeout(r,0));
-    return { api, document };
+    return { api, document, ss, setItemCalls };
+  }
+  async function bootApp(getVoicesResult){
+    const boot = bootAppSync(getVoicesResult);
+    await tick();
+    await tick();
+    return boot;
   }
 
   // (a) non-empty voice list, no voice for the pack's language (zh-CN): the Firefox/
@@ -1280,32 +1298,77 @@ return {
     check("voice probe: empty voice list -> hasSpeech true", api.getHasSpeech() === true);
   }catch(e){ check(`voice probe (empty voice list) does not throw (got: ${e.message})`, false); }
 
+  // Boot gating: a voice-probe re-render must not run before boot has rendered once
+  // (prog isn't loaded yet — a pre-boot render could refreshReadUnlocks() -> store.save()
+  // the not-yet-loaded default prog, clobbering real saved progress before store.load()
+  // ever reads it back), and a voice change after boot must still re-render.
+  try{
+    const boot = bootAppSync([{ lang:"en-US", name:"x" }]); // probe fires sync, pre-boot
+    check("pre-boot voice probe does not render", boot.api.getRenderCalls() === 0);
+    check("pre-boot voice probe does not save progress", boot.setItemCalls.length === 0);
+    await tick(); await tick(); // let the boot IIFE's own render() run
+    check("boot renders exactly once", boot.api.getRenderCalls() === 1);
+    check("after boot, page has rendered Today", boot.document.getElementById("htitle").textContent === "Today");
+    boot.ss.getVoices = () => [{ lang:"zh-CN", name:"y" }]; // now matches -> hasSpeech flips false->true
+    boot.ss.onvoiceschanged();
+    check("a voice change after boot flips hasSpeech", boot.api.getHasSpeech() === true);
+    check("a voice change after boot re-renders", boot.api.getRenderCalls() === 2);
+  }catch(e){ check(`boot-gating scenario does not throw (got: ${e.message})`, false); }
+
   // Notice timing: the item built first must not be the one that gets the one-time
-  // no-voice notice if a later-built item is the one actually shown first (shuffle).
+  // no-voice notice if a later-built item is the one actually shown first (shuffle),
+  // an item that never needs it (type / plain read) never shows it, and the notice is
+  // skipped even for a flagged item if hasSpeech has since flipped true.
   try{
     const { api, document } = await bootApp([{ lang:"en-US", name:"x" }]); // hasSpeech=false
     const builtFirst = api.hearItem(WORDS[5]);
     const builtSecond = api.hearItem(WORDS[6]);
     check("hear items without speech are flagged needsNotice at build time (not shown yet)",
       builtFirst.needsNotice === true && builtSecond.needsNotice === true);
-    api.setQueueAndNext([builtSecond, builtFirst], () => {});
+    const typeItem = api.typeItem(WORDS[7]); // never a hear item; needsNotice must be unset
+    check("a plain type item is never flagged needsNotice", !typeItem.needsNotice);
+    api.setQueueAndNext([typeItem, builtSecond, builtFirst], () => {});
+    const typeHtml = document.getElementById("panel").innerHTML;
+    check("no notice on a type item shown first", !typeHtml.includes("no text-to-speech voice"));
+    api.dnext(); // advance past the type item straight to the queue's next entry (bypassing its input UI)
     const shownFirstHtml = document.getElementById("panel").innerHTML;
-    check("notice appears on the item shown first (built second)", shownFirstHtml.includes("no text-to-speech voice"));
+    check("notice appears on the first hear item actually shown (built second, after the type item)", shownFirstHtml.includes("no text-to-speech voice"));
     document.getElementById("o").children[0].click();
     document.getElementById("nx").click();
     const shownSecondHtml = document.getElementById("panel").innerHTML;
     check("notice does not repeat on the item shown second (built first)", !shownSecondHtml.includes("no text-to-speech voice"));
   }catch(e){ check(`notice-timing scenario does not throw (got: ${e.message})`, false); }
 
+  try{
+    const { api, document } = await bootApp([{ lang:"en-US", name:"x" }]); // hasSpeech=false
+    const flagged = api.hearItem(WORDS[8]);
+    api.setHasSpeech(true); // voice arrives between build and display
+    api.setQueueAndNext([flagged], () => {});
+    const html = document.getElementById("panel").innerHTML;
+    check("a needsNotice item shows no notice if hasSpeech flips true before it's shown", !html.includes("no text-to-speech voice"));
+  }catch(e){ check(`hasSpeech-flips-before-show scenario does not throw (got: ${e.message})`, false); }
+
+  try{
+    const { api, document } = await bootApp([{ lang:"en-US", name:"x" }]); // hasSpeech=false
+    const plainRead = api.readItem(WORDS[9]);
+    api.setQueueAndNext([plainRead], () => {});
+    const html = document.getElementById("panel").innerHTML;
+    check("a plain read item (not hearItem's no-speech fallback) never shows the notice", !html.includes("no text-to-speech voice"));
+  }catch(e){ check(`plain read item scenario does not throw (got: ${e.message})`, false); }
+
   // ko word-break:keep-all: scoped to the lang attribute TA sets from pack.langTag, not
   // a blanket [data-tl] rule (which would also wrap ja/zh, which have no spaces, mid-word).
+  // [lang|="ko"] semantics: matches exactly "ko" or "ko-*", not other ko-prefixed codes
+  // (kok, kos) that ^= would wrongly match.
+  const matchesLangDash = lang => lang === "ko" || lang.startsWith("ko-");
   const koLang = VC.scriptDisplay({ langTag: "ko-KR" }).lang;
   const jaLang = VC.scriptDisplay({ langTag: "ja" }).lang;
   const zhLang = VC.scriptDisplay({ tts: "zh-CN" }).lang;
-  check('langTag ko-KR resolves to a lang starting with "ko" (CSS [lang^="ko"] would match)', koLang.startsWith("ko"));
-  check('ja and zh do not resolve to a "ko"-prefixed lang (CSS [lang^="ko"] would not match)', !jaLang.startsWith("ko") && !zhLang.startsWith("ko"));
-  check('app.html: word-break:keep-all is scoped to [data-tl][lang^="ko"], not a blanket [data-tl] rule',
-    /\[data-tl\]\[lang\^="ko"\]\s*\{[^}]*word-break\s*:\s*keep-all/.test(appHtml) &&
+  const kokLang = VC.scriptDisplay({ langTag: "kok" }).lang; // Konkani: ^= would false-match, |= must not
+  check('langTag ko-KR resolves to a lang [lang|="ko"] matches', matchesLangDash(koLang));
+  check('ja, zh and kok (Konkani) do not match [lang|="ko"]', !matchesLangDash(jaLang) && !matchesLangDash(zhLang) && !matchesLangDash(kokLang));
+  check('app.html: word-break:keep-all is scoped to [data-tl][lang|="ko"], not a blanket [data-tl] rule',
+    /\[data-tl\]\[lang\|="ko"\]\s*\{[^}]*word-break\s*:\s*keep-all/.test(appHtml) &&
     !/\[data-tl\]\s*\{[^}]*word-break/.test(appHtml));
 })();
 

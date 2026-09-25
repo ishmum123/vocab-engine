@@ -61,8 +61,8 @@
   /* Korean only: words (Hangul syllable blocks) are space-separated like Latin, so the
      default break-anywhere wrapping can split inside a word (봤어/요). Scoped off the
      lang attribute TA already sets from pack.langTag, not a global rule: languages with
-     no spaces between words (this pack's included) must keep normal, break-anywhere wrapping. */
-  [data-tl][lang^="ko"]{word-break:keep-all}
+     no spaces between words, e.g. zh, ja, must keep normal, break-anywhere wrapping. */
+  [data-tl][lang|="ko"]{word-break:keep-all}
   /* minmax(0,1fr): the track never grows past the card for a long unbreakable word. */
   .opts{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
   .opts button{width:100%;min-width:0;overflow-wrap:anywhere;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
@@ -304,6 +304,15 @@ let soundsSel = null;          // Sounds tab selection
 let wordsLv = LEVELS[0], wordsSet = null, wordsQuery = ""; // Words tab state
 let RD = null;                 // active Read session
 let testSel = null, PL = null; // Test tab state
+// Set true right before the boot IIFE's own render() call, at the very end of this
+// script. The voice probe below can fire synchronously before boot has run at all —
+// before store.load() has even been called, so prog is still the just-in-case default
+// from VC.defaultProg(), not what's actually saved. Rendering Today then (e.g. via
+// refreshReadUnlocks()'s store.save()) would write that default prog to storage
+// before boot's own store.load() ever reads the real one back, clobbering it. booted
+// gates the probe's re-render to after boot has rendered once, on top of the state
+// hoisting above (defence in depth, not a substitute for it).
+let booted = false;
 // Shown every visit on Today (no dismiss, since the problem persists until the
 // learner switches browser), unlike speechNotice() below, a one-time, any-page
 // notice keyed off hasSpeech. todayRender() reads this, so — same TDZ hazard as
@@ -329,7 +338,7 @@ if(speechAPI){
     const v = SS.getVoices(); ttsVoice = VC.pickVoice(v, TTS_LANG);
     const was = hasSpeech;
     hasSpeech = VC.speechUsable(speechAPI, v, TTS_LANG);
-    if(hasSpeech !== was && !D) render();
+    if(hasSpeech !== was && !D && booted) render();
   };
   pv(); SS.onvoiceschanged = pv;
 }
@@ -1223,6 +1232,7 @@ $("themebtn").onclick = () => {
   if(b.dropped.length) console.warn(`${STORE_KEY}: dropped progress for unknown levels: ${b.dropped.join(", ")}`);
   prog = b.prog;
   applyTheme();
+  booted = true;
   render();
 })();
 </script>
