@@ -58,6 +58,11 @@
      elements then align to their start side. English glosses never carry it. */
   [data-tl]{font-family:var(--wfont)}
   :root[data-tlh] [data-tl]{line-height:var(--tlh)}
+  /* Korean only: words (Hangul syllable blocks) are space-separated like Latin, so the
+     default break-anywhere wrapping can split inside a word (봤어/요). Scoped off the
+     lang attribute TA already sets from pack.langTag, not a global rule: languages with
+     no spaces between words (this pack's included) must keep normal, break-anywhere wrapping. */
+  [data-tl][lang^="ko"]{word-break:keep-all}
   /* minmax(0,1fr): the track never grows past the card for a long unbreakable word. */
   .opts{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
   .opts button{width:100%;min-width:0;overflow-wrap:anywhere;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
@@ -285,6 +290,27 @@ const nextNewSet = () => VC.nextNewSet(WORDS, PACK, prog);
 const availableSentences = () => VC.availableSentences(SENTENCES, WORDS, PACK, prog);
 const wordExampleSentences = (entry, n) => VC.exampleSentences(entry, SENTENCES, PACK, n);
 
+// ===================== app state =====================
+// Declared before the voice probe (and its onvoiceschanged re-render) below:
+// that code can run synchronously during init, before the rest of this script
+// has executed, so any state it or render() transitively touches must exist
+// beforehand or reading it throws (temporal dead zone). New top-level state
+// that render() or a tab-render function reads belongs here, not inline.
+let D = null;                  // active drill session (generic drill runner)
+let drillKeyHandler = null;    // keydown handler while a drill is active
+let tab = "today";             // current tab
+let todayStepState = null;     // Today tab step UI state
+let soundsSel = null;          // Sounds tab selection
+let wordsLv = LEVELS[0], wordsSet = null, wordsQuery = ""; // Words tab state
+let RD = null;                 // active Read session
+let testSel = null, PL = null; // Test tab state
+// Shown every visit on Today (no dismiss, since the problem persists until the
+// learner switches browser), unlike speechNotice() below, a one-time, any-page
+// notice keyed off hasSpeech. todayRender() reads this, so — same TDZ hazard as
+// the state above — it must be declared before the voice probe can call render().
+const samsungNoticeHTML = VC.isSamsungBrowser(navigator.userAgent)
+  ? `<div class="warn">Audio doesn't play in Samsung Internet. Open this page in Chrome or Firefox to hear the words.</div>` : "";
+
 // ===================== speech =====================
 const SS = window.speechSynthesis || null;
 const speechAPI = !!(SS && window.SpeechSynthesisUtterance);
@@ -345,11 +371,12 @@ function speechNotice(){
   noticeShown = true;
   return `<div class="warn">This browser has no text-to-speech voice for this language, so listening items show the word instead of playing audio.</div>`;
 }
-// Shown every visit on Today (no dismiss, since the problem persists until the
-// learner switches browser), unlike speechNotice() above which is a one-time,
-// any-page notice keyed off hasSpeech.
-const samsungNoticeHTML = VC.isSamsungBrowser(navigator.userAgent)
-  ? `<div class="warn">Audio doesn't play in Samsung Internet. Open this page in Chrome or Firefox to hear the words.</div>` : "";
+// hearItem/hearSentence flag items built without speech as needsNotice rather than
+// calling speechNotice() themselves: items are built (plan order), then shuffled, so
+// the first one built isn't necessarily the first one the learner sees. noticeFor()
+// is called from the render path instead, once the drill actually shows an item, so
+// the one-time notice lands on whichever needsNotice item is shown first.
+function noticeFor(it){ return it.needsNotice ? speechNotice() : ""; }
 
 // ===================== speaker icon =====================
 function speakerSVG(size){
@@ -378,7 +405,6 @@ function wordOptHtml(byW){
 
 // ===================== generic drill runner =====================
 // item: {kind:'mc'|'type', label, html, opts?, a?, optHtml?, reveal, onAnswer?, mount?, check?, onReveal?}
-let D = null;
 function drill(items, onDone, summary){ D = { q: shuffle(items.slice()), right:0, seen:0, miss:[], onDone, summary }; dnext(); }
 function setScore(answered, total){
   const left = total ? Math.max(0, total - answered) : 0;
@@ -418,7 +444,7 @@ function dnext(){
 }
 function renderMcItem(it){
   const P = $("panel");
-  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${noticeFor(it)}${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
   const opts = shuffle(it.opts.slice());
   const container = $("o");
@@ -452,7 +478,7 @@ function renderMcItem(it){
 }
 function renderTypeItem(it){
   const P = $("panel");
-  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${it.html||""}
+  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${noticeFor(it)}${it.html||""}
     <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"${TA} placeholder="${SCRIPT.rtl ? "type the word" : "type the word…"}">
     <div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="submit">Check</button><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
@@ -479,7 +505,6 @@ function renderTypeItem(it){
     }
   };
 }
-let drillKeyHandler = null;
 document.addEventListener("keydown", e => { if(drillKeyHandler) drillKeyHandler(e); });
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
@@ -519,7 +544,7 @@ function revealBlock(entry){
 const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
 // hear — TTS plays the word; pick the meaning. Without speech it degrades to read.
 function hearItem(entry){
-  if(!hasSpeech) return Object.assign(readItem(entry), { html: speechNotice() + bigWordHTML(entry) });
+  if(!hasSpeech) return Object.assign(readItem(entry), { needsNotice: true });
   return { kind:"mc", key:"w:"+entry.id, label:"What does it mean?", optsClass:"opts-hero",
     html: `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`,
     opts: meaningChoices(entry), a: VC.gloss(entry), reveal: `<div class="q">You heard:</div>${revealBlock(entry)}`,
@@ -575,7 +600,7 @@ function readSentence(s){
     mount: () => saySentence(s), };
 }
 function hearSentence(s){
-  if(!canHearSentence(s)) return Object.assign(readSentence(s), { html: speechNotice() + readSentence(s).html });
+  if(!canHearSentence(s)) return Object.assign(readSentence(s), { needsNotice: true });
   return { kind:"mc", key:"s:"+s.id, label:"What did they say?", optsClass:"opts-hero",
     html: `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`,
     opts: sentenceChoices(s), a: s.en, reveal: `<div class="q">You heard:</div>${sentenceRevealBlock(s)}`,
@@ -624,7 +649,6 @@ function lessonItem(it, key, mode){
 }
 
 // ===================== tabs =====================
-let tab = "today";
 if(!HAS_LESSONS) document.querySelector('#tabs button[data-t="sounds"]').hidden = true;
 if(!HAS_PASSAGES) document.querySelector('#tabs button[data-t="read"]').hidden = true;
 document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
@@ -650,7 +674,6 @@ function pathStrip(){
   const stages = LEVELS.map(lv=>({ label: levelLabel(lv), frac: nSets(lv) ? (prog.sets[lv]||0)/nSets(lv) : 1 }));
   return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${escapeHtml(s.label)}</div>`).join("")}</div>`;
 }
-let todayStepState = null;
 function todayRender(){
   setScore(0,0);
   const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
@@ -791,7 +814,6 @@ function lessonTeach(lesson, onDone, onBack){
 }
 
 // ===================== Sounds (pack lessons) =====================
-let soundsSel = null;
 function soundsRender(){
   setScore(0,0);
   const P = $("panel");
@@ -809,7 +831,6 @@ function soundsRender(){
 }
 
 // ===================== Words =====================
-let wordsLv = LEVELS[0], wordsSet = null, wordsQuery = "";
 function wordsRender(){
   setScore(0,0);
   const P = $("panel");
@@ -875,7 +896,6 @@ function renderWordBody(){
 // RD is the passage in progress: {p, tapped: [wordId], answers: [{ok, reopened, given}],
 // qi, shown, resultsDone}. Tapped ids and per-question reopen flags feed
 // VC.passageWeakWords on the results screen.
-let RD = null;
 const readLevelsNow = () => VC.readingLevels(PASSAGE_LIST, WORDS, PACK, prog);
 function refreshReadUnlocks(){ if(HAS_PASSAGES && VC.updateReadUnlocks(PASSAGE_LIST, WORDS, PACK, prog).length) store.save(); }
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
@@ -1031,7 +1051,6 @@ function readResults(){
 }
 
 // ===================== Test (placement + free tests) =====================
-let testSel = null, PL = null;
 function testRender(){
   setScore(0,0);
   const P = $("panel");

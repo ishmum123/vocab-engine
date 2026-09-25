@@ -1138,5 +1138,178 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   fs.rmSync(tmp, { recursive:true, force:true });
 })();
 
-console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
-process.exit(fails ? 1 : 0);
+// ------------------------------------------------------------ [23] app.html boot: voice-probe TDZ, notice timing, ko word-break
+// engine/app.html's inline script is booted for real (no jsdom — this file has no
+// dependencies): a minimal DOM stub gives it just enough `document`/`window` to run
+// its top-level code and the boot IIFE. The stub is an id-registry + regex scan of
+// each innerHTML assignment (not a real parser/tree), which is enough to reach the
+// Today tab and one rendered drill item without needing the rest of the DOM surface.
+const appBootChecks = (async function(){
+  console.log("\n[23] app.html boot: voice-probe TDZ guard, notice-on-first-shown, ko word-break");
+  const appHtml = fs.readFileSync(path.join(ROOT, "engine", "app.html"), "utf8");
+  const scriptBlocks = [...appHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  if(scriptBlocks.length < 2){ check("app.html has the inline app script (2 plain <script> tags)", false); return; }
+  const appSrc = scriptBlocks[scriptBlocks.length - 1][1];
+
+  function extractAttrs(tag){
+    const attrs = {}; const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*"([^"]*)"/g;
+    let m; while((m = re.exec(tag))) attrs[m[1]] = m[2];
+    return attrs;
+  }
+  function makeFakeDom(){
+    const registry = new Map();
+    const tabButtons = [];
+    class El {
+      constructor(tag, attrs){
+        this.tagName = (tag||"div").toUpperCase();
+        this._attrs = Object.assign({}, attrs);
+        this._classes = new Set((this._attrs.class||"").split(/\s+/).filter(Boolean));
+        this._html = ""; this._text = "";
+        this.style = { setProperty(k,v){ this[k]=v; } };
+        this.hidden = false; this.disabled = false; this.value = "";
+        this.onclick = null; this.oninput = null; this.onchange = null;
+        this._listeners = {}; this._children = [];
+        if(this._attrs.id) registry.set(this._attrs.id, this);
+      }
+      get id(){ return this._attrs.id || ""; }
+      set id(v){ this._attrs.id = v; registry.set(v, this); }
+      get classList(){
+        const s = this._classes;
+        return { add:(...c)=>c.forEach(x=>s.add(x)), remove:(...c)=>c.forEach(x=>s.delete(x)),
+          toggle:(c,f)=>{ if(f===undefined){ s.has(c)?s.delete(c):s.add(c); } else { f?s.add(c):s.delete(c); } },
+          contains:c=>s.has(c) };
+      }
+      get dataset(){
+        const attrs = this._attrs; const toKebab = k => k.replace(/[A-Z]/g, m => "-" + m.toLowerCase());
+        return new Proxy({}, {
+          get(_, k){ return attrs["data-" + toKebab(String(k))]; },
+          set(_, k, v){ attrs["data-" + toKebab(String(k))] = String(v); return true; },
+        });
+      }
+      get children(){ return this._children; }
+      get innerHTML(){ return this._html; }
+      set innerHTML(h){ this._html = h; this._children = []; registerIdsFromHtml(h); }
+      get textContent(){ return this._text; }
+      set textContent(t){ this._text = String(t); this._html = String(t); }
+      setAttribute(k,v){ this._attrs[k]=String(v); if(k==="id") registry.set(v,this); }
+      getAttribute(k){ return this._attrs[k]; }
+      addEventListener(t,f){ (this._listeners[t]=this._listeners[t]||[]).push(f); }
+      removeEventListener(){}
+      appendChild(c){ this._children.push(c); return c; }
+      remove(){}
+      focus(){}
+      click(){ if(this.onclick) this.onclick({}); (this._listeners.click||[]).forEach(f=>f({})); }
+      closest(){ return null; }
+      querySelector(){ return null; }
+      querySelectorAll(){ return []; }
+    }
+    function registerIdsFromHtml(html){
+      const re = /<([a-zA-Z0-9]+)((?:\s+[a-zA-Z_:][-a-zA-Z0-9_:.]*\s*=\s*"[^"]*")*)\s*\/?>/g;
+      let m;
+      while((m = re.exec(html))){
+        const attrs = extractAttrs(m[2]);
+        if(attrs.id) new El(m[1], attrs);
+      }
+    }
+    // Seed the static ids/tab buttons from the real markup, so document.getElementById
+    // and the two top-level document.querySelector(All) calls (tab wiring) resolve.
+    const tabsMatch = appHtml.match(/<nav[^>]*id="tabs"[^>]*>([\s\S]*?)<\/nav>/);
+    const btnRe = /<button([^>]*)>/g;
+    let bm; while((bm = btnRe.exec(tabsMatch[1]))){ tabButtons.push(new El("button", extractAttrs(bm[1]))); }
+    const bodySection = appHtml.slice(appHtml.indexOf("<body>"), appHtml.indexOf("<nav"));
+    registerIdsFromHtml(bodySection);
+    return {
+      title: "", head: { appendChild(){} }, documentElement: new El("html", {}),
+      write(){}, createElement(tag){ return new El(tag, {}); },
+      getElementById(id){ return registry.get(id) || null; },
+      querySelector(sel){ return this.querySelectorAll(sel)[0] || null; },
+      querySelectorAll(sel){
+        const m = sel.match(/^#tabs\s+button(?:\[data-t="([^"]+)"\])?$/);
+        if(m) return m[1] ? tabButtons.filter(b=>b.dataset.t===m[1]) : tabButtons.slice();
+        return [];
+      },
+      addEventListener(){},
+    };
+  }
+  // Boots app.html's inline script against the real zh pack with a fake speechSynthesis
+  // whose getVoices() returns synchronously (the Firefox/Windows case that crashed).
+  // setQueueAndNext/dnext/hearItem/hearSentence/getHasSpeech are test-only hooks added
+  // by appending to the script text below, not present in app.html itself.
+  async function bootApp(getVoicesResult){
+    const document = makeFakeDom();
+    const window = {
+      VocabCore: VC,
+      speechSynthesis: { getVoices: () => getVoicesResult, onvoiceschanged: null },
+      SpeechSynthesisUtterance: function(){},
+    };
+    const navigator = { userAgent: "EngineChecks/1.0" };
+    const localStorage = { getItem(){ return null; }, setItem(){} };
+    const matchMedia = () => ({ matches:false });
+    const requestAnimationFrame = fn => setTimeout(fn, 0);
+    const fnBody = appSrc + `
+return {
+  getHasSpeech:()=>hasSpeech, hearItem, hearSentence, dnext,
+  setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
+};`;
+    const fn = new Function("document","window","navigator","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS", fnBody);
+    const api = fn(document, window, navigator, localStorage, matchMedia, requestAnimationFrame, PACK, WORDS, SENTENCES, LESSONS);
+    await new Promise(r=>setTimeout(r,0));
+    await new Promise(r=>setTimeout(r,0));
+    return { api, document };
+  }
+
+  // (a) non-empty voice list, no voice for the pack's language (zh-CN): the Firefox/
+  // Windows repro that crashed with "Cannot access 'D' before initialization".
+  try{
+    const { api, document } = await bootApp([{ lang:"en-US", name:"x" }]);
+    check("voice probe: non-empty voice list, no match -> no throw, page renders Today", document.getElementById("htitle").textContent === "Today");
+    check("voice probe: non-empty voice list, no match -> hasSpeech false", api.getHasSpeech() === false);
+  }catch(e){ check(`voice probe (non-empty, no match) does not throw (got: ${e.message})`, false); }
+
+  // (b) a matching voice present.
+  try{
+    const { api, document } = await bootApp([{ lang:"zh-CN", name:"x" }]);
+    check("voice probe: matching voice -> no throw, page renders Today", document.getElementById("htitle").textContent === "Today");
+    check("voice probe: matching voice -> hasSpeech true", api.getHasSpeech() === true);
+  }catch(e){ check(`voice probe (matching voice) does not throw (got: ${e.message})`, false); }
+
+  // (c) empty voice list (not yet loaded / never populated): speechUsable is optimistic.
+  try{
+    const { api, document } = await bootApp([]);
+    check("voice probe: empty voice list -> no throw, page renders Today", document.getElementById("htitle").textContent === "Today");
+    check("voice probe: empty voice list -> hasSpeech true", api.getHasSpeech() === true);
+  }catch(e){ check(`voice probe (empty voice list) does not throw (got: ${e.message})`, false); }
+
+  // Notice timing: the item built first must not be the one that gets the one-time
+  // no-voice notice if a later-built item is the one actually shown first (shuffle).
+  try{
+    const { api, document } = await bootApp([{ lang:"en-US", name:"x" }]); // hasSpeech=false
+    const builtFirst = api.hearItem(WORDS[5]);
+    const builtSecond = api.hearItem(WORDS[6]);
+    check("hear items without speech are flagged needsNotice at build time (not shown yet)",
+      builtFirst.needsNotice === true && builtSecond.needsNotice === true);
+    api.setQueueAndNext([builtSecond, builtFirst], () => {});
+    const shownFirstHtml = document.getElementById("panel").innerHTML;
+    check("notice appears on the item shown first (built second)", shownFirstHtml.includes("no text-to-speech voice"));
+    document.getElementById("o").children[0].click();
+    document.getElementById("nx").click();
+    const shownSecondHtml = document.getElementById("panel").innerHTML;
+    check("notice does not repeat on the item shown second (built first)", !shownSecondHtml.includes("no text-to-speech voice"));
+  }catch(e){ check(`notice-timing scenario does not throw (got: ${e.message})`, false); }
+
+  // ko word-break:keep-all: scoped to the lang attribute TA sets from pack.langTag, not
+  // a blanket [data-tl] rule (which would also wrap ja/zh, which have no spaces, mid-word).
+  const koLang = VC.scriptDisplay({ langTag: "ko-KR" }).lang;
+  const jaLang = VC.scriptDisplay({ langTag: "ja" }).lang;
+  const zhLang = VC.scriptDisplay({ tts: "zh-CN" }).lang;
+  check('langTag ko-KR resolves to a lang starting with "ko" (CSS [lang^="ko"] would match)', koLang.startsWith("ko"));
+  check('ja and zh do not resolve to a "ko"-prefixed lang (CSS [lang^="ko"] would not match)', !jaLang.startsWith("ko") && !zhLang.startsWith("ko"));
+  check('app.html: word-break:keep-all is scoped to [data-tl][lang^="ko"], not a blanket [data-tl] rule',
+    /\[data-tl\]\[lang\^="ko"\]\s*\{[^}]*word-break\s*:\s*keep-all/.test(appHtml) &&
+    !/\[data-tl\]\s*\{[^}]*word-break/.test(appHtml));
+})();
+
+appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; }).then(() => {
+  console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
+  process.exit(fails ? 1 : 0);
+});
