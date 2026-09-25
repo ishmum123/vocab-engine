@@ -112,15 +112,18 @@
   .card-teach p{font-size:15px;color:var(--mute);margin:0 0 10px}
   .rowset{display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);gap:10px}
   .rowset .wd{font-size:18px;flex:0 1 auto;min-width:52px;max-width:45%;overflow-wrap:anywhere}
-  .rowset .pr{flex:1;min-width:0;color:var(--mute);font-size:15px}
-  .rowset .en{color:var(--mute);font-size:14px;text-align:right;flex:0 1 auto;min-width:0;margin:0}
+  .rowset .pr{flex:1;min-width:0;color:var(--mute);font-size:15px;overflow-wrap:anywhere}
+  .rowset .en{color:var(--mute);font-size:14px;text-align:right;flex:0 1 auto;min-width:0;margin:0;overflow-wrap:anywhere}
+  .rowset .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .rowset .info .pr{flex:0 0 auto;display:block;overflow-wrap:anywhere}
+  .rowset .info .en{text-align:left;display:block}
   .sent{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
   .sent .st{font-family:var(--wfont);font-size:17px}
   .sent .sp{color:var(--mute);font-size:14px}
   .sent .se{color:var(--mute);font-size:14px}
   .taplist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
   .taplist button{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font-size:15px;min-height:48px;font-family:var(--wfont)}
-  .plist button{display:flex;justify-content:space-between;width:100%;text-align:left;padding:13px 4px;border:none;border-bottom:1px solid var(--line);background:transparent;font-size:16px;color:var(--ink);min-height:48px;align-items:center}
+  .plist button{display:flex;justify-content:space-between;width:100%;text-align:start;padding:13px 4px;border:none;border-bottom:1px solid var(--line);background:transparent;font-size:16px;color:var(--ink);min-height:48px;align-items:center}
   .plist .tick{color:var(--ok);font-size:14px}
   /* Read tab: passage sentences with tappable linked words. */
   .rlv{margin-bottom:14px}
@@ -1820,10 +1823,11 @@ function todayFinish(){
   $("again").onclick = todayRender;
 }
 function wordRowHTML(w, cls){
+  // Pron + gloss always share one .info column so the pron span never has to
+  // shrink to width:0 next to the gloss (that caused unbreakable transliterations
+  // like "budan" to overlap the gloss text when the gloss was long).
   const p = pronOf(w);
-  return cls === "wl"
-    ? `<span class="wd"${TA}>${escapeHtml(w.w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`
-    : `<span class="wd"${TA}>${escapeHtml(w.w)}</span><span class="pr">${escapeHtml(p)}</span><span class="en">${escapeHtml(VC.gloss(w))}</span>`;
+  return `<span class="wd"${TA}>${escapeHtml(w.w)}</span><span class="info">${p ? `<span class="pr">${escapeHtml(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
 }
 function vocabTeach(list, lv, onDrill){
   setScore(0,0);
@@ -1982,7 +1986,7 @@ function readRender(){
       const ps = PASSAGE_LIST.filter(p => p.lv === l.lv);
       return `<div class="rlv"><div class="rlh">${L}<span class="q" style="margin:0">${ps.filter(passageDone).length} / ${ps.length} done</span></div>
         <div class="plist">${ps.map(p => { const d = passageDone(p);
-          return `<button data-pid="${escapeHtml(p.id)}"><span>${tw(p.title)}<span class="q" style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick">✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
+          return `<button data-pid="${escapeHtml(p.id)}"${SCRIPT.rtl ? ' dir="rtl"' : ""}><span>${tw(p.title)}<span class="q" style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick">✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
     }).join("")}`;
   P.querySelectorAll("[data-pid]").forEach(b => b.onclick = () => startPassage(PASSAGE_LIST.find(p => p.id === b.dataset.pid)));
 }
@@ -2104,7 +2108,7 @@ function readResults(){
     <p class="q"${TA} style="margin-bottom:8px">${escapeHtml(p.title)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
       return `<div class="stmt"><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${escapeHtml(q.q)}</div><div style="margin-top:6px"${TA}><mark>${escapeHtml(s.t)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
-    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id)} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
+    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${SCRIPT.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id)} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
     <div id="addmsg" class="q" hidden></div>
     <button class="ghost" id="rlist" style="margin-top:10px">Back to passages</button></div>`;
