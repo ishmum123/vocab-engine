@@ -870,7 +870,9 @@ const SENTENCE_MASTERED = 2;  // sentences draw on several known words at once: 
 function storageKey(pack){ return `vocab_${pack.key}`; }
 function defaultProg(pack){
   const sets = {}; levelIds(pack).forEach(id=>{ sets[id] = 0; });
-  return { v:PROG_VERSION, w:{}, s:{}, sets, lessons:{}, sessions:0, theme:null, showPron: pack.showPron !== false, placedOnce:false };
+  const p = { v:PROG_VERSION, w:{}, s:{}, sets, lessons:{}, sessions:0, theme:null, showPron: pack.showPron !== false, placedOnce:false };
+  if(charsConfig(pack)) p.chars = defaultCharsProg(); // absent without pack.characters: flag-off shape unchanged
+  return p;
 }
 const isObj = x => !!x && typeof x === "object" && !Array.isArray(x);
 function validateRecMap(m, name, allowWordFlags){
@@ -910,6 +912,7 @@ function validateProgShape(data, levelIdList){
   if(data.soundsOpened !== undefined && typeof data.soundsOpened !== "boolean" && typeof data.soundsOpened !== "number") return {ok:false, reason:"soundsOpened must be a boolean or number"};
   if(data.theme !== undefined && data.theme !== null && data.theme !== "light" && data.theme !== "dark") return {ok:false, reason:"theme must be null, \"light\" or \"dark\""};
   if(data.read !== undefined){ const e = validateReadShape(data.read); if(e) return {ok:false, reason:e}; }
+  if(data.chars !== undefined){ const e = validateCharsShape(data.chars); if(e) return {ok:false, reason:e}; }
   return {ok:true, data};
 }
 // Fills every missing field of validated (or stored) progress from the pack's
@@ -919,6 +922,7 @@ function normalizeProg(data, pack){
   const merged = Object.assign({}, base, data||{}, {v:PROG_VERSION});
   merged.sets = Object.assign({}, base.sets, (data && data.sets) || {});
   for(const k of ["w","s","lessons"]) if(!isObj(merged[k])) merged[k] = {};
+  if(charsConfig(pack)) merged.chars = normalizeCharsProg(data && data.chars);
   return merged;
 }
 // Parses a stored/imported progress string. Only a JSON object is progress;
@@ -970,6 +974,8 @@ function applyImport(prev, text, pack){
   const prog = normalizeProg(v.data, pack);
   if(v.data.theme === undefined) prog.theme = prev ? prev.theme : null;
   if(v.data.showPron === undefined && prev && prev.showPron !== undefined) prog.showPron = prev.showPron;
+  // The characters mix preference survives an import that doesn't carry it, like theme.
+  if(prog.chars && !(isObj(v.data.chars) && v.data.chars.mix !== undefined) && prev && isObj(prev.chars) && typeof prev.chars.mix === "boolean") prog.chars.mix = prev.chars.mix;
   return {ok:true, prog};
 }
 function markRec(map, key, ok, isWord){
@@ -1036,8 +1042,13 @@ function kindMix(n, share, typing, rng){
 }
 // Review step: up to REVIEW_PROV provisional (placement-guessed) words plus the
 // weakest learned words, REVIEW_SIZE total, >= REVIEW_PRODUCTION_SHARE production.
+// opts.units (optional): the pack's character units. When the pack has a characters
+// block and some unit has a record, Review is unified (see unifiedReviewPlan); with no
+// such unit the code below runs unchanged, so the output is identical to a word-only plan.
 function buildReviewPlan(learned, prog, pack, opts){
   const o = opts || {}; const n = o.size || REVIEW_SIZE;
+  const ru = recordedUnits(o.units, prog, pack);
+  if(ru.length) return unifiedReviewPlan(learned, ru, prog, pack, n, o.rng);
   const pv = provPick(learned, Math.min(REVIEW_PROV, n), prog.w);
   const pvSet = new Set(pv.map(w=>w.id));
   const rest = weakFirst(learned.filter(x=>!pvSet.has(x.id)), n - pv.length, prog.w, null, o.rng);
@@ -1046,7 +1057,12 @@ function buildReviewPlan(learned, prog, pack, opts){
   return pool.map((word,i)=>({ kind: kinds[i], word }));
 }
 // Recall step: weakest n learned words, all production (recall/type mix).
-function buildRecallPlan(learned, prog, pack, n){
+// opts.units / opts.rng: as buildReviewPlan. Recorded units join the same weakest-first
+// ranking as charRecall items; with none the word-only code below runs unchanged.
+function buildRecallPlan(learned, prog, pack, n, opts){
+  const o = opts || {};
+  const ru = recordedUnits(o.units, prog, pack);
+  if(ru.length) return unifiedRecallPlan(learned, ru, prog, pack, n, o.rng);
   const pool = weakFirst(learned, n, prog.w);
   const kinds = kindMix(pool.length, 1, typingEnabled(pack));
   return pool.map((word,i)=>({ kind: kinds[i], word }));
@@ -1305,6 +1321,365 @@ function validateReadShape(r){
   return null;
 }
 
+// ------------------------------------------------------------------ characters
+// Optional characters stage (design: the merge plan in docs/, §2-3). Nothing here runs for a pack
+// without a `characters` block. A character unit is the written form of a known word:
+// {id, t, words:[wordId,...], lv, reading?} (pack characters.js). words[0] supplies the
+// gloss, the audio and the default reading. Progress lives in prog.chars =
+// {v, c:{[unitId]:{r,w,s}}, defer, choiceSeen, mix}; scoring writes prog.chars.c only.
+// Language-agnostic: the pack decides what a unit is (zh: every word, read by its pron;
+// ja: words written with non-kana glyphs, read by their kana pron).
+const CHARS_PROG_VERSION = 1;
+const CHAR_SET_SIZE = 10, CHAR_MASTERED = 3, CHAR_BARE = 6;
+const REVIEW_SIZE_CHARS = 20; // Review once characters have started (15 before)
+const CHAR_KINDS = ["charRead","charSound","charPick","charRecall"];
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const cpLen = s => [...String(s == null ? "" : s)].length;
+// pack.characters with defaults filled, or null when the pack has none.
+function charsConfig(pack){
+  const c = pack && pack.characters;
+  if(!isObj(c)) return null;
+  const kinds = (k, d) => { const f = Array.isArray(k) ? k.filter(x => CHAR_KINDS.includes(x)) : []; return f.length ? f : d; };
+  return {
+    label: c.label != null ? String(c.label) : "",
+    stages: (Array.isArray(c.stages) ? c.stages : []).filter(isObj)
+      .map(st => ({ after: String(st.after), levels: (Array.isArray(st.levels) ? st.levels : []).map(String) })),
+    setSize: Number.isInteger(c.setSize) && c.setSize > 0 ? c.setSize : CHAR_SET_SIZE,
+    mastered: typeof c.mastered === "number" ? c.mastered : CHAR_MASTERED,
+    bare: typeof c.bare === "number" ? c.bare : CHAR_BARE,
+    learnKinds: kinds(c.learnKinds, ["charPick","charRead"]),
+    reviewKinds: kinds(c.reviewKinds, ["charRead","charSound"]),
+  };
+}
+
+// ---- progress (prog.chars)
+function defaultCharsProg(){ return { v:CHARS_PROG_VERSION, c:{}, defer:false, choiceSeen:false, mix:true }; }
+// Returns an error string or null. Validated whenever present, pack or no pack.
+// chars.v is its own version: any positive integer is accepted and kept, so a newer
+// chars shape never invalidates (and so resets) the whole progress record.
+function validateCharsShape(ch){
+  if(!isObj(ch)) return "chars must be an object";
+  if(ch.v !== undefined && !(Number.isInteger(ch.v) && ch.v >= 1)) return "chars.v must be a positive integer";
+  if(ch.c !== undefined){ const e = validateRecMap(ch.c, "chars.c", false); if(e) return e; }
+  for(const f of ["defer","choiceSeen","mix"]) if(ch[f] !== undefined && typeof ch[f] !== "boolean") return `chars.${f} must be a boolean`;
+  return null;
+}
+// Missing fields filled from defaults; fields present are kept.
+function normalizeCharsProg(ch){
+  const out = Object.assign(defaultCharsProg(), isObj(ch) ? ch : {});
+  if(!isObj(out.c)) out.c = {};
+  return out;
+}
+function ensureChars(prog){
+  if(!isObj(prog.chars)) prog.chars = defaultCharsProg();
+  if(!isObj(prog.chars.c)) prog.chars.c = {};
+  return prog.chars;
+}
+function charRecs(prog){ return (prog && isObj(prog.chars) && isObj(prog.chars.c)) ? prog.chars.c : {}; }
+const hasCharRec = (recs, id) => hasOwn(recs, id) && !!recs[id];
+// Scores one character item (writes prog.chars.c only).
+function markChar(prog, unitId, ok){ return markRec(ensureChars(prog).c, unitId, ok, false); }
+// The one-time choice card: start characters now, or defer them past the later levels.
+function answerCharChoice(prog, start){
+  const ch = ensureChars(prog); ch.choiceSeen = true; if(!start) ch.defer = true; return prog;
+}
+// The reversible learning-order switch (Progress): flips the flag only. The path is
+// re-derived from it; no record, set counter or choice state is touched.
+function setCharOrder(prog, defer){ ensureChars(prog).defer = !!defer; return prog; }
+
+// ---- units
+function unitWord(unit, byId){ return (byId || {})[((unit && unit.words) || [])[0]] || null; }
+function unitReading(unit, byId){
+  if(unit && unit.reading != null && unit.reading !== "") return String(unit.reading);
+  const w = unitWord(unit, byId); return w && w.pron ? String(w.pron) : "";
+}
+function unitGloss(unit, byId){ return gloss(unitWord(unit, byId)); }
+// wordId -> the unit whose words[0] it is (the unit a sentence ruby token follows).
+const UNIT_BY_WORD = new WeakMap();
+function unitByWord(units){
+  if(!Array.isArray(units)) return new Map();
+  let m = UNIT_BY_WORD.get(units);
+  if(!m){ m = new Map(); units.forEach(u => { const w = (u.words || [])[0]; if(w != null && !m.has(w)) m.set(w, u); }); UNIT_BY_WORD.set(units, m); }
+  return m;
+}
+// Units with a character record: the pool unified Review and Recall draw from.
+function recordedUnits(units, prog, pack){
+  if(!charsConfig(pack) || !Array.isArray(units) || !units.length) return [];
+  const recs = charRecs(prog);
+  return units.filter(u => hasCharRec(recs, u.id));
+}
+
+// ---- stages and sets
+// A stage's units: level order (pack order), then file order.
+function charStageUnits(levels, units, pack){
+  const want = new Set((levels || []).map(String)); const idx = levelIndexMap(pack);
+  const at = lv => idx[lv] !== undefined ? idx[lv] : Infinity;
+  return (units || []).map((u, i) => ({u, i})).filter(x => want.has(String(x.u.lv)))
+    .sort((a, b) => (at(String(a.u.lv)) - at(String(b.u.lv))) || (a.i - b.i)).map(x => x.u);
+}
+function charSets(levels, units, pack){
+  const cfg = charsConfig(pack); const size = cfg ? cfg.setSize : CHAR_SET_SIZE;
+  const list = charStageUnits(levels, units, pack); const out = [];
+  for(let i=0; i<list.length; i+=size) out.push(list.slice(i, i+size));
+  return out;
+}
+// A set is taught once every unit in it has a record (no separate counter).
+function charSetTaught(set, prog){ const r = charRecs(prog); return (set || []).every(u => hasCharRec(r, u.id)); }
+// First untaught set of the stage: {index, units, total} or null.
+function nextCharSet(levels, units, pack, prog){
+  const sets = charSets(levels, units, pack);
+  for(let i=0; i<sets.length; i++) if(!charSetTaught(sets[i], prog)) return { index:i, units:sets[i], total:sets.length };
+  return null;
+}
+// Character stages in path order for this learner: the configured stages, or with
+// prog.chars.defer one stage covering all their levels after the latest `after` level.
+// A stage whose `after` is not a pack level sits after the last level.
+// Each: {after, levels, label}. Later stages append their last level id to the label.
+function charStages(pack, prog){
+  const cfg = charsConfig(pack); if(!cfg || !cfg.stages.length) return [];
+  const ids = levelIds(pack), idx = levelIndexMap(pack);
+  if(!ids.length) return [];
+  const pos = a => idx[a] !== undefined ? idx[a] : ids.length - 1;
+  if(prog && isObj(prog.chars) && prog.chars.defer === true){
+    const lv = new Set(); cfg.stages.forEach(st => st.levels.forEach(l => lv.add(l)));
+    const levels = [...ids.filter(l => lv.has(l)), ...[...lv].filter(l => idx[l] === undefined)];
+    return [{ after: ids[Math.max(...cfg.stages.map(st => pos(st.after)))], levels, label: cfg.label }];
+  }
+  return cfg.stages.map((st, i) => ({ after: ids[pos(st.after)], levels: st.levels,
+    label: i === 0 ? cfg.label : cfg.label + (st.levels.length ? st.levels[st.levels.length-1] : "") }));
+}
+// Every stage in path order. Word stage: {kind:"words", lv, label, set, nsets, frac,
+// done} (set = the level's sets counter, as nextNewSet reports it). Character stage:
+// {kind:"chars", key, levels, label, recorded, nunits, nsets, frac, done}.
+// Without pack.characters this is exactly the level strip: one word stage per level.
+function stagePath(pack, words, units, prog){
+  const p = prog || {}; const sets = p.sets || {};
+  const size = setSizeOf(pack), byLv = wordsByLevel(words, pack), recs = charRecs(p);
+  const cfg = charsConfig(pack); const cs = charStages(pack, p);
+  const out = [];
+  levelIds(pack).forEach(lv => {
+    const n = nSets(byLv[lv], size), k = sets[lv] || 0;
+    out.push({ kind:"words", lv, label: levelLabel(pack, lv), set: k, nsets: n, frac: n ? k/n : 1, done: k >= n });
+    cs.filter(st => st.after === lv).forEach(st => {
+      const list = charStageUnits(st.levels, units, pack);
+      const rec = list.filter(u => hasCharRec(recs, u.id)).length;
+      out.push({ kind:"chars", key: st.levels.join("+"), levels: st.levels, label: st.label, recorded: rec,
+        nunits: list.length, nsets: Math.ceil(list.length / cfg.setSize), frac: list.length ? rec/list.length : 1, done: rec >= list.length });
+    });
+  });
+  return out;
+}
+function nextStage(pack, words, units, prog){ return stagePath(pack, words, units, prog).find(s => !s.done) || null; }
+// Every level up to the first character stage's `after` is taught: the point the
+// learning-order switch becomes available.
+function charsUnlocked(pack, words, prog){
+  const cfg = charsConfig(pack); if(!cfg || !cfg.stages.length) return false;
+  const path = stagePath(pack, words, [], Object.assign({}, prog, { chars: Object.assign({}, (prog && prog.chars) || {}, { defer:false }) }));
+  const first = path.findIndex(s => s.kind === "chars");
+  return first > 0 && path.slice(0, first).every(s => s.done);
+}
+// Characters have started: any character record exists, or the current stage is a
+// character stage. Gates every character surface outside the path strip.
+function charsStarted(pack, words, units, prog){
+  if(!charsConfig(pack)) return false;
+  if(Object.keys(charRecs(prog)).length) return true;
+  const st = nextStage(pack, words, units, prog);
+  return !!(st && st.kind === "chars");
+}
+// The one-time choice card shows iff it is unanswered, the order is not deferred, every
+// level before the first character stage is taught, that stage is incomplete (records
+// elsewhere don't matter), and a later word level that deferring would put first (up to
+// the latest stage's `after`) is still incomplete. Otherwise the choice changes nothing.
+function showCharChoice(pack, words, units, prog){
+  const cfg = charsConfig(pack); if(!cfg || !cfg.stages.length) return false;
+  const ch = (prog && isObj(prog.chars)) ? prog.chars : {};
+  if(ch.choiceSeen === true || ch.defer === true) return false;
+  const path = stagePath(pack, words, units, prog);
+  const first = path.findIndex(s => s.kind === "chars");
+  if(first < 0 || path[first].done || !path.slice(0, first).every(s => s.done)) return false;
+  const idx = levelIndexMap(pack), ids = levelIds(pack);
+  const last = Math.max(...cfg.stages.map(st => idx[st.after] !== undefined ? idx[st.after] : ids.length - 1));
+  return path.slice(first + 1).some(s => s.kind === "words" && idx[s.lv] <= last && !s.done);
+}
+
+// ---- tiers
+// Streak -> tier: "pron" below mastered, "ruby" (written form with its reading above)
+// from mastered, "bare" (written form alone) from bare.
+function charTier(streak, pack){
+  const cfg = charsConfig(pack); const s = +streak || 0;
+  if(s >= (cfg ? cfg.bare : CHAR_BARE)) return "bare";
+  if(s >= (cfg ? cfg.mastered : CHAR_MASTERED)) return "ruby";
+  return "pron";
+}
+// Per sentence token: null (no mixing: the sentence renders as it does without
+// characters) unless characters have started and the mix preference is on. Then "ruby"
+// below bare and "bare" at or above it. Word-first packs show the written form from day
+// one, so "pron" only exists for a pack.pronFirst pack (reading-only below mastered).
+function sentenceTokenTier(streak, started, mix, pack){
+  if(!started || !mix) return null;
+  const t = charTier(streak, pack);
+  return t === "pron" && !(pack && pack.pronFirst) ? "ruby" : t;
+}
+// sentence.ruby tokens with their tiers: [{start, end, reading, wordId, unitId, tier}],
+// or null when the sentence has no ruby or mixing is off (see sentenceTokenTier).
+function rubyTiers(sentence, units, prog, pack, started){
+  const mix = !!(prog && isObj(prog.chars) && prog.chars.mix !== false);
+  if(!charsConfig(pack) || !started || !mix || !sentence || !Array.isArray(sentence.ruby)) return null;
+  const byWord = unitByWord(units), recs = charRecs(prog);
+  return sentence.ruby.map(([start, end, reading, wordId]) => {
+    const u = byWord.get(wordId) || null; const rec = u && hasCharRec(recs, u.id) ? recs[u.id] : null;
+    return { start, end, reading, wordId, unitId: u ? u.id : null, tier: sentenceTokenTier(rec ? rec.s : 0, true, true, pack) };
+  });
+}
+
+// ---- options
+// Written-form distractors (charPick: reading+audio -> form; charRecall: meaning -> form).
+// Up to 3 other units, never a second right answer: not the answer's form or any surface
+// of its word, not the same reading (a homophone fits the pick stimulus), not the same
+// gloss or first two gloss words (fits the recall stimulus). Pairwise distinct forms and
+// glosses; a strict pass also keeps first-two-gloss-words distinct, relaxed for tiny pools.
+// Preference: same level and form length, then same level, then any.
+function charOpts(unit, units, byId){
+  const aw = unitWord(unit, byId);
+  const ansG = normKey(unitGloss(unit, byId)), ansF2 = firstTwoWords(unitGloss(unit, byId)), ansR = normKey(unitReading(unit, byId));
+  const ansForms = new Set([normKey(unit.t), ...(aw ? surfaces(aw) : [])]);
+  const len = cpLen(unit.t);
+  const cands = (units || []).filter(v => {
+    if(v.id === unit.id || ansForms.has(normKey(v.t))) return false;
+    const g = unitGloss(v, byId), vw = unitWord(v, byId);
+    if(normKey(g) === ansG || (ansF2 && firstTwoWords(g) === ansF2)) return false;
+    if(ansR && normKey(unitReading(v, byId)) === ansR) return false;
+    return !(aw && vw && samePron(aw, vw));
+  });
+  const t1 = cands.filter(v => v.lv === unit.lv && cpLen(v.t) === len);
+  const t2 = cands.filter(v => v.lv === unit.lv && cpLen(v.t) !== len);
+  const t3 = cands.filter(v => v.lv !== unit.lv);
+  const ordered = [...shuffle(t1), ...shuffle(t2), ...shuffle(t3)];
+  function pass(strict){
+    const chosen = []; const usedT = new Set(ansForms), usedG = new Set([ansG]), usedF2 = new Set();
+    for(const v of ordered){
+      if(chosen.length >= 3) break;
+      const t = normKey(v.t), g = unitGloss(v, byId), gk = normKey(g), f2 = firstTwoWords(g);
+      if(usedT.has(t) || usedG.has(gk)) continue;
+      if(strict && f2 && usedF2.has(f2)) continue;
+      chosen.push(v); usedT.add(t); usedG.add(gk); if(f2) usedF2.add(f2);
+    }
+    return chosen;
+  }
+  let chosen = pass(true);
+  if(chosen.length < 3) chosen = pass(false);
+  return chosen;
+}
+// charRecall options: the answer's form plus the charOpts distractors' forms.
+function recallCharOpts(unit, units, byId){ return [unit.t, ...charOpts(unit, units, byId).map(v => v.t)]; }
+// Reading distractors for charSound (form -> reading): up to 3 readings of other units,
+// never a homophone of the answer and never a reading the answer's form also has (a
+// homograph unit or word with the same form). Pairwise distinct. Preference: same level
+// and form length, then same form length, then same level, then any.
+function charSoundOpts(unit, units, byId){
+  const ansT = normKey(unit.t), ansR = normKey(unitReading(unit, byId));
+  const forbid = new Set([ansR]);
+  (units || []).forEach(v => { if(normKey(v.t) === ansT){ const r = normKey(unitReading(v, byId)); if(r) forbid.add(r); } });
+  Object.keys(byId || {}).forEach(k => { const w = byId[k]; if(w && w.pron && surfaces(w).includes(ansT)) forbid.add(normKey(w.pron)); });
+  const len = cpLen(unit.t);
+  const cands = (units || []).filter(v => v.id !== unit.id && normKey(v.t) !== ansT && unitReading(v, byId) && !forbid.has(normKey(unitReading(v, byId))));
+  const sameLen = v => cpLen(v.t) === len, sameLv = v => v.lv === unit.lv;
+  const ordered = [...shuffle(cands.filter(v => sameLv(v) && sameLen(v))), ...shuffle(cands.filter(v => !sameLv(v) && sameLen(v))),
+    ...shuffle(cands.filter(v => sameLv(v) && !sameLen(v))), ...shuffle(cands.filter(v => !sameLv(v) && !sameLen(v)))];
+  const out = []; const used = new Set(forbid);
+  for(const v of ordered){
+    if(out.length >= 3) break;
+    const r = unitReading(v, byId), k = normKey(r);
+    if(used.has(k)) continue;
+    used.add(k); out.push(r);
+  }
+  return out;
+}
+// Meaning distractors for charRead (form alone -> meaning): meaningOpts on the unit's
+// word, with every word the form could also be read as removed from the pool.
+function charReadOpts(unit, words, byId){
+  const w = unitWord(unit, byId); if(!w) return [];
+  const t = normKey(unit.t);
+  return meaningOpts(w, (words || []).filter(v => v.id === w.id || !surfaces(v).includes(t)));
+}
+// One drill item for a unit, DOM-free: {kind, key, unitId, wordId, t, reading, gloss,
+// show, audio, options, answer}. show is the stimulus field ("t", "reading" or "gloss");
+// audio: play words[0]. options are shuffled strings that include answer.
+// ctx: {units, words, byId?, rng?}.
+function charItem(kind, unit, ctx){
+  const c = ctx || {}; const byId = c.byId || Object.fromEntries((c.words || []).map(w => [w.id, w]));
+  const w = unitWord(unit, byId), t = String(unit.t), reading = unitReading(unit, byId), g = unitGloss(unit, byId);
+  const base = { kind, key: "c:" + unit.id, unitId: unit.id, wordId: w ? w.id : null, t, reading, gloss: g };
+  let show, audio = false, answer, others;
+  if(kind === "charRead"){ show = "t"; answer = g; others = charReadOpts(unit, c.words, byId).map(gloss); }
+  else if(kind === "charSound"){ show = "t"; answer = reading; others = charSoundOpts(unit, c.units, byId); }
+  else if(kind === "charPick"){ show = "reading"; audio = true; answer = t; others = charOpts(unit, c.units, byId).map(v => String(v.t)); }
+  else if(kind === "charRecall"){ show = "gloss"; answer = t; others = charOpts(unit, c.units, byId).map(v => String(v.t)); }
+  else throw new Error(`unknown character item kind ${kind}`);
+  return Object.assign(base, { show, audio, answer, options: shuffle([answer, ...others], c.rng) });
+}
+
+// ---- plans
+// Learn step for a character set: each unit gets one item per pack learnKinds, in order.
+function learnCharPlan(set, pack){
+  const cfg = charsConfig(pack); if(!cfg) return [];
+  const out = []; (set || []).forEach(unit => cfg.learnKinds.forEach(kind => out.push({ kind, unit })));
+  return out;
+}
+// Unified weakness score: words keep weakScore; an unmastered unit (s < mastered)
+// scores at least 0, tying with never-drilled words so fresh units aren't starved by a
+// large pool of unrecorded words. Mastered units keep w*3 - s.
+function charReviewScore(rec, pack){
+  const cfg = charsConfig(pack); const p = rec || {}; const sc = weakScore(p);
+  return (p.s || 0) < (cfg ? cfg.mastered : CHAR_MASTERED) ? Math.max(sc, 0) : sc;
+}
+// One ranking over words and units: the n weakest as [{kind:"w"|"c", entry, score}],
+// with weakFirst's jitter (below 1, so it only reorders equal scores).
+function rankUnified(words, wrecs, units, crecs, n, pack, rng){
+  const r = rng || Math.random;
+  const pool = [...(words || []).map(e => ({ kind:"w", entry:e, score: weakScore((wrecs || {})[e.id]) })),
+    ...(units || []).map(u => ({ kind:"c", entry:u, score: charReviewScore((crecs || {})[u.id], pack) }))];
+  return pool.map(x => ({ x, k: x.score + (r() - 0.5) })).sort((a, b) => b.k - a.k).slice(0, n).map(o => o.x);
+}
+// Unified Review: provisional words as before, then the weakest words and recorded units
+// under one ranking, n total. Word items keep the >= 40% production mix; each unit gets
+// a random pack reviewKind. Items: {kind, word} or {kind, unit}.
+function unifiedReviewPlan(learned, ru, prog, pack, n, rng){
+  const cfg = charsConfig(pack); const r = rng || Math.random;
+  const pv = provPick(learned, Math.min(REVIEW_PROV, n), prog.w);
+  const pvSet = new Set(pv.map(w => w.id));
+  const ranked = rankUnified(learned.filter(x => !pvSet.has(x.id)), prog.w, ru, charRecs(prog), n - pv.length, pack, rng);
+  const pool = shuffle([...ranked, ...pv.map(w => ({ kind:"w", entry:w }))], rng);
+  const kinds = kindMix(pool.filter(x => x.kind === "w").length, REVIEW_PRODUCTION_SHARE, typingEnabled(pack), rng);
+  let wi = 0;
+  return pool.map(x => x.kind === "w" ? { kind: kinds[wi++], word: x.entry }
+    : { kind: cfg.reviewKinds[Math.floor(r() * cfg.reviewKinds.length)], unit: x.entry });
+}
+// Unified Recall: the n weakest words and recorded units, weakest first; words as
+// recall/type, units as charRecall.
+function unifiedRecallPlan(learned, ru, prog, pack, n, rng){
+  const ranked = rankUnified(learned, prog.w, ru, charRecs(prog), n, pack, rng);
+  const kinds = kindMix(ranked.filter(x => x.kind === "w").length, 1, typingEnabled(pack), rng);
+  let wi = 0;
+  return ranked.map(x => x.kind === "w" ? { kind: kinds[wi++], word: x.entry } : { kind:"charRecall", unit: x.entry });
+}
+// Taken at "Start today" and kept for the whole session, so finishing a stage mid-session
+// changes neither what Learn teaches nor Review/Recall's mode: {stage, cset, charsStarted,
+// reviewSize, choice}. choice true means the choice card replaces Start today.
+// Without pack.characters: the next word stage, cset null, charsStarted false, REVIEW_SIZE.
+function todaySnapshot(pack, words, units, prog){
+  const stage = nextStage(pack, words, units, prog);
+  const cset = stage && stage.kind === "chars" ? nextCharSet(stage.levels, units, pack, prog) : null;
+  const started = charsStarted(pack, words, units, prog);
+  return { stage, cset, charsStarted: started, reviewSize: started ? REVIEW_SIZE_CHARS : REVIEW_SIZE, choice: showCharChoice(pack, words, units, prog) };
+}
+// Learned words' units without a record, level order then file order, at most n.
+function newCharUnits(units, learned, prog, pack, n){
+  const ids = new Set((learned || []).map(w => w.id)); const recs = charRecs(prog);
+  const ok = new Set((units || []).filter(u => ids.has((u.words || [])[0]) && !hasCharRec(recs, u.id)).map(u => u.id));
+  return charStageUnits(levelIds(pack), (units || []).filter(u => ok.has(u.id)), pack).slice(0, n);
+}
+
 // ------------------------------------------------------------------ export
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
@@ -1319,7 +1694,13 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
   READ_UNLOCK, READ_WEIGHT, readState, readingLevels, updateReadUnlocks, suggestPassage, passageLength, passageSegments,
-  gradeQuestion, passageWeakWords, applyWeakWords, markPassageDone, readingStats };
+  gradeQuestion, passageWeakWords, applyWeakWords, markPassageDone, readingStats,
+  CHARS_PROG_VERSION, CHAR_SET_SIZE, CHAR_MASTERED, CHAR_BARE, REVIEW_SIZE_CHARS, CHAR_KINDS, charsConfig,
+  defaultCharsProg, validateCharsShape, normalizeCharsProg, ensureChars, charRecs, markChar, answerCharChoice, setCharOrder,
+  unitWord, unitReading, unitGloss, unitByWord, recordedUnits,
+  charStageUnits, charSets, charSetTaught, nextCharSet, charStages, stagePath, nextStage, charsUnlocked, charsStarted, showCharChoice,
+  charTier, sentenceTokenTier, rubyTiers, charOpts, recallCharOpts, charSoundOpts, charReadOpts, charItem,
+  learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
 })(typeof window!=="undefined" ? window : (typeof globalThis!=="undefined" ? globalThis : null));
@@ -2391,4 +2772,4 @@ $("themebtn").onclick = () => {
 </script>
 </body>
 </html>
-<!--ve-build:1918784316-447532-->
+<!--ve-build:1379338511-471433-->
