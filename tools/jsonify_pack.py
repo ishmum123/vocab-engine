@@ -9,6 +9,7 @@ and build.sh can inline them with awk, no JSON loader needed):
     sentences.json -> sentences.js  const SENTENCES=...;
     lessons.json   -> lessons.js    const LESSONS=...;    (optional file)
     characters.json-> characters.js const CHARACTERS=...; (optional file)
+    script.json    -> script.js     const SCRIPT=...;     (optional file)
     legacy.json    -> legacy.js     const LEGACY=...;     (optional file)
     passages.json  -> sentences.js  const PASSAGES=...;  (optional; appended after
                       SENTENCES so build.sh and the dev loader need no new file. A pack
@@ -24,7 +25,8 @@ import sys
 
 FILES = [("pack", "PACK", True), ("words", "WORDS", True),
          ("sentences", "SENTENCES", True), ("lessons", "LESSONS", False),
-         ("characters", "CHARACTERS", False), ("legacy", "LEGACY", False)]
+         ("characters", "CHARACTERS", False), ("script", "SCRIPT", False),
+         ("legacy", "LEGACY", False)]
 
 
 def render(const, data):

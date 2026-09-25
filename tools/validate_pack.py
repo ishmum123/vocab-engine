@@ -4,7 +4,8 @@
 Checks schema (required fields, types), referential integrity (sentence.words ids
 exist, every lv is a pack level, functionWords exist, placement levels exist,
 typing.strictFromLevel exists), placement feasibility, lesson shape, optional
-passages.json (ids, levels, word ids, question shape and sentence indices), and that
+passages.json (ids, levels, word ids, question shape and sentence indices), optional
+script.json (script primer units and notes, with pack.script), and that
 the generated .js consts are in sync with the .json sources.
 
 Usage: python3 tools/validate_pack.py packs/zh [--dump-strata]
@@ -676,6 +677,206 @@ def check_characters_data(chars, char_levels, by_id, rep):
     return ids, word0
 
 
+# Script primer (docs/PACK_SCHEMA.md "Script primer", docs/SCRIPT_PRIMER.md §3).
+SCRIPT_KINDS = ("symSound", "soundSym", "symType", "compose", "formFind", "formMatch", "wordRead", "wordHear")
+SCRIPT_UNIT_ID_RE = re.compile(r"^[a-z]{2,3}-[a-z0-9-]+$")
+SCRIPT_JOINS = ("dual", "right")
+POSITIONAL_LETTER_RE = re.compile(r"^HANGUL (?:CHOSEONG|JUNGSEONG|JONGSEONG|LETTER) (.+)$")
+
+
+def is_pos_int(x):
+    return isinstance(x, int) and not is_bool(x) and x >= 1
+
+
+def glyph_keys(s):
+    """Folds text for "does this symbol occur in that word": compatibility decomposition
+    (presentation forms and composed syllables split into their letters, dakuten split
+    off), lower case, and positional letter variants (a syllable-initial and a
+    syllable-final form of one letter) mapped to one key. Returns a list of keys."""
+    import unicodedata
+    out = []
+    for ch in unicodedata.normalize("NFKD", str(s).lower()):
+        m = POSITIONAL_LETTER_RE.match(unicodedata.name(ch, ""))
+        out.append("L:" + m.group(1) if m else ch)
+    return out
+
+
+def glyph_in(glyph, text):
+    g, t = glyph_keys(glyph), glyph_keys(text)
+    if not g:
+        return False
+    return any(t[i:i + len(g)] == g for i in range(len(t) - len(g) + 1))
+
+
+def check_script_pack(pack, rep):
+    """pack.script (optional). Returns {stage key: label} or None if absent."""
+    if "script" not in pack:
+        return None
+    sc = pack["script"]
+    if not isinstance(sc, dict):
+        rep.err("pack.script must be an object")
+        return {}
+    keys = {}
+    stages = sc.get("stages")
+    if not (isinstance(stages, list) and stages):
+        rep.err("pack.script.stages must be a non-empty list of {key, label}")
+    else:
+        for i, st in enumerate(stages):
+            if not (isinstance(st, dict) and is_str(st.get("key")) and is_str(st.get("label"))):
+                rep.err(f"pack.script.stages[{i}] must be {{key: non-empty string, label: non-empty string}}")
+                continue
+            if st["key"] in keys:
+                rep.err(f"pack.script.stages key {st['key']!r} duplicated")
+            keys[st["key"]] = st["label"]
+    for f in ("setsPerSession", "mastered"):
+        if f in sc and not is_pos_int(sc[f]):
+            rep.err(f"pack.script.{f} must be a positive integer")
+    if "tts" in sc and not is_bool(sc["tts"]):
+        rep.err("pack.script.tts must be a boolean")
+    for f in ("learnKinds", "reviewKinds"):
+        if f in sc:
+            v = sc[f]
+            if not (isinstance(v, list) and v and all(k in SCRIPT_KINDS for k in v)):
+                rep.err(f"pack.script.{f} must be a non-empty list drawn from {SCRIPT_KINDS}")
+    if "testKinds" in sc:
+        tk = sc["testKinds"]
+        if not (isinstance(tk, dict) and tk and all(k in SCRIPT_KINDS and is_num(v) and 0 < v < float("inf") for k, v in tk.items())):
+            rep.err(f"pack.script.testKinds must be a non-empty object {{kind: positive weight}} with kinds from {SCRIPT_KINDS}")
+    return keys
+
+
+def check_script_data(pack, script, stage_keys, words, rep):
+    """pack/script.json (required exactly when pack.script is present). `stage_keys` is
+    check_script_pack's result."""
+    if script is None or stage_keys is None:
+        return
+    if not isinstance(script, dict) or not isinstance(script.get("units"), list) or not script["units"]:
+        rep.err("script.json must be an object with a non-empty units list")
+        return
+    level_ids = [lv.get("id") for lv in pack.get("levels") or [] if isinstance(lv, dict)]
+    first_lv = level_ids[0] if level_ids else None
+    second_lv = level_ids[1] if len(level_ids) > 1 else None
+    by_id = {w["id"]: w for w in words if isinstance(w, dict) and is_str(w.get("id"))}
+    first_texts = [t for w in words if isinstance(w, dict) and w.get("lv") == first_lv
+                   for t in (w.get("w"), w.get("pron")) if is_str(t)]
+    units, ids = [], set()
+    for i, u in enumerate(script["units"]):
+        if not isinstance(u, dict) or not isinstance(u.get("id"), str):
+            rep.err(f"script units[{i}] must be an object with a string id")
+            continue
+        if not SCRIPT_UNIT_ID_RE.match(u["id"]):
+            rep.err(f"script unit id {u['id']!r} must match {SCRIPT_UNIT_ID_RE.pattern}")
+        if u["id"] in ids:
+            rep.err(f"script unit id {u['id']!r} duplicated")
+        ids.add(u["id"])
+        units.append(u)
+    by_uid = {u["id"]: u for u in units}
+    sets_of = {}
+    for u in units:
+        where = f"script unit {u['id']}"
+        if u.get("st") not in stage_keys:
+            rep.err(f"{where}.st {u.get('st')!r} is not a pack.script.stages key")
+        if not is_pos_int(u.get("set")):
+            rep.err(f"{where}.set must be an integer >= 1")
+        else:
+            sets_of.setdefault(u.get("st"), set()).add(u["set"])
+        for f in ("t", "roman"):
+            if not is_str(u.get(f)):
+                rep.err(f"{where}.{f} must be a non-empty string")
+        for f in ("name", "say", "audio", "note", "group", "italic"):
+            if f in u and not is_str(u[f]):
+                rep.err(f"{where}.{f} must be a non-empty string when present")
+        if "sound" in u and not is_bool(u["sound"]):
+            rep.err(f"{where}.sound must be a boolean")
+        if "alt" in u and not (isinstance(u["alt"], list) and all(is_str(a) for a in u["alt"])):
+            rep.err(f"{where}.alt must be a list of non-empty strings")
+        cf = u.get("confuse", [])
+        if not (isinstance(cf, list) and all(isinstance(c, str) for c in cf)):
+            rep.err(f"{where}.confuse must be a list of unit ids")
+        else:
+            bad = [c for c in cf if c not in by_uid or c == u["id"]]
+            if bad:
+                rep.err(f"{where}.confuse has unknown or self ids {bad}")
+        if "base" in u and u["base"] not in by_uid:
+            rep.err(f"{where}.base {u['base']!r} is not a known unit id")
+        if "joins" in u:
+            if u["joins"] not in SCRIPT_JOINS:
+                rep.err(f"{where}.joins must be one of {SCRIPT_JOINS}")
+            elif pack.get("rtl") is not True:
+                rep.err(f"{where}.joins is set but pack.rtl is not true (joining forms are right-to-left letters only)")
+        glyphs = str(u.get("t") or "").split()
+        ex = u.get("ex")
+        if ex is None or ex == []:
+            rep.warn(f"{where} has no ex example words")
+        elif not (isinstance(ex, list) and 1 <= len(ex) <= 3):
+            rep.err(f"{where}.ex must be a list of 1-3 [wordId, roman]")
+        else:
+            for j, e in enumerate(ex):
+                if not (isinstance(e, list) and len(e) == 2 and isinstance(e[0], str) and is_str(e[1])):
+                    rep.err(f"{where}.ex[{j}] must be [wordId, non-empty roman]")
+                    continue
+                w = by_id.get(e[0])
+                if w is None:
+                    rep.err(f"{where}.ex[{j}] word {e[0]!r} is not a word id")
+                    continue
+                if w.get("lv") not in (first_lv, second_lv):
+                    rep.err(f"{where}.ex[{j}] word {e[0]} is level {w.get('lv')!r}, after the second level")
+                elif w.get("lv") != first_lv:
+                    rep.warn(f"{where}.ex[{j}] word {e[0]} is from level {w.get('lv')!r}, not the first level")
+                texts = [t for t in (w.get("w"), w.get("pron")) if is_str(t)]
+                if glyphs and not any(glyph_in(g, t) for g in glyphs for t in texts):
+                    rep.err(f"{where}.ex[{j}]: the unit's glyph {u.get('t')!r} does not occur in word {e[0]} ({w.get('w')!r})")
+        if "syll" in u:
+            sy = u["syll"]
+            if not isinstance(sy, list):
+                rep.err(f"{where}.syll must be a list of {{t, parts, roman}}")
+                sy = []
+            for j, s in enumerate(sy):
+                sw = f"{where}.syll[{j}]"
+                if not (isinstance(s, dict) and is_str(s.get("t")) and is_str(s.get("roman"))
+                        and isinstance(s.get("parts"), list) and s["parts"] and all(is_str(p) for p in s["parts"])):
+                    rep.err(f"{sw} must be {{t, parts: non-empty list of glyphs, roman}}")
+                    continue
+                known = {g for v in units if v.get("st") == u.get("st") and is_pos_int(v.get("set")) and is_pos_int(u.get("set"))
+                         and v["set"] <= u["set"] for g in str(v.get("t") or "").split()}
+                late = [p for p in s["parts"] if p not in known]
+                if late:
+                    rep.err(f"{sw}.parts {late} are not glyphs of units at or before set {u.get('set')} of stage {u.get('st')!r}")
+                if not any(glyph_in(s["t"], t) for t in first_texts):
+                    rep.err(f"{sw}.t {s['t']!r} does not occur in any first-level word")
+        if u.get("sound", True) is not False and "say" not in u and (pack.get("script") or {}).get("tts") is not False:
+            rep.warn(f"{where} has sound but no say (TTS has nothing to speak)")
+    for st, sets in sets_of.items():
+        if st in stage_keys and sorted(sets) != list(range(1, len(sets) + 1)):
+            rep.err(f"script stage {st!r} sets {sorted(sets)} are not contiguous from 1")
+    for key in stage_keys:
+        if not any(u.get("st") == key for u in units):
+            rep.err(f"pack.script stage {key!r} has no units in script.json")
+    groups = {}
+    for u in units:
+        if is_str(u.get("group")) and is_str(u.get("roman")):
+            groups.setdefault((u.get("st"), u["group"], u["roman"].strip().lower()), []).append(u)
+    for (st, g, r), us in groups.items():
+        for a in range(len(us)):
+            for b in range(a + 1, len(us)):
+                x, y = us[a], us[b]
+                if y["id"] not in (x.get("confuse") or []) and x["id"] not in (y.get("confuse") or []):
+                    rep.warn(f"script units {x['id']} and {y['id']} share group {g!r} and roman {r!r} with no confuse link")
+    notes = script.get("notes", [])
+    if not isinstance(notes, list):
+        rep.err("script.json notes must be a list")
+        notes = []
+    for i, n in enumerate(notes):
+        if not (isinstance(n, dict) and is_str(n.get("h")) and is_str(n.get("body"))):
+            rep.err(f"script notes[{i}] must be {{st, set, h, body}} with non-empty h and body")
+            continue
+        if n.get("st") not in stage_keys or n.get("set") not in sets_of.get(n.get("st"), set()):
+            rep.err(f"script notes[{i}] ({n.get('st')!r}, set {n.get('set')!r}) is not a known stage set")
+    extra = set(script) - {"units", "notes"}
+    if extra:
+        rep.err(f"script.json has unknown keys {sorted(extra)} (only units, notes are used)")
+
+
 def check_legacy(pack, legacy, by_id, sent_ids, char_ids, rep):
     """legacy.json (optional, requires pack.legacy and vice versa): docs/PACK_SCHEMA.md
     "legacy.json". `by_id`/`sent_ids`/`char_ids` are this pack's known ids."""
@@ -717,6 +918,7 @@ def validate(packdir):
     passages = load(packdir, "passages", rep, required=False)
     chars = load(packdir, "characters", rep, required=False)
     legacy = load(packdir, "legacy", rep, required=False)
+    script = load(packdir, "script", rep, required=False)
     if pack is None or words is None or sents is None:
         return rep, {}
     levels, char_levels = check_pack(pack, rep)
@@ -736,6 +938,12 @@ def validate(packdir):
     check_lessons(pack, lessons, rep)
     check_pron_aids_data(pack, words, lessons, rep)
     check_passages(passages, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
+    has_pack_script, has_script_file = isinstance(pack, dict) and "script" in pack, script is not None
+    if has_pack_script and not has_script_file:
+        rep.err("pack.script is set but script.json is missing")
+    if has_script_file and not has_pack_script:
+        rep.err("script.json is present but pack.script is not set")
+    check_script_data(pack, script, check_script_pack(pack, rep) if isinstance(pack, dict) else None, words, rep)
     check_legacy(pack, legacy, by_id, {s.get("id") for s in sents if isinstance(s, dict)}, char_ids, rep)
     r = subprocess.run([sys.executable, os.path.join(HERE, "jsonify_pack.py"), packdir, "--check"],
                        capture_output=True, text=True)
@@ -744,7 +952,8 @@ def validate(packdir):
     counts = {"words": len(words), "sentences": len(sents) if isinstance(sents, list) else 0,
               "lessons": len(lessons) if isinstance(lessons, list) else 0,
               "passages": len(passages) if isinstance(passages, list) else 0,
-              "characters": len(chars) if isinstance(chars, list) else 0}
+              "characters": len(chars) if isinstance(chars, list) else 0,
+              "script": len(script["units"]) if isinstance(script, dict) and isinstance(script.get("units"), list) else 0}
     return rep, counts
 
 
@@ -758,6 +967,12 @@ def characters_note(counts):
     # Only packs with a characters stage mention it, so existing packs' output is unchanged.
     n = counts.get("characters", 0)
     return f", {n} character units" if n else ""
+
+
+def script_note(counts):
+    # Only packs with a script primer mention it, so existing packs' output is unchanged.
+    n = counts.get("script", 0)
+    return f", {n} script units" if n else ""
 
 
 def main(argv):
@@ -779,7 +994,7 @@ def main(argv):
         print(f"ERROR ... and {len(rep.errors) - 50} more")
     status = "FAIL" if rep.errors else "OK"
     print(f"{status} {packdir}: {counts.get('words', 0)} words, {counts.get('sentences', 0)} sentences, "
-          f"{counts.get('lessons', 0)} lessons{passages_note(counts)}{characters_note(counts)}; "
+          f"{counts.get('lessons', 0)} lessons{passages_note(counts)}{characters_note(counts)}{script_note(counts)}; "
           f"{len(rep.errors)} errors, {len(rep.warnings)} warnings")
     return 1 if rep.errors else 0
 

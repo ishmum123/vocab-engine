@@ -156,7 +156,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 - `st` is a known stage key, `set` is an int ≥ 1, and each stage's sets are contiguous from 1.
 - `t` and `roman` are non-empty, and `sound` is a bool.
 - `confuse` and `base` reference known ids.
-- `ex` word ids exist, their level is at or before the first level, the roman is non-empty, and the unit's glyph occurs in the word's `w` (via `pron` for ja).
+- `ex` word ids exist, their level is the first level (the second level, packbuilder's fallback, is a warning; later is an error), the roman is non-empty, and the unit's glyph occurs in the word's `w` or `pron`. The comparison uses compatibility decomposition and lower case, and folds positional letter variants, so a jamo matches inside a composed block and a dakuten kana inside its word.
 - `syll.parts` are glyphs of units at or before this set, and `syll.t` occurs in some A1 word.
 - `joins` is present only when `pack.rtl`.
 - `notes` reference a known `(st, set)`.
@@ -174,10 +174,10 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 
 ## 4. Progress model
 
-`prog.script = {v:1, u:{[unitId]:{r,w,s}}, skipped:false, choiceSeen:false}`. Records reuse the chars shape and `markRec`.
+`prog.script = {v:1, u:{[unitId]:{r,w,s}}, skipped:false, skip:{}, choiceSeen:false, notice:false}`. `skipped` switches the whole primer off; `skip[stageKey]` switches one stage off (decision 2: each ja stage is skippable on its own). Records reuse the chars shape and `markRec`. `notice` is true while the existing-learner notice below is pending; `dismissScriptNotice` clears it.
 
 - `defaultProg` and `normalizeProg` add the field only when `pack.script` exists. `validateProgShape` validates it whenever it is present: `v` is a positive integer, `u` goes through `validateRecMap`, and both flags are booleans. Top-level `v` stays 1.
-- **No migration.** The field is new, and normalize fills it. **Existing learners are the exception**: a stored progress with at least one `w` record and no `script` key normalizes to `skipped:true, choiceSeen:true`. They then get a one-time dismissible Today line: "A script primer is available. Turn it on in Progress." Without this rule, every current ru, ko, fa and ja learner would be sent back before A1 (question 1).
+- **No migration.** The field is new, and normalize fills it. **Existing learners are the exception**: a stored progress with at least one `w` record and no `script` key normalizes to `skipped:true, choiceSeen:true, notice:true`. They then get a one-time dismissible Today line: "A script primer is available. Turn it on in Progress." Without this rule, every current ru, ko, fa and ja learner would be sent back before A1 (question 1).
 - **Deviations from the brief's sketch.** The record map is `u`, not `s`, because `s` is already the streak field inside every record and top-level sentences. There is no stored `done`, because done, taught and mastered are all derived from records. Stage completion counts recorded units, so a missed review can never pull the stage back into the path.
 - **Flag-off guarantee:**
   - A pack without `pack.script` gets byte-identical `defaultProg`, `normalizeProg`, `stagePath`, plans and boot renders.
@@ -186,7 +186,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 
 ## 5. Engine surface
 
-**core.js** gets a new section, DOM-free:
+**core.js** gets a new section, DOM-free. As built in S1: the script units (`SCRIPT.units`) are an optional last argument `sunits` of `stagePath`, `nextStage`, `charsStarted`, `showCharChoice` and `todaySnapshot`; every call without it, and every pack without `pack.script`, returns exactly what it did before.
 
 | export | contract |
 |---|---|
@@ -195,7 +195,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 | `scriptSets(key, units)` | `[[unit]]` grouped by `set`. |
 | `nextScriptSets(key, units, pack, prog, n)` | Up to n first untaught sets: `{index, units, total}[]`. |
 | `stagePath` (changed) | Prepends `{kind:"script", key, label, recorded, nunits, nsets, frac, done}` per stage unless skipped. Output is unchanged without `pack.script`. |
-| `scriptSkipped(prog)` / `setScriptSkipped(prog, bool)` | Read or flip the flag. Nothing else is touched. |
+| `scriptSkipped(prog, key?)` / `setScriptSkipped(prog, bool, key?)` | Read or flip the flag: the whole primer, or with `key` one stage. Nothing else is touched. An off stage leaves the path, Review and Test. |
 | `showScriptChoice(pack, units, prog)` / `answerScriptChoice(prog, learn)` | The choice card rule (§1). |
 | `scriptItem(kind, unit, ctx)` | `{kind, key:"x:"+id, unitId, show, audio, say, audioUrl, options, answer, reveal}`. ctx is `{units, words, byId, tts, rng}`. It throws on an unknown kind. |
 | `scriptOpts`, `scriptRomanOpts`, `scriptWordOpts` | The distractor rules in §2, exported for tests. |
@@ -203,7 +203,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 | `markScript(prog, id, ok)` | Writes `prog.script.u` only. |
 | `scriptMastered(rec, pack)` | `s >= mastered`. |
 | `scriptTestPlan(units, prog, pack, n, rng)` | The n weakest recorded units, kinds drawn from `testKinds`. |
-| `todaySnapshot` (changed) | Adds `ssets` (script sets for Learn) and `choice:"script"` or `"chars"`. `reviewSize` is 12 while a script stage is next. |
+| `todaySnapshot` (changed) | With `pack.script` only: adds `ssets` (script sets for Learn, `[]` off the script stage), and `choice` becomes `"script"` while the script card shows (otherwise the characters boolean, unchanged). `reviewSize` is 12 while a script stage is next. |
 | `todayGates` (changed) | An optional recorded-script-unit count opens Review. |
 | `buildReviewPlan` (changed) | An optional `script` pool. Script units join `rankUnified` as kind `"x"` with `charReviewScore` semantics and draw a random reviewKind. |
 
@@ -281,7 +281,16 @@ Design commit to final merge took 87 min. Review and browser walks sat inside th
 
 **Parallelism.** S0 and S1 run together. S2 starts once S1's schema lands. S3 runs after S1, alongside S2 on synthetic fixtures, and switches to real packs once S2 is done. Every brief carries the test gate: `node tests/engine_checks.js`, `characters_checks.js`, `script_checks.js`, `flagoff_snapshot.js`, and `validate_pack.py` on every pack it touches. Expected wall time is about 1.5–2 h plus the user's ear-check. That is extrapolated from the B timings above, not measured for this work.
 
-## 7. Open questions
+## 7. Decisions
+
+All five were decided 2026-09-26, each as recommended below, and S1 builds on them:
+1. Existing learners default to the primer skipped, with a one-time notice.
+2. ja: hiragana then katakana, both before A1, each skippable (option a).
+3. fa ships text-only now, with the per-unit `audio` hook for Piper later.
+4. Up to 2 script sets per session, the second behind "One more set".
+5. A1 starts once every symbol is taught; mastery continues in Review.
+
+The questions as they were put:
 
 1. **Existing learners.** Should a stored progress with word records default to primer skipped, with a one-time notice? Otherwise every current ru, ko, fa and ja learner is sent to the primer before their next word set. **Recommend:** skipped, with the notice.
 2. **ja katakana placement.** A1 needs katakana from word 229 (10 A1 words, 52 in A2). Stages can only sit between levels, so the options are:
