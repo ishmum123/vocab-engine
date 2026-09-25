@@ -1229,6 +1229,10 @@ function passageLength(p, pack){
 // w, every alt and its bare form, as findSurface does for the pack; overlapping hits keep
 // the longest (per start, earliest first), so 为什么 wins over 为, and never cover a span.
 // A pack without spans behaves exactly as before. Joining every piece's text gives s.t.
+// A span may carry an optional 4th element, a display-only gloss string (zh: a phrase
+// such as 越来越 "more and more", or a sense of the word shown on tap); its piece then
+// has `gloss`, which the popover shows instead of the word's gloss. Pieces without one
+// are unchanged.
 // True when UTF-16 index i falls between the two halves of a surrogate pair.
 function splitsPair(t, i){ return i > 0 && i < t.length && t.codePointAt(i - 1) > 0xFFFF; }
 function passageSegments(s, wordsById, pack){
@@ -1242,7 +1246,7 @@ function passageSegments(s, wordsById, pack){
   ((s && Array.isArray(s.spans)) ? s.spans : [])
     .filter(x => Array.isArray(x) && Number.isInteger(x[0]) && Number.isInteger(x[1]) && x[0] >= 0 && x[0] < x[1] && x[1] <= t.length && idSet.has(x[2]) && by[x[2]]
       && t.slice(x[0], x[1]).trim() && !splitsPair(t, x[0]) && !splitsPair(t, x[1]))
-    .map(x => ({ start: x[0], end: x[1], id: x[2] }))
+    .map(x => (typeof x[3] === "string" && x[3].trim() ? { start: x[0], end: x[1], id: x[2], gloss: x[3] } : { start: x[0], end: x[1], id: x[2] }))
     .sort((a,b) => a.start - b.start)
     .forEach(h => { if(!keep.some(k => h.start < k.end && k.start < h.end)){ keep.push(h); spanned.add(h.id); } });
   const hits = [];
@@ -1255,7 +1259,7 @@ function passageSegments(s, wordsById, pack){
   hits.forEach(h => { if(!keep.some(k => h.start < k.end && k.start < h.end)) keep.push(h); });
   keep.sort((a,b) => a.start - b.start);
   const parts = []; let at = 0;
-  keep.forEach(h => { if(h.start > at) parts.push({ text: t.slice(at, h.start), id: null }); parts.push({ text: t.slice(h.start, h.end), id: h.id }); at = h.end; });
+  keep.forEach(h => { if(h.start > at) parts.push({ text: t.slice(at, h.start), id: null }); parts.push(h.gloss ? { text: t.slice(h.start, h.end), id: h.id, gloss: h.gloss } : { text: t.slice(h.start, h.end), id: h.id }); at = h.end; });
   if(at < t.length || !parts.length) parts.push({ text: t.slice(at), id: null });
   const placed = new Set(keep.map(h => h.id));
   return { parts, unplaced: ids.filter(id => !placed.has(id) && by[id]) };
@@ -2727,7 +2731,7 @@ function startPassage(p){
 // the text as chips below, and a read-aloud button when speech works (or it has audio).
 function passageSentenceHTML(s, si, hi){
   const seg = VC.passageSegments(s, WORDS_BY_ID, PACK);
-  const txt = seg.parts.map(x => x.id ? `<span class="pw" data-pw="${escapeHtml(x.id)}" role="button" tabindex="0">${escapeHtml(x.text)}</span>` : escapeHtml(x.text)).join("");
+  const txt = seg.parts.map(x => x.id ? `<span class="pw" data-pw="${escapeHtml(x.id)}"${x.gloss ? ` data-pg="${escapeHtml(x.gloss)}"` : ""} role="button" tabindex="0">${escapeHtml(x.text)}</span>` : escapeHtml(x.text)).join("");
   const chips = seg.unplaced.length ? `<div class="pchips">${seg.unplaced.map(id => `<span class="pw pchip" data-pw="${escapeHtml(id)}" role="button" tabindex="0"${TA}>${escapeHtml(WORDS_BY_ID[id].w)}</span>`).join("")}</div>` : "";
   const aloud = canHearSentence(s) ? `<button class="replay psay" data-say="${si}" aria-label="Read sentence aloud">${TEACH_PLAY_SVG}</button>` : "";
   return `<div class="psent${hi ? " hi" : ""}" data-si="${si}"><div class="ptxt"${TA}>${txt}</div>${aloud}${chips}</div>`;
@@ -2737,10 +2741,13 @@ function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSenten
 // gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
 const LTR = SCRIPT.rtl ? ' dir="ltr"' : "";
 const glossBox = () => `<div class="gloss" id="gloss"${SCRIPT.rtl ? ' dir="rtl"' : ""} hidden></div>`;
-function glossHTML(id){
+// spanGloss: the tapped span's display-only gloss (spans[i][3], data-pg), shown
+// instead of the word's gloss; without one the word's own gloss, as before.
+function glossHTML(id, spanGloss){
   const w = WORDS_BY_ID[id]; if(!w) return "";
   const p = pronOf(w);
-  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(VC.gloss(w))}</span>`;
+  const g = spanGloss ? String(spanGloss).replace(/\s+/g, " ").trim() : "";
+  return `<span class="gw"${TA}>${escapeHtml(w.w)}</span>${p ? ` <span class="gp"${LTR}>${escapeHtml(p)}</span>` : ""} <span class="ge"${LTR}>${escapeHtml(g || VC.gloss(w))}</span>`;
 }
 // Wires tap-to-gloss and read-aloud on a freshly rendered passage container (its
 // innerHTML is replaced on every render, so listeners never accumulate).
@@ -2750,8 +2757,9 @@ function wirePassage(box, glossEl){
     if(RD && RD.tapped.indexOf(id) < 0) RD.tapped.push(id);
     box.querySelectorAll(".pw.on").forEach(x => x.classList.remove("on"));
     t.classList.add("on");
-    if(glossEl){ glossEl.innerHTML = glossHTML(id); glossEl.hidden = false; }
-    announce(glossHTML(id));
+    const g = t.dataset.pg;
+    if(glossEl){ glossEl.innerHTML = glossHTML(id, g); glossEl.hidden = false; }
+    announce(glossHTML(id, g));
   };
   box.addEventListener("click", e => {
     const w = e.target.closest("[data-pw]"); if(w){ tap(w); return; }
@@ -3056,4 +3064,4 @@ $("themebtn").onclick = () => {
 </script>
 </body>
 </html>
-<!--ve-build:3694948641-1086734-->
+<!--ve-build:1012245388-1087521-->

@@ -992,6 +992,10 @@ function passageLength(p, pack){
 // w, every alt and its bare form, as findSurface does for the pack; overlapping hits keep
 // the longest (per start, earliest first), so 为什么 wins over 为, and never cover a span.
 // A pack without spans behaves exactly as before. Joining every piece's text gives s.t.
+// A span may carry an optional 4th element, a display-only gloss string (zh: a phrase
+// such as 越来越 "more and more", or a sense of the word shown on tap); its piece then
+// has `gloss`, which the popover shows instead of the word's gloss. Pieces without one
+// are unchanged.
 // True when UTF-16 index i falls between the two halves of a surrogate pair.
 function splitsPair(t, i){ return i > 0 && i < t.length && t.codePointAt(i - 1) > 0xFFFF; }
 function passageSegments(s, wordsById, pack){
@@ -1005,7 +1009,7 @@ function passageSegments(s, wordsById, pack){
   ((s && Array.isArray(s.spans)) ? s.spans : [])
     .filter(x => Array.isArray(x) && Number.isInteger(x[0]) && Number.isInteger(x[1]) && x[0] >= 0 && x[0] < x[1] && x[1] <= t.length && idSet.has(x[2]) && by[x[2]]
       && t.slice(x[0], x[1]).trim() && !splitsPair(t, x[0]) && !splitsPair(t, x[1]))
-    .map(x => ({ start: x[0], end: x[1], id: x[2] }))
+    .map(x => (typeof x[3] === "string" && x[3].trim() ? { start: x[0], end: x[1], id: x[2], gloss: x[3] } : { start: x[0], end: x[1], id: x[2] }))
     .sort((a,b) => a.start - b.start)
     .forEach(h => { if(!keep.some(k => h.start < k.end && k.start < h.end)){ keep.push(h); spanned.add(h.id); } });
   const hits = [];
@@ -1018,7 +1022,7 @@ function passageSegments(s, wordsById, pack){
   hits.forEach(h => { if(!keep.some(k => h.start < k.end && k.start < h.end)) keep.push(h); });
   keep.sort((a,b) => a.start - b.start);
   const parts = []; let at = 0;
-  keep.forEach(h => { if(h.start > at) parts.push({ text: t.slice(at, h.start), id: null }); parts.push({ text: t.slice(h.start, h.end), id: h.id }); at = h.end; });
+  keep.forEach(h => { if(h.start > at) parts.push({ text: t.slice(at, h.start), id: null }); parts.push(h.gloss ? { text: t.slice(h.start, h.end), id: h.id, gloss: h.gloss } : { text: t.slice(h.start, h.end), id: h.id }); at = h.end; });
   if(at < t.length || !parts.length) parts.push({ text: t.slice(at), id: null });
   const placed = new Set(keep.map(h => h.id));
   return { parts, unplaced: ids.filter(id => !placed.has(id) && by[id]) };

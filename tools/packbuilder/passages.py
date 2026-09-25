@@ -691,6 +691,20 @@ def n_words(text):
     return len([m for m in WORD_RE.findall(text) if not m.isdigit()])
 
 
+def _q_words_in_sentence(lk, shipped, wids, sent):
+    """Is any of a question's resolved word ids visible in its sentence: a span
+    of it, or its headword or a lemma spelling in the text (case-folded)."""
+    spanned = {x[2] for x in sent.get("spans", [])}
+    t = sent["t"].casefold()
+    for wid in wids:
+        if wid in spanned:
+            return True
+        forms = {shipped[wid]["w"]} | set(lk.lemma_of.get(wid, ()))
+        if any(f and f.casefold() in t for f in forms):
+            return True
+    return False
+
+
 def resolve_q_words(lk, lemmas, sent_ids):
     out, errs = [], []
     for lem in lemmas:
@@ -729,6 +743,8 @@ def run(spec, check_only=False, out=sys.stdout):
     lv_rank = {lv: i for i, lv in enumerate(spec.level_ids)}
     lv_of = {wid: w["lv"] for wid, w in shipped.items()}
     passages, rows, errors = [], [], []
+    verbatim = {}       # level -> [mc questions, [(passage id, q index, key) found verbatim in the text]]
+    q_absent = []       # (passage id, q index, words, sentence index): none of the words in the sentence
     n_spans = n_ids = 0
     unplaced = []       # (passage id, sentence index, headword, id) linked but with no span
     ids = set()
@@ -832,6 +848,18 @@ def run(spec, check_only=False, out=sys.stdout):
             perr += [f"q{j}: {x}" for x in qe]
             qs.append({"q": q["q"], "en": q["en"], "type": q["type"], "options": q["options"] if q["type"] == "mc" else None,
                        "answer": q["answer"], "words": wids, "sentence": si})
+            # self-checks (report only, never errors)
+            if wids and not _q_words_in_sentence(lk, shipped, wids, sents[si]):
+                q_absent.append((pid, j, q["words"], si))
+            if q["type"] == "mc" and isinstance(q["options"], list) and isinstance(q["answer"], int) \
+                    and 0 <= q["answer"] < len(q["options"]):
+                vb = verbatim.setdefault(lv, [0, []])
+                vb[0] += 1
+                key = str(q["options"][q["answer"]]).strip()
+                if len(key) >= 4 and not any(ch.isdigit() for ch in key) and \
+                        not any(t[2] == "NUM" for t in lk.tag(key, "", names)) and \
+                        key.casefold() in getattr(spec, "passage_join", " ").join(t for t, _en in p["sentences"]).casefold():
+                    vb[1].append((pid, j, key))
         # report only (the budget rule and the stale-oop check are unchanged):
         # title words, and question or option words classify does not count (a
         # numeral-like pack word: "Setengah jam"), that are out of the pack or
@@ -903,6 +931,15 @@ def run(spec, check_only=False, out=sys.stdout):
           f"{len(unplaced)} without", file=out)
     for pid, si, w, wid in unplaced:
         print(f"  no span: {pid} s{si} {w} ({wid})", file=out)
+    # self-checks (report only): mc answer keys lifted verbatim from the text
+    # (>= 4 characters, numerals exempt), questions whose words are not visible
+    # in their sentence (no span and no surface spelling)
+    for lv in sorted(verbatim, key=lambda x: lv_rank.get(x, 99)):
+        n, hits = verbatim[lv]
+        print(f"self-check: level {lv}: {len(hits)}/{n} mc keys verbatim in the passage text (>=4 chars, numerals exempt)"
+              + (": " + ", ".join(f"{a} q{b} {c!r}" for a, b, c in hits) if hits else ""), file=out)
+    for pid, j, ws, si in q_absent:
+        print(f"self-check: {pid} q{j}: none of its words {ws} appears in sentence {si}", file=out)
     if errors:
         print(f"passages: {len(errors)} errors", file=out)
     if not check_only:

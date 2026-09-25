@@ -1097,6 +1097,10 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const s4 = VC.passageSegments({ t:ST, words:["c","m","x","q"], spans:[[9,15,"c"],[12,18,"m"],[31,99,"x"],[0,2,"zz"],[16,18,"q"],"bad",[5,5,"c"]] }, SB, RP);
   check("passageSegments ignores invalid spans (overlapping, out of bounds, id not in words, unknown id, malformed, empty) and falls back per id",
     rejoins(s4, ST) && util.isDeepStrictEqual(ids(s4), [["compra","c"],["casa","x"]]) && util.isDeepStrictEqual(s4.unplaced, ["m"]));
+  // optional 4th span element: a display-only gloss string carried on the piece (zh phrase units)
+  const sg = VC.passageSegments({ t:ST, words:["c","m","v"], spans:[[9,15,"c","to buy (display)"],[19,23,"m",""],[26,28,"v",7]] }, SB, RP);
+  check("passageSegments span gloss: a string 4th element becomes the piece's gloss; empty or non-string ones add nothing; pieces without one are unchanged",
+    rejoins(sg, ST) && util.isDeepStrictEqual(sg.parts.filter(p => p.id), [{ text:"compra", id:"c", gloss:"to buy (display)" }, { text:"mele", id:"m" }, { text:"va", id:"v" }]));
   const s6 = VC.passageSegments({ t:ST, words:["x"], spans:[[30,31,"x"]] }, SB, RP);
   check("passageSegments ignores a whitespace-only span (casa then found by surface)", rejoins(s6, ST) && util.isDeepStrictEqual(ids(s6), [["casa","x"]]));
   const s7 = VC.passageSegments({ t:"\u{1F642} va!", words:["v"], spans:[[1,5,"v"]] }, SB, RP);

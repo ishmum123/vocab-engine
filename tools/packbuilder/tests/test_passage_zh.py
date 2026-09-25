@@ -29,7 +29,10 @@ WORDS = [("一", "1", "one"), ("三", "1", "three"), ("八", "1", "eight"), ("�
          ("老师", "1", "teacher"), ("小", "1", "small"), ("上", "1", "up"), ("海", "3", "sea"),
          ("过", "4", "to cross; to go over"), ("马路", "3", "road"), ("十分", "4", "very"), ("分钟", "1", "minute"),
          ("钟", "3", "clock"), ("书", "1", "book"), ("喜欢", "1", "to like"), ("点", "1", "point; dot"),
-         ("面", "2", "face"), ("爸爸", "1", "dad"), ("地", "3", "-ly"), ("跑", "2", "to run")]
+         ("面", "2", "face"), ("爸爸", "1", "dad"), ("地", "3", "-ly"), ("跑", "2", "to run"),
+         ("越", "3", "to exceed"), ("开", "1", "to open"), ("车", "1", "car"), ("生日", "2", "birthday"),
+         ("下午", "1", "afternoon"), ("早上", "2", "early morning"), ("课", "2", "lesson"), ("卖", "2", "to sell"),
+         ("水", "1", "water"), ("商店", "1", "shop"), ("钱", "1", "money"), ("好", "1", "good"), ("下", "1", "down")]
 SHIPPED = {f"w{i + 1:04d}": {"id": f"w{i + 1:04d}", "w": w, "lv": lv, "en": en, "pron": ""}
            for i, (w, lv, en) in enumerate(WORDS)}
 ID = {v["w"]: k for k, v in SHIPPED.items()}
@@ -156,6 +159,54 @@ class Segmentation(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+class PhrasesAndGlosses(unittest.TestCase):
+    def spans(self, text, display=None):
+        L = ZhLinker(SHIPPED, COMPOUNDS, display)
+        toks = L.tag(text, "", frozenset())
+        return L.links_all(toks, text, "")[2]
+
+    def test_phrase_one_span_with_gloss(self):
+        self.assertEqual(self.spans("越来越好"), [[0, 3, ID["越"], "more and more"], [3, 4, ID["好"]]])
+        self.assertEqual(self.spans("开车"), [[0, 2, ID["开"], "to drive (a car)"]])
+        self.assertEqual(self.spans("过生日"), [[0, 3, ID["过"], "to celebrate a birthday"]])
+        self.assertEqual(self.spans("看一下"), [[0, 1, ID["看"]], [1, 3, ID["下"], "(V+一下) briefly, a bit"]])
+        self.assertEqual(self.spans("有点")[0][:3], [0, 2, ID["点"]])
+
+    def test_phrase_guards(self):
+        v = lambda t: [x[0] for x in seg(t)[1] if x[3]["kind"] != "punct"]      # noqa: E731
+        self.assertEqual(v("一点钟"), ["一", "点", "钟"])            # clock, not "a little"
+        self.assertEqual(v("下午一点"), ["下午", "一", "点"])
+        self.assertEqual(v("十一点"), ["十", "一", "点"])
+        self.assertEqual(v("一下午"), ["一", "下午"])               # 下午 is a pack word
+        self.assertEqual(v("早上课"), ["早上", "课"])               # 早上 wins over 上课
+        self.assertEqual(v("放一点"), ["放", "一点"])
+
+    def test_meiyou_before_verb(self):
+        self.assertEqual(self.spans("没有去"), [[0, 2, ID["没"], "did not; have not (没有+V)"], [2, 3, ID["去"]]])
+        self.assertEqual(self.spans("没有和我")[0], [0, 2, ID["没"], "did not; have not (没有+V)"])
+        self.assertEqual(self.spans("没有在")[0], [0, 2, ID["没"], "did not; have not (没有+V)"])
+        self.assertEqual(self.spans("没有钱"), [[0, 1, ID["没"]], [1, 2, ID["有"]], [2, 3, ID["钱"]]])
+        # 没有 + V ... 的 + N: "there is no shop that sells water", two words
+        self.assertEqual([s[2] for s in self.spans("没有卖水的商店")][:2], [ID["没"], ID["有"]])
+
+    def test_display_gloss_on_every_span_of_the_word(self):
+        sp = self.spans("我看书，他们看看。", {"看": "to see; to read (display)"})
+        self.assertEqual(sp, [[0, 1, ID["我"]], [1, 2, ID["看"], "to see; to read (display)"], [2, 3, ID["书"]],
+                              [4, 6, ID["他"]], [6, 8, ID["看"], "to see; to read (display)"]])
+
+    def test_phrase_gloss_beats_display(self):
+        self.assertEqual(self.spans("开车", {"开": "to open (display)"}), [[0, 2, ID["开"], "to drive (a car)"]])
+
+    def test_q_words_visible(self):
+        sh = {"a": {"w": "猫"}, "b": {"w": "狗"}}
+
+        class L:
+            lemma_of = {"a": {"猫"}, "b": {"狗"}}
+        self.assertTrue(passages._q_words_in_sentence(L, sh, ["a"], {"t": "我有猫", "spans": []}))
+        self.assertTrue(passages._q_words_in_sentence(L, sh, ["b"], {"t": "我有猫", "spans": [[2, 3, "b"]]}))
+        self.assertFalse(passages._q_words_in_sentence(L, sh, ["b"], {"t": "我有猫", "spans": [[2, 3, "a"]]}))
+
+
 def _passage(pid, lv, sents, q_words, names=(), oop=None, n=4):
     return {"id": pid, "lv": lv, "title": "我的朋友", "names": list(names), "oop": oop or {},
             "sentences": sents,
@@ -202,6 +253,23 @@ class EndToEnd(unittest.TestCase):
             report = (d / "REPORT_passages.md").read_text()
             self.assertIn("1 may use <=1 2 lemmas and nothing above", report)
             self.assertIn("from `passages_src.json`", report)
+
+    def test_flat_layout_gloss_display_and_self_checks(self):
+        p = _passage("p1", "1", [["他们是我的朋友。", "They are my friends."], ["他开车去商店。", "He drives to the shop."]],
+                     ["他"], n=3)
+        p["questions"].append({"q": "他去商店。", "en": "He goes to the shop.", "type": "mc",
+                               "options": ["开车去商店", "朋友", "书", "水"], "answer": 0, "words": ["开"], "sentence": 1})
+        with tempfile.TemporaryDirectory() as d:
+            d = self.make(d, [p])
+            (d / "gloss_display.json").write_text(json.dumps({"_note": "x", "朋友": "friend (display)"}, ensure_ascii=False))
+            rc, out = self.run_pack(d)
+            self.assertEqual(rc, 0, out)
+            s0, s1 = json.loads((d / "passages.json").read_text())[0]["sentences"]
+            self.assertIn([5, 7, ID["朋友"], "friend (display)"], s0["spans"])
+            self.assertIn([1, 3, ID["开"], "to drive (a car)"], s1["spans"])
+            self.assertIn("self-check: level 1: 1/1 mc keys verbatim in the passage text (>=4 chars, numerals exempt): "
+                          "p1 q3 '开车去商店'", out)
+            self.assertNotIn("none of its words", out)
 
     def test_budget_and_oop_errors_with_hsk_levels(self):
         ps = [_passage("p1", "1", [["他们是我的朋友。", "."], ["我喜欢休息，喜欢跑，喜欢熊猫。", "."]],

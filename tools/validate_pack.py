@@ -423,7 +423,8 @@ PASSAGE_Q_TYPES = ("mc", "tf")
 def check_spans(spans, t, words, where, rep):
     """sentences[].spans (optional): [[start, end, wordId], ...] in UTF-16 code
     units of t, sorted, non-overlapping, wordId in the sentence's words, and each
-    slice non-blank text that does not split a surrogate pair."""
+    slice non-blank text that does not split a surrogate pair. A span may carry a
+    4th element, a non-empty display-only gloss string ([start, end, wordId, gloss])."""
     if not isinstance(spans, list):
         rep.err(f"{where}.spans must be a list of [start, end, wordId]")
         return
@@ -433,11 +434,14 @@ def check_spans(spans, t, words, where, rep):
     prev = 0
     for k, x in enumerate(spans):
         sw = f"{where}.spans[{k}]"
-        if not (isinstance(x, list) and len(x) == 3 and all(isinstance(v, int) and not is_bool(v) for v in x[:2])
+        if not (isinstance(x, list) and len(x) in (3, 4) and all(isinstance(v, int) and not is_bool(v) for v in x[:2])
                 and isinstance(x[2], str)):
-            rep.err(f"{sw} must be [start, end, wordId] with integer offsets")
+            rep.err(f"{sw} must be [start, end, wordId] or [start, end, wordId, gloss] with integer offsets")
             continue
-        a, b, wid = x
+        if len(x) == 4 and not (isinstance(x[3], str) and x[3].strip()):
+            rep.err(f"{sw} gloss (4th element) must be a non-empty string")
+            continue
+        a, b, wid = x[:3]
         if not 0 <= a < b <= n:
             rep.err(f"{sw} [{a}, {b}] out of bounds for a {n}-unit sentence (need 0 <= start < end <= length)")
             continue

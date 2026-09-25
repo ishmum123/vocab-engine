@@ -32,12 +32,19 @@ path whose last token is longest (reverse maximum matching: 十 + 分钟, not
     name) before a title (老师, 先生 ...) or after 小/老 (小王): a name;
   - anything else: one unknown character; adjacent unknown characters merge
     into one out-of-pack token, reported by surface.
-After segmentation: 过 right after a verb (a pack word whose gloss starts
+  - a phrase unit (PHRASES: 越来越, 开车, 一下, 有点 ...): one token and one
+    span linking its head word, with the phrase's gloss on the span (guards
+    in PHRASES' comment);
+After segmentation: 没有 before a verb, 在 or 和 (no 的 later in the clause)
+is one span linking 没 ("did not"). 过 right after a verb (a pack word whose gloss starts
 "to ") is the experiential aspect particle, not the level-4 verb "to cross":
 not counted, not linked. 了, 着, 的, 地, 得, 不, 没, 是 are pack words and link
 as themselves (没有 = 没 + 有, 不去 = 不 + 去, 是 ... 的 = 是 + 的).
 Latin letters are one counted token (out of pack unless declared); ASCII or
 full-width digits are numerals; everything else is punctuation.
+
+Spans may carry a 4th element, a display-only gloss: the phrase's gloss, else
+the word's entry in gloss_display.json beside pack.json (docs/PACK_SCHEMA.md).
 
 jieba (optional, tools/packbuilder/requirements-zh.txt) is report-only: a
 proper noun jieba finds (nr/ns/nt/nz) that the pack segmentation split into
@@ -58,7 +65,34 @@ LATIN_RE = re.compile(r"[A-Za-zＡ-Ｚａ-ｚ]+")
 DIGIT_RE = re.compile(r"[0-9０-９]+(?:[.,][0-9０-９]+)*")
 # same-span priority (lower wins): a numeral character is a numeral even when
 # it is a pack word; a pack word beats a declared name or oop spelled the same
-PRIORITY = {"num": 0, "word": 1, "compound": 2, "name": 3, "oop": 4, "derived": 5, "unk": 6}
+PRIORITY = {"num": 0, "word": 1, "phrase": 2, "compound": 3, "name": 4, "oop": 5, "derived": 6, "unk": 7}
+# Phrase units: surface -> (head pack word, span gloss). One token and one span
+# linking the head, with a display-only gloss on the span (spans[i][3]); used
+# only where the surface is no pack word. Guards (PHRASE_OK): a phrase never
+# starts where its first character completes a pack word with the character
+# before (早上课 is 早上 + 课, 所有的 is 所有 + 的) nor ends where its last
+# character starts a pack word with the next (一下午 is 一 + 下午); one
+# starting with 一 never follows a numeral (十一点); 一点/有点 never precede a
+# clock word (一点钟, 一点半) nor follow a time word (下午一点).
+PHRASES = {
+    "一点": ("点", "a little; a bit"), "一点儿": ("点", "a little; a bit"),
+    "有点": ("点", "a bit; somewhat (有点+adj)"), "有点儿": ("点", "a bit; somewhat (有点+adj)"),
+    "有一点": ("点", "a bit; somewhat (有一点+adj)"), "有一点儿": ("点", "a bit; somewhat (有一点+adj)"),
+    "一下": ("下", "(V+一下) briefly, a bit"),
+    "有的": ("有", "some (有的…有的)"), "有时候": ("有", "sometimes"),
+    "只有": ("只", "only (只有…才)"), "还好": ("还", "fortunately; not bad"),
+    "下班": ("下", "to finish work; to get off work"), "上下班": ("上", "to go to and from work"),
+    "上课": ("上", "to go to class; class begins"), "下课": ("下", "class is over; to finish class"),
+    "开会": ("开", "to hold a meeting; to be in a meeting"), "长大": ("长", "(zhǎng) to grow up"),
+    "草地": ("地", "(dì) lawn; grass (草地)"), "越来越": ("越", "more and more"),
+    "开车": ("开", "to drive (a car)"), "红包": ("包", "red envelope (of money)"),
+    "过生日": ("过", "to celebrate a birthday"), "别的": ("别", "other (别的)"),
+    "不用": ("用", "need not; no need to"), "找钱": ("找", "to give change"),
+    "交朋友": ("交", "to make friends"), "老人": ("老", "old people; the elderly"),
+}
+CLOCK_AFTER = frozenset("钟半多零") | NUMERALS
+CLOCK_BEFORE = ("上午", "下午", "中午", "早上", "晚上", "凌晨", "今天", "明天", "昨天", "每天", "从", "到")   # 下午一点: 1 p.m.
+MEIYOU_GLOSS = "did not; have not (没有+V)"     # 没有 before a verb, 在 or 和 (no 的 later in the clause): one span linking 没
 JIEBA_NAME_FLAGS = ("nr", "ns", "nt", "nz")
 JIEBA_MIN_FREQ = 100      # jieba dictionary entries tagged nr below this are phrases (太贵 17, 张老师 3)
 
@@ -72,14 +106,24 @@ class Spec(LanguageSpec):
     level_ids = ["1", "2", "3", "4"]
     passage_join = ""               # passage text = sentences joined without spaces
     passage_unspaced = True         # report ws_words = linked words (the count the app shows)
+    gloss_display_file = "gloss_display.json"     # beside pack.json: {headword w: display gloss for spans}
 
     def load(self):
         return self
 
     def passage_linker(self, shipped, pack_dir):
         import json
+        import sys
+
+        from ..core.words import load_gloss_display
         pack = json.loads((pack_dir / "pack.json").read_text())
-        return ZhLinker(shipped, pack.get("compounds", []))
+        display = load_gloss_display(pack_dir, self.gloss_display_file)
+        known = {w["w"] for w in shipped.values()}
+        unused = sorted(k for k in display if k not in known)
+        if unused:
+            print(f"zh passages: {self.gloss_display_file}: {len(unused)} keys match no pack word: {unused[:10]}",
+                  file=sys.stderr)
+        return ZhLinker(shipped, pack.get("compounds", []), display)
 
 
 SPEC = Spec
@@ -95,8 +139,11 @@ class ZhLinker:
     lemma_of, lemma_ids, num_ids, lowered) over the pack's own dictionary,
     plus declared (per-passage units), n_words and passage_notes."""
 
-    def __init__(self, shipped, compounds=()):
+    def __init__(self, shipped, compounds=(), display=None):
         self.shipped = shipped
+        # display-only glosses by headword (gloss_display.json): written on every
+        # span of the word (spans[i][3]); links, counts and words.json never see them
+        self.display = dict(display or {})
         self.id_of = {}
         for wid in sorted(shipped):
             self.id_of.setdefault(shipped[wid]["w"], wid)
@@ -111,6 +158,8 @@ class ZhLinker:
                 if c[:k] in self.id_of:
                     self.compound_base[c] = self.id_of[c[:k]]
                     break
+        self.phrases = {u: (self.id_of[h], g) for u, (h, g) in PHRASES.items()
+                        if u not in self.id_of and h in self.id_of}
         self.maxlen = max([len(w) for w in self.id_of] + [len(c) for c in self.compound_base] + [1])
         self.tagged = {}
         self.lowered = {}           # the Linker's truecase bookkeeping: always empty here
@@ -179,11 +228,42 @@ class ZhLinker:
         # 过 after a verb: the experiential aspect particle (去过), not "to cross"
         for j in range(1, len(toks)):
             t, prev = toks[j], toks[j - 1]
-            if t[0] == "过" and t[3]["kind"] == "word" and prev[3]["e"] == t[3]["s"] and prev[3]["wid"] and \
-                    prev[3]["kind"] in ("word", "compound", "derived") and _is_verb(self.shipped[prev[3]["wid"]]):
+            if t[0] == "过" and t[3]["kind"] == "word" and prev[3]["e"] == t[3]["s"] and self._verbal(prev):
                 t[1], t[2] = "过", "PART"
                 t[3] = dict(t[3], wid=None, kind="particle")
+        # 没有 before a verb, 在 or 和 ("did not"): one token and span linking 没
+        mei = self.id_of.get("没")
+        j = 0
+        while mei and j + 2 < len(toks):
+            a, b, c = toks[j], toks[j + 1], toks[j + 2]
+            if a[0] == "没" and b[0] == "有" and a[3]["kind"] == b[3]["kind"] == "word" and \
+                    a[3]["e"] == b[3]["s"] and b[3]["e"] == c[3]["s"] and (c[0] in ("在", "和") or self._verbal(c)) \
+                    and not self._de_in_clause(toks, j + 2):
+                toks[j:j + 2] = [["没有", "没", "X", {"s": a[3]["s"], "e": b[3]["e"], "wid": mei, "kind": "phrase",
+                                                    "oopname": False, "gloss": MEIYOU_GLOSS}]]
+            j += 1
         return toks
+
+    @staticmethod
+    def _de_in_clause(toks, j):
+        """A 的 after toks[j] before the clause ends: 没有 + V ... 的 + N is
+        "there is no N that V" (那里没有卖水的商店), so 没 + 有 stay two words."""
+        for t in toks[j:]:
+            if t[3]["kind"] == "punct":
+                return False
+            if t[0] == "的":
+                return True
+        return False
+
+    def _verbal(self, tok):
+        """A token read as a verb: a linked pack word (or unit on one) whose
+        gloss (the phrase's own gloss for a phrase unit) starts with "to"."""
+        info = tok[3]
+        if not info.get("wid") or info["kind"] not in ("word", "compound", "derived", "phrase"):
+            return False
+        if info["kind"] == "phrase" and info.get("gloss"):
+            return info["gloss"].startswith("to ")
+        return _is_verb(self.shipped[info["wid"]])
 
     def _candidates(self, s, i, units, surnames):
         """(end, kind, wid, lemma, oopname) units starting at s[i]."""
@@ -201,6 +281,9 @@ class ZhLinker:
             elif u in self.compound_base:
                 b = self.compound_base[u]
                 out.append((i + L, "compound", b, self.shipped[b]["w"], False))
+        for u, (wid, _g) in self.phrases.items():
+            if s.startswith(u, i) and self._phrase_ok(s, i, i + len(u)):
+                out.append((i + len(u), "phrase", wid, self.shipped[wid]["w"], False))
         for u, (kind, _w, on) in units.items():
             if s.startswith(u, i):
                 out.append((i + len(u), kind, None, u, on))
@@ -235,6 +318,20 @@ class ZhLinker:
         out.append((i + 1, "unk", None, ch, False))
         return out
 
+    def _phrase_ok(self, s, i, e):
+        """PHRASES guards (see there)."""
+        if i and s[i - 1:i + 1] in self.id_of:
+            return False
+        if e < len(s) and s[e - 1:e + 1] in self.id_of:
+            return False
+        if s[i] == "一" and i and (s[i - 1] in NUMERALS or s[i - 1] == "第"):
+            return False
+        if s[i:e] in ("一点", "有点", "有一点") and e < len(s) and s[e] in CLOCK_AFTER:
+            return False
+        if s[i:e] == "一点" and s[:i].endswith(CLOCK_BEFORE):
+            return False
+        return True
+
     def _segment_run(self, text, a, b, units, surnames):
         s = text[a:b]
         n = len(s)
@@ -265,8 +362,10 @@ class ZhLinker:
         for i, e, kind, wid, lemma, on in merged:
             surf = s[i:e]
             upos = {"num": "NUM", "name": "PROPN"}.get(kind, "X")
-            toks.append([surf, lemma if kind != "unk" else surf, upos,
-                         {"s": a + i, "e": a + e, "wid": wid, "kind": kind, "oopname": on}])
+            info = {"s": a + i, "e": a + e, "wid": wid, "kind": kind, "oopname": on}
+            if kind == "phrase":
+                info["gloss"] = self.phrases[surf][1]
+            toks.append([surf, lemma if kind != "unk" else surf, upos, info])
         return toks
 
     # ---- the Linker interface -------------------------------------------------
@@ -295,7 +394,13 @@ class ZhLinker:
             claimed.add(i)
             if wid not in ids:
                 ids.append(wid)
-            spans.append([utf16_index(text, t[3]["s"]), utf16_index(text, t[3]["e"]), wid])
+            span = [utf16_index(text, t[3]["s"]), utf16_index(text, t[3]["e"]), wid]
+            # optional 4th element, display-only: the phrase's gloss, else the
+            # word's gloss_display.json text (the app falls back to the word's en)
+            g = t[3].get("gloss") or self.display.get(self.shipped[wid]["w"])
+            if g:
+                span.append(g)
+            spans.append(span)
         return ids, self.classify(toks, en), spans, claimed
 
     def n_words(self, toks):
