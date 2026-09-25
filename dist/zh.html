@@ -124,6 +124,20 @@
   .rowset .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
   .rowset .info .pr{flex:0 0 auto;display:block;overflow-wrap:anywhere}
   .rowset .info .en{text-align:left;display:block}
+  /* Characters stage (pack.characters): Learn teach cards, and sentence ruby by tier.
+     A sentence carrying ruby gets a fixed tall line box, so lines with and without a
+     ruby token are the same height (no jump as tokens change tier) and wrapped lines
+     never collide with the reading above them. */
+  .charteach{padding:10px 0;border-bottom:1px solid var(--line)}
+  .charteach .chead{display:flex;align-items:center;gap:14px}
+  .charteach .cform{font-size:40px;line-height:1.2;flex:0 1 auto;min-width:56px;max-width:55%;text-align:center;overflow-wrap:anywhere}
+  .charteach .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .charteach .pr{font-size:16px}
+  .charteach .en{color:var(--mute);font-size:14px;text-align:left;margin:0}
+  .charteach .sent{border-bottom:none;padding:4px 0 0;font-size:14px}
+  .hasruby{line-height:2.3}
+  .hasruby ruby{ruby-position:over}
+  .hasruby rt{font-family:var(--font);font-size:0.5em;line-height:1;color:var(--mute);font-weight:400}
   .sent{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
   .sent .st{font-family:var(--wfont);font-size:17px}
   .sent .sp{color:var(--mute);font-size:14px}
@@ -1729,14 +1743,17 @@ const HAS_LESSONS = !!PACK.hasLessons && LESSON_LIST.length > 0;
 const PASSAGE_LIST = (typeof PASSAGES !== "undefined" && Array.isArray(PASSAGES)) ? PASSAGES : [];
 const HAS_PASSAGES = PASSAGE_LIST.length > 0;
 // CHARACTERS is optional too, like LESSONS: a pack without pack.characters leaves it
-// undeclared in dev mode (or the pack simply has no characters.json). No UI reads these
-// yet; this just exposes the data for the character-stage logic added in a later brief.
+// undeclared in dev mode (or the pack simply has no characters.json). Every character
+// surface (path stages, choice card, unit Learn, unit items in Review/Recall, sentence
+// ruby) is gated on HAS_CHARACTERS; without it each code path is the pre-characters one.
 const CHAR_LIST = (typeof CHARACTERS !== "undefined" && Array.isArray(CHARACTERS)) ? CHARACTERS : [];
 const HAS_CHARACTERS = !!PACK.characters && CHAR_LIST.length > 0;
+const CHAR_CFG = HAS_CHARACTERS ? VC.charsConfig(PACK) : null;
 const LEVELS = VC.levelIds(PACK);
 const SIZE = VC.setSizeOf(PACK);
 const BY_LV = VC.wordsByLevel(WORDS, PACK);
 const WORDS_BY_ID = {}; WORDS.forEach(w=>{ WORDS_BY_ID[w.id] = w; });
+const CHAR_CTX = { units: CHAR_LIST, words: WORDS, byId: WORDS_BY_ID }; // VC.charItem context
 const SENT_INDEX = new Map(SENTENCES.map((s,i)=>[s, i]));
 const TYPING = VC.typingEnabled(PACK);
 const levelLabel = lv => VC.levelLabel(PACK, lv);
@@ -1794,6 +1811,7 @@ const store = {
 };
 function markWord(id, ok){ VC.markRec(prog.w, id, ok, true); store.save(); }
 function markSentence(id, ok){ VC.markRec(prog.s, id, ok, false); store.save(); }
+function markChar(unitId, ok){ VC.markChar(prog, unitId, ok); store.save(); } // prog.chars.c only
 const mastered = id => ((prog.w[id]||{}).s||0) >= VC.WORD_MASTERED;
 const sentenceMastered = id => ((prog.s[id]||{}).s||0) >= VC.SENTENCE_MASTERED;
 const weakFirst = (list, n) => VC.weakFirst(list, n, prog.w);
@@ -2050,8 +2068,44 @@ $("panel").addEventListener("click", e => {
 function highlightHTML(s, entry){
   return VC.highlightParts(s, entry, WORDS_BY_ID, PACK).map(x => x.hit ? `<b>${escapeHtml(x.text)}</b>` : escapeHtml(x.text)).join("");
 }
+// Sentence ruby by tier (pack.characters, sentence.ruby): VC.rubyTiers' tokens, or null
+// when the sentence renders exactly as without characters (no characters stage, no
+// ruby on it, characters not started, mix off, or pron hidden: showPron off hides all
+// ruby). Non-null replaces the sentence's pron line.
+function sentenceRuby(s){
+  if(!HAS_CHARACTERS || !s || !Array.isArray(s.ruby) || !showPron()) return null;
+  return VC.rubyTiers(s, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog));
+}
+// Sentence text with ruby tokens: below the bare tier <ruby>t<rt>reading</rt></ruby>,
+// at or above it the plain written form. entry (optional): the taught word, bolded as in
+// highlightHTML (a ruby token overlapping it is bolded whole). Offsets are UTF-16, as
+// JS string indices; a malformed token (overlapping, out of range) renders as plain text.
+function rubyTextHTML(s, toks, entry){
+  const t = String(s.t || ""); const hits = [];
+  if(entry){ let o = 0; VC.highlightParts(s, entry, WORDS_BY_ID, PACK).forEach(x => { if(x.hit) hits.push([o, o + x.text.length]); o += x.text.length; }); }
+  const inHit = (a, b) => hits.some(([h0, h1]) => a < h1 && b > h0);
+  const plain = (a, b) => {
+    const cuts = new Set([a, b]);
+    hits.forEach(([h0, h1]) => { if(h0 > a && h0 < b) cuts.add(h0); if(h1 > a && h1 < b) cuts.add(h1); });
+    const cs = [...cuts].sort((x, y) => x - y); let out = "";
+    for(let k = 0; k < cs.length - 1; k++){ const seg = escapeHtml(t.slice(cs[k], cs[k+1])); out += inHit(cs[k], cs[k+1]) ? `<b>${seg}</b>` : seg; }
+    return out;
+  };
+  let out = "", pos = 0;
+  toks.forEach(k => {
+    if(!(k.start >= pos && k.end > k.start && k.end <= t.length)) return;
+    out += plain(pos, k.start);
+    const base = escapeHtml(t.slice(k.start, k.end));
+    const h = k.tier === "bare" ? base : `<ruby>${base}<rt>${escapeHtml(k.reading)}</rt></ruby>`;
+    out += inHit(k.start, k.end) ? `<b>${h}</b>` : h;
+    pos = k.end;
+  });
+  return out + plain(pos, t.length);
+}
 // entry (optional): the taught word, highlighted in the sentence.
 function sentenceRowHTML(s, entry){
+  const rt = sentenceRuby(s);
+  if(rt) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
   const p = pronOf(s);
   return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st"${TA}>${entry ? highlightHTML(s, entry) : escapeHtml(s.t)}</div>${p ? `<div class="sp">${escapeHtml(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
 }
@@ -2110,16 +2164,18 @@ function missSummary(miss){
 
 // ===================== sentence drill items =====================
 function sentenceRevealBlock(s){
-  const p = pronOf(s);
+  const rt = sentenceRuby(s);
+  const p = rt ? "" : pronOf(s);
   const canHear = canHearSentence(s);
   const icon = canHear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(s.t)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}${icon}</div>${p ? `<div class="rp">${escapeHtml(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
 }
 const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
 function readSentence(s){
-  const p = pronOf(s);
+  const rt = sentenceRuby(s);
+  const p = rt ? "" : pronOf(s);
   return { kind:"mc", key:"s:"+s.id, label:"What does it mean?", optsClass:"opts-hero",
-    html: `<div class="med wd"${TA}>${escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
+    html: `<div class="med wd${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}</div>${p ? `<div class="q">${escapeHtml(p)}</div>` : ""}`,
     opts: sentenceChoices(s), a: s.en, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
     mount: () => saySentence(s), };
 }
@@ -2159,6 +2215,37 @@ function sentenceItemFor(s){
   return gapSentence(s, k === "gapType") || readSentence(s);
 }
 
+// ===================== character drill items =====================
+// One renderer per VC.charItem kind (pack.characters only). The stimulus is what the
+// item's `show` says: charRead/charSound the written form alone (no reading, no audio),
+// charPick the reading plus the linked word's audio, charRecall the meaning. The reveal
+// always gives form, reading and meaning. Scoring writes prog.chars.c only (markChar).
+const sayUnit = (it, btn) => { const w = WORDS_BY_ID[it.wordId]; speak(w ? w.w : it.t, btn); };
+function charRevealBlock(it){
+  const tap = hasSpeech && WORDS_BY_ID[it.wordId];
+  const icon = tap ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
+  return `<div${tap ? ` data-wid="${escapeHtml(it.wordId)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(it.t)}${icon}</div>${it.reading ? `<div class="rp">${escapeHtml(it.reading)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(it.gloss)}</div></div>`;
+}
+function charDrillItem(kind, unit){
+  const it = VC.charItem(kind, unit, CHAR_CTX);
+  const base = { kind:"mc", key: it.key, opts: it.options, a: it.answer, reveal: charRevealBlock(it),
+    onAnswer: ok => markChar(it.unitId, ok), onReveal: () => sayUnit(it) };
+  const form = `<div class="big wd"${TA}>${escapeHtml(it.t)}</div>`;
+  const formOpts = { optsClass:"opts-hero opts-w", optHtml: o => tw(o), optsT: true };
+  if(kind === "charRead") return Object.assign(base, { label:"What does it mean?", optsClass:"opts-hero", html: form });
+  if(kind === "charSound") return Object.assign(base, { label:"How is it said?", optsClass:"opts-hero", html: form, optHtml: o => `<bdi>${escapeHtml(o)}</bdi>` });
+  if(kind === "charPick"){
+    const hear = it.audio && hasSpeech;
+    return Object.assign(base, formOpts, { label:"How is it written?",
+      html: `${hear ? `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : ""}<div class="med" style="text-align:center">${escapeHtml(it.reading)}</div>`,
+      mount: () => { if(!hear) return; const btn = $("sp"); sayUnit(it, btn); btn.onclick = () => sayUnit(it, btn); },
+      onReveal: null });
+  }
+  return Object.assign(base, formOpts, { label:"How is it written?", html: `<div class="med" style="text-align:center">${escapeHtml(it.gloss)}</div>` });
+}
+// Plan entries are {kind, word} or, from the unified plans, {kind, unit}.
+const planItem = p => p.unit ? charDrillItem(p.kind, p.unit) : itemFromPlan(p);
+
 // ===================== lesson item wrapper =====================
 // mode from VC.lessonSayMode: "audio" plays `say`; "inq" runs without audio (the
 // question already shows it); "text" shows the say text instead of audio.
@@ -2194,19 +2281,47 @@ function switchToTab(t, title){
 }
 
 // ===================== Today =====================
+// With pack.characters the strip is VC.stagePath: word levels plus the character
+// stages in this learner's order (label from pack.characters, target-language text).
 function pathStrip(){
-  const stages = LEVELS.map(lv=>({ label: levelLabel(lv), frac: nSets(lv) ? (prog.sets[lv]||0)/nSets(lv) : 1 }));
-  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${escapeHtml(s.label)}</div>`).join("")}</div>`;
+  const stages = HAS_CHARACTERS
+    ? VC.stagePath(PACK, WORDS, CHAR_LIST, prog).map(s => ({ label: s.label, frac: s.frac, tl: s.kind === "chars" }))
+    : LEVELS.map(lv=>({ label: levelLabel(lv), frac: nSets(lv) ? (prog.sets[lv]||0)/nSets(lv) : 1 }));
+  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.tl ? tw(s.label) : escapeHtml(s.label)}</div>`).join("")}</div>`;
+}
+// The snapshot (VC.todaySnapshot) Today runs on: taken at Start today and kept for the
+// session, so finishing a stage mid-session changes neither what Learn teaches nor
+// whether Review/Recall include units. null without pack.characters.
+const takeSnapshot = () => HAS_CHARACTERS ? VC.todaySnapshot(PACK, WORDS, CHAR_LIST, prog) : null;
+// Learn has something to teach: the snapshot's stage (word set, or a unit set).
+const snapLearns = snap => !!(snap.stage && (snap.stage.kind === "words" || snap.cset));
+function snapLearnLine(snap){
+  const st = snap.stage;
+  if(!st || !snapLearns(snap)) return "everything covered";
+  return st.kind === "words" ? `${levelLabel(st.lv)}, set ${st.set+1}` : `${st.label}, set ${snap.cset.index+1} of ${snap.cset.total}`;
+}
+// The one-time choice card: start the character stage now, or defer it (VC.answerCharChoice)
+// and go on to the next word level first. Replaces Start today until answered.
+function charChoiceHTML(){
+  const path = VC.stagePath(PACK, WORDS, CHAR_LIST, prog);
+  const first = path.findIndex(s => s.kind === "chars");
+  const next = path.slice(first + 1).find(s => s.kind === "words" && !s.done);
+  const L = tw(CHAR_CFG.label), N = escapeHtml(next ? next.label : "");
+  return `<div class="stmt" id="charChoice">${L} next: learn to recognise the written form of the words you already know. Or go on to ${N} first and do ${L} after it.<button class="next" id="choiceStart" style="margin-top:8px">Start ${L}</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to ${N}</button></div>`;
 }
 function todayRender(){
   setScore(0,0);
   const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
   const n = (prog.sessions||0) + 1;
   const availSent = availableSentences();
-  const g = VC.todayGates(lw.length, !!nn, availSent.length);
+  const snap = takeSnapshot();
+  const g = VC.todayGates(lw.length, snap ? snapLearns(snap) : !!nn, availSent.length);
+  const reviewLine = snap
+    ? `${snap.reviewSize} items, weakest first${snap.charsStarted ? `, words and ${CHAR_CFG.label}` : ""}`
+    : `${VC.REVIEW_SIZE} items, weakest first`;
   const steps = [
-    ["Review", g.review ? `${VC.REVIEW_SIZE} items, weakest first` : "skipped until 5+ words are learned"],
-    ["Learn", nn ? `${levelLabel(nn.lv)}, set ${nn.set+1}` : "everything covered"],
+    ["Review", g.review ? reviewLine : "skipped until 5+ words are learned"],
+    ["Learn", snap ? snapLearnLine(snap) : (nn ? `${levelLabel(nn.lv)}, set ${nn.set+1}` : "everything covered")],
     ["Listen", g.listen ? "12 items" : "skipped until something is learned"],
     ["Recall", g.recall ? "8 items" : "skipped until something is learned"],
     ["Sentences", g.sentences ? "8 items, weakest first" : "skipped until 8+ sentences are available"]
@@ -2215,17 +2330,25 @@ function todayRender(){
   const showSoundsHint = HAS_LESSONS && !prog.soundsOpened;
   refreshReadUnlocks();
   const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
+  const choice = !!(snap && snap.choice);
   P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${pathStrip()}
-    ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
+    ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice ? charChoiceHTML() : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
     ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${tw(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
-    </div><div class="actions"><button class="next" id="go">Start today</button></div>`;
+    </div>${choice ? "" : `<div class="actions"><button class="next" id="go">Start today</button></div>`}`;
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
   if(readHint) $("hintRead").onclick = () => { switchToTab("read", "Read"); RD = null; startPassage(readHint); };
-  $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
+  // The choice card replaces Start today until answered, so Learn never teaches a stage
+  // the learner hasn't chosen.
+  if(choice){
+    $("choiceStart").onclick = () => { VC.answerCharChoice(prog, true); store.save(); todayRender(); };
+    $("choiceSkip").onclick = () => { VC.answerCharChoice(prog, false); store.save(); todayRender(); };
+    return;
+  }
+  $("go").onclick = () => { todayStepState = HAS_CHARACTERS ? { step:0, snap: takeSnapshot() } : { step:0 }; todayStep(); };
 }
 function enterPlacementFromToday(){ switchToTab("test", "Test"); testSel = "placement"; startPlacement(); }
 function enterFirstSoundsLessonFromToday(){
@@ -2236,16 +2359,29 @@ function enterFirstSoundsLessonFromToday(){
 }
 // review(15, >=40% production) -> learn(next set) -> listen(12 hear) -> recall(8
 // recall/type) -> sentences(8) -> finish. Each step skips itself when its pool is too small.
+// With pack.characters every step reads the Start-today snapshot (todayStepState.snap,
+// taken lazily if a step is entered without one): Learn teaches its stage's set (word
+// or unit), Review is snap.reviewSize, and Review/Recall rank units with words once
+// characters have started. Without it each step is the pre-characters code.
 function todayStep(){
-  const lw = learnedWords(); const nn = nextNewSet();
+  const snap = HAS_CHARACTERS ? (todayStepState.snap || (todayStepState.snap = takeSnapshot())) : null;
+  const lw = learnedWords();
+  const nn = snap ? (snap.stage && snap.stage.kind === "words" ? { lv: snap.stage.lv, set: snap.stage.set } : null) : nextNewSet();
   const avail = availableSentences();
-  const g = VC.todayGates(lw.length, !!nn, avail.length);
+  const g = VC.todayGates(lw.length, snap ? snapLearns(snap) : !!nn, avail.length);
+  const units = snap && snap.charsStarted ? CHAR_LIST : undefined;
   const s = todayStepState.step++;
   if(s === 0){
+    if(g.review && snap){ drill(VC.buildReviewPlan(lw, prog, PACK, { size: snap.reviewSize, units }).map(planItem), todayStep, missSummary); return; }
     if(g.review){ drill(VC.buildReviewPlan(lw, prog, PACK).map(itemFromPlan), todayStep, missSummary); return; }
     return todayStep();
   }
   if(s === 1){
+    if(g.learn && snap && snap.stage.kind === "chars"){
+      const cs = snap.cset;
+      charTeach(cs, snap.stage, () => drill(VC.learnCharPlan(cs.units, PACK).map(planItem), todayStep, missSummary));
+      return;
+    }
     if(g.learn){
       const list = levelList(nn.lv).slice(nn.set*SIZE, nn.set*SIZE+SIZE);
       vocabTeach(list, nn.lv, () => {
@@ -2262,6 +2398,7 @@ function todayStep(){
     return todayStep();
   }
   if(s === 3){
+    if(g.recall && units){ drill(VC.buildRecallPlan(lw, prog, PACK, 8, { units }).map(planItem), todayStep, missSummary); return; }
     if(g.recall){ drill(VC.buildRecallPlan(lw, prog, PACK, 8).map(itemFromPlan), todayStep, missSummary); return; }
     return todayStep();
   }
@@ -2305,6 +2442,23 @@ function vocabTeach(list, lv, onDrill){
       tl.appendChild(exWrap);
     }
   });
+  $("dr").onclick = onDrill;
+}
+// Teach cards for a character-unit set (Learn, pack.characters): per unit the written form
+// large, its reading, the linked word's meaning and one example sentence of that word.
+// Tapping the head plays the word (panel data-wid listener), the sentence plays itself.
+function charTeach(cs, stage, onDrill){
+  setScore(0,0);
+  const P = $("panel");
+  const hint = hasSpeech ? " Tap one to hear it." : "";
+  const cards = cs.units.map(u => {
+    const w = VC.unitWord(u, WORDS_BY_ID), reading = VC.unitReading(u, WORDS_BY_ID);
+    const tap = hasSpeech && w;
+    const ex = w ? wordExampleSentences(w, 1) : [];
+    return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${escapeHtml(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w)).join("")}</div>`;
+  }).join("");
+  P.innerHTML = `<p class="q">${tw(stage.label)}, set ${cs.index+1} of ${cs.total}: the written form of words you already know.${hint}</p>
+    <div id="ctl">${cards}</div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
   $("dr").onclick = onDrill;
 }
 // Lesson card `body` is trusted pack HTML (pack authors write it); everything else is escaped.
@@ -2781,4 +2935,4 @@ $("themebtn").onclick = () => {
 </script>
 </body>
 </html>
-<!--ve-build:2859815956-1067361-->
+<!--ve-build:2258801576-1078788-->
