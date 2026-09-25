@@ -100,6 +100,13 @@ the characters stage. The characters stage needs its own tests. Second consumer:
 list of what hsk would gain: `hsk/TODO.md`. Do this BEFORE the B2 expansion
 so every pack is rebuilt once, on the merged engine.
 
+### 1b. Chinese reading passages (user 2026-09-25, right after item 1)
+Author 60 passages for the engine's zh pack the same way as the other
+languages (unspaced linking as in `langs/ja.py`; rules in any repo's
+`tools/passages_src.json`; one Opus authoring pass + two QA rounds). They
+reach learners only when hsk switches onto the engine (last task), so they
+ship with that switch.
+
 ### 2. Expand every pack from B1 to B2 (user is considering it)
 Roughly 2000 → 4000 words per language (B2 ≈ ranks 2001–4000), a fourth
 level in `placement`, `levels` and the Read tab (20 more passages at
@@ -112,3 +119,14 @@ filters matter more. Decide per language whether B2 is viable before
 starting (measure candidate words with ≥2 corpus sentences in ranks
 2001–4000). Order after the hsk merge (item 1) so the rebuild happens on the
 final engine.
+
+## Backlog (not scheduled)
+- **Video stage** (user 2026-09-25: backlog only): level-graded YouTube
+  videos per language with a timed transcript and passage-style questions,
+  modelled as a passage with a video id; player hidden and item degraded to a
+  plain passage when the embed reports unavailable; link check at build time
+  only, no periodic recheck. Parked because curating videos that respect
+  Islamic principles (no music, modest imagery, no objectionable content) is
+  a manual per-video judgement the project cannot staff, and video is a
+  one-time curation the user will not maintain. Revisit only with a curated
+  source list.
