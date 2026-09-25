@@ -932,6 +932,7 @@ function defaultProg(pack){
   const sets = {}; levelIds(pack).forEach(id=>{ sets[id] = 0; });
   const p = { v:PROG_VERSION, w:{}, s:{}, sets, lessons:{}, sessions:0, theme:null, showPron: pack.showPron !== false, placedOnce:false };
   if(charsConfig(pack)) p.chars = defaultCharsProg(); // absent without pack.characters: flag-off shape unchanged
+  if(scriptConfig(pack)) p.script = defaultScriptProg(); // absent without pack.script: likewise
   return p;
 }
 const isObj = x => !!x && typeof x === "object" && !Array.isArray(x);
@@ -973,6 +974,7 @@ function validateProgShape(data, levelIdList){
   if(data.theme !== undefined && data.theme !== null && data.theme !== "light" && data.theme !== "dark") return {ok:false, reason:"theme must be null, \"light\" or \"dark\""};
   if(data.read !== undefined){ const e = validateReadShape(data.read); if(e) return {ok:false, reason:e}; }
   if(data.chars !== undefined){ const e = validateCharsShape(data.chars); if(e) return {ok:false, reason:e}; }
+  if(data.script !== undefined){ const e = validateScriptShape(data.script); if(e) return {ok:false, reason:e}; }
   return {ok:true, data};
 }
 // Fills every missing field of validated (or stored) progress from the pack's
@@ -983,6 +985,7 @@ function normalizeProg(data, pack){
   merged.sets = Object.assign({}, base.sets, (data && data.sets) || {});
   for(const k of ["w","s","lessons"]) if(!isObj(merged[k])) merged[k] = {};
   if(charsConfig(pack)) merged.chars = normalizeCharsProg(data && data.chars);
+  if(scriptConfig(pack)) merged.script = normalizeScriptProg(data && data.script, data);
   return merged;
 }
 // Parses a stored/imported progress string. Only a JSON object is progress;
@@ -1105,10 +1108,14 @@ function kindMix(n, share, typing, rng){
 // opts.units (optional): the pack's character units. When the pack has a characters
 // block and some unit has a record, Review is unified (see unifiedReviewPlan); with no
 // such unit the code below runs unchanged, so the output is identical to a word-only plan.
+// opts.script (optional): the pack's script units (pack.script). Recorded ones join the
+// same unified ranking as kind "x" (scriptReviewScore); none recorded, or the primer
+// skipped, leaves the plan as above.
 function buildReviewPlan(learned, prog, pack, opts){
   const o = opts || {}; const n = o.size || REVIEW_SIZE;
   const ru = recordedUnits(o.units, prog, pack);
-  if(ru.length) return unifiedReviewPlan(learned, ru, prog, pack, n, o.rng);
+  const rs = recordedScriptUnits(o.script, prog, pack);
+  if(ru.length || rs.length) return unifiedReviewPlan(learned, ru, prog, pack, n, o.rng, rs);
   const pv = provPick(learned, Math.min(REVIEW_PROV, n), prog.w);
   const pvSet = new Set(pv.map(w=>w.id));
   const rest = weakFirst(learned.filter(x=>!pvSet.has(x.id)), n - pv.length, prog.w, null, o.rng);
@@ -1156,8 +1163,10 @@ function lessonSayMode(item, speechOK){
 
 // Which Today steps run, given the learned-word count, whether a new set remains,
 // and the available-sentence count. Shared by the Today plan table and the runner.
-function todayGates(learnedCount, hasNextSet, availSentCount){
-  return { review: learnedCount >= 5, learn: !!hasNextSet, listen: learnedCount >= 4, recall: learnedCount >= 4, sentences: availSentCount >= 8 };
+// scriptCount (optional, pack.script): recorded script units; any opens Review, since a
+// learner in the primer has no learned words yet.
+function todayGates(learnedCount, hasNextSet, availSentCount, scriptCount){
+  return { review: learnedCount >= 5 || (scriptCount || 0) > 0, learn: !!hasNextSet, listen: learnedCount >= 4, recall: learnedCount >= 4, sentences: availSentCount >= 8 };
 }
 // Test tab: free word tests need TEST_MIN_WORDS learned words; the sentence test needs
 // 8 available sentences. The "learn first" notice depends on learned words only
@@ -1421,10 +1430,11 @@ function charsConfig(pack){
 // charRead 40 / charSound 30 / charPick 30, by default). Unknown kinds and non-positive
 // or non-finite weights are dropped; nothing left means the default.
 const CHAR_TEST_KINDS = { charRead:40, charSound:30, charPick:30 };
-function testKinds(tk){
+// kinds/def (optional): the known kinds and default map (pack.script passes its own).
+function testKinds(tk, kinds, def){
   const out = {};
-  if(isObj(tk)) for(const k of CHAR_KINDS) if(typeof tk[k] === "number" && isFinite(tk[k]) && tk[k] > 0) out[k] = tk[k];
-  return Object.keys(out).length ? out : Object.assign({}, CHAR_TEST_KINDS);
+  if(isObj(tk)) for(const k of (kinds || CHAR_KINDS)) if(typeof tk[k] === "number" && isFinite(tk[k]) && tk[k] > 0) out[k] = tk[k];
+  return Object.keys(out).length ? out : Object.assign({}, def || CHAR_TEST_KINDS);
 }
 // One kind drawn from a {kind: weight} map (rng in [0, 1)).
 function pickWeighted(weights, rng){
@@ -1534,7 +1544,9 @@ function charStages(pack, prog){
 // done} (set = the level's sets counter, as nextNewSet reports it). Character stage:
 // {kind:"chars", key, levels, label, recorded, nunits, nsets, frac, done}.
 // Without pack.characters this is exactly the level strip: one word stage per level.
-function stagePath(pack, words, units, prog){
+// sunits (optional, pack.script): the script units. With pack.script and the primer not
+// skipped, one script stage per pack.script.stages entry comes first (scriptStages).
+function stagePath(pack, words, units, prog, sunits){
   const p = prog || {}; const sets = p.sets || {};
   const size = setSizeOf(pack), byLv = wordsByLevel(words, pack), recs = charRecs(p);
   const cfg = charsConfig(pack); const cs = charStages(pack, p);
@@ -1549,9 +1561,10 @@ function stagePath(pack, words, units, prog){
         nunits: list.length, nsets: Math.ceil(list.length / cfg.setSize), frac: list.length ? rec/list.length : 1, done: rec >= list.length });
     });
   });
-  return out;
+  const sc = scriptStages(pack, sunits, p);
+  return sc.length ? [...sc, ...out] : out;
 }
-function nextStage(pack, words, units, prog){ return stagePath(pack, words, units, prog).find(s => !s.done) || null; }
+function nextStage(pack, words, units, prog, sunits){ return stagePath(pack, words, units, prog, sunits).find(s => !s.done) || null; }
 // Every level up to the first character stage's `after` is taught: the point the
 // learning-order switch becomes available.
 function charsUnlocked(pack, words, prog){
@@ -1562,21 +1575,21 @@ function charsUnlocked(pack, words, prog){
 }
 // Characters have started: any character record exists, or the current stage is a
 // character stage. Gates every character surface outside the path strip.
-function charsStarted(pack, words, units, prog){
+function charsStarted(pack, words, units, prog, sunits){
   if(!charsConfig(pack)) return false;
   if(Object.keys(charRecs(prog)).length) return true;
-  const st = nextStage(pack, words, units, prog);
+  const st = nextStage(pack, words, units, prog, sunits);
   return !!(st && st.kind === "chars");
 }
 // The one-time choice card shows iff it is unanswered, the order is not deferred, every
 // level before the first character stage is taught, that stage is incomplete (records
 // elsewhere don't matter), and a later word level that deferring would put first (up to
 // the latest stage's `after`) is still incomplete. Otherwise the choice changes nothing.
-function showCharChoice(pack, words, units, prog){
+function showCharChoice(pack, words, units, prog, sunits){
   const cfg = charsConfig(pack); if(!cfg || !cfg.stages.length) return false;
   const ch = (prog && isObj(prog.chars)) ? prog.chars : {};
   if(ch.choiceSeen === true || ch.defer === true) return false;
-  const path = stagePath(pack, words, units, prog);
+  const path = stagePath(pack, words, units, prog, sunits);
   const first = path.findIndex(s => s.kind === "chars");
   if(first < 0 || path[first].done || !path.slice(0, first).every(s => s.done)) return false;
   const idx = levelIndexMap(pack), ids = levelIds(pack);
@@ -1851,27 +1864,32 @@ function charReviewScore(rec, pack){
   const cfg = charsConfig(pack); const p = rec || {}; const sc = weakScore(p);
   return (p.s || 0) < (cfg ? cfg.mastered : CHAR_MASTERED) ? Math.max(sc, 0) : sc;
 }
-// One ranking over words and units: the n weakest as [{kind:"w"|"c", entry, score}],
-// with weakFirst's jitter (below 1, so it only reorders equal scores).
-function rankUnified(words, wrecs, units, crecs, n, pack, rng){
+// One ranking over words and units: the n weakest as [{kind:"w"|"c"|"x", entry, score}],
+// with weakFirst's jitter (below 1, so it only reorders equal scores). sunits/srecs
+// (optional): script units and their records, kind "x" (scriptReviewScore).
+function rankUnified(words, wrecs, units, crecs, n, pack, rng, sunits, srecs){
   const r = rng || Math.random;
   const pool = [...(words || []).map(e => ({ kind:"w", entry:e, score: weakScore((wrecs || {})[e.id]) })),
-    ...(units || []).map(u => ({ kind:"c", entry:u, score: charReviewScore((crecs || {})[u.id], pack) }))];
+    ...(units || []).map(u => ({ kind:"c", entry:u, score: charReviewScore((crecs || {})[u.id], pack) })),
+    ...(sunits || []).map(u => ({ kind:"x", entry:u, score: scriptReviewScore((srecs || {})[u.id], pack) }))];
   return pool.map(x => ({ x, k: x.score + (r() - 0.5) })).sort((a, b) => b.k - a.k).slice(0, n).map(o => o.x);
 }
 // Unified Review: provisional words as before, then the weakest words and recorded units
 // under one ranking, n total. Word items keep the >= 40% production mix; each unit gets
-// a random pack reviewKind. Items: {kind, word} or {kind, unit}.
-function unifiedReviewPlan(learned, ru, prog, pack, n, rng){
-  const cfg = charsConfig(pack); const r = rng || Math.random;
+// a random pack reviewKind. Items: {kind, word} or {kind, unit}. rs (optional): recorded
+// script units; each gets a random pack.script reviewKind that fits it (pickScriptKind).
+function unifiedReviewPlan(learned, ru, prog, pack, n, rng, rs){
+  const cfg = charsConfig(pack), scfg = scriptConfig(pack); const r = rng || Math.random;
   const pv = provPick(learned, Math.min(REVIEW_PROV, n), prog.w);
   const pvSet = new Set(pv.map(w => w.id));
-  const ranked = rankUnified(learned.filter(x => !pvSet.has(x.id)), prog.w, ru, charRecs(prog), n - pv.length, pack, rng);
+  const ranked = rankUnified(learned.filter(x => !pvSet.has(x.id)), prog.w, ru, charRecs(prog), n - pv.length, pack, rng, rs, scriptRecs(prog));
   const pool = shuffle([...ranked, ...pv.map(w => ({ kind:"w", entry:w }))], rng);
   const kinds = kindMix(pool.filter(x => x.kind === "w").length, REVIEW_PRODUCTION_SHARE, typingEnabled(pack), rng);
   let wi = 0;
-  return pool.map(x => x.kind === "w" ? { kind: kinds[wi++], word: x.entry }
-    : { kind: cfg.reviewKinds[Math.floor(r() * cfg.reviewKinds.length)], unit: x.entry });
+  const out = pool.map(x => x.kind === "w" ? { kind: kinds[wi++], word: x.entry }
+    : x.kind === "c" ? { kind: cfg.reviewKinds[Math.floor(r() * cfg.reviewKinds.length)], unit: x.entry }
+    : { kind: pickScriptKind(scfg.reviewKinds, x.entry, scfg, r), unit: x.entry });
+  return out.filter(it => it.kind);
 }
 // Unified Recall: the n weakest words and recorded units, weakest first; words as
 // recall/type, units as charRecall.
@@ -1885,11 +1903,23 @@ function unifiedRecallPlan(learned, ru, prog, pack, n, rng){
 // changes neither what Learn teaches nor Review/Recall's mode: {stage, cset, charsStarted,
 // reviewSize, choice}. choice true means the choice card replaces Start today.
 // Without pack.characters: the next word stage, cset null, charsStarted false, REVIEW_SIZE.
-function todaySnapshot(pack, words, units, prog){
-  const stage = nextStage(pack, words, units, prog);
+// sunits (optional, pack.script): the script units. With pack.script the snapshot also has
+// ssets: the script sets Learn teaches (nextScriptSets, up to setsPerSession) while a
+// script stage is next, else []; reviewSize is REVIEW_SIZE_SCRIPT then; and choice is
+// "script" while the script choice card shows (it comes before the characters card).
+function todaySnapshot(pack, words, units, prog, sunits){
+  const stage = nextStage(pack, words, units, prog, sunits);
   const cset = stage && stage.kind === "chars" ? nextCharSet(stage.levels, units, pack, prog) : null;
-  const started = charsStarted(pack, words, units, prog);
-  return { stage, cset, charsStarted: started, reviewSize: started ? REVIEW_SIZE_CHARS : REVIEW_SIZE, choice: showCharChoice(pack, words, units, prog) };
+  const started = charsStarted(pack, words, units, prog, sunits);
+  const snap = { stage, cset, charsStarted: started, reviewSize: started ? REVIEW_SIZE_CHARS : REVIEW_SIZE, choice: showCharChoice(pack, words, units, prog, sunits) };
+  const scfg = scriptConfig(pack);
+  if(scfg){
+    const onScript = !!(stage && stage.kind === "script");
+    snap.ssets = onScript ? nextScriptSets(stage.key, sunits, pack, prog, scfg.setsPerSession) : [];
+    if(onScript) snap.reviewSize = REVIEW_SIZE_SCRIPT;
+    if(showScriptChoice(pack, sunits, prog)) snap.choice = "script";
+  }
+  return snap;
 }
 // Learned words' units without a record, level order then file order, at most n.
 function newCharUnits(units, learned, prog, pack, n){
@@ -1905,6 +1935,390 @@ function charTestPlan(units, learned, prog, pack, n, rng){
   const rec = weakFirst(recordedUnits(units, prog, pack), n, charRecs(prog), undefined, rng);
   const pool = rec.length >= n ? rec : rec.concat(newCharUnits(units, learned, prog, pack, n - rec.length));
   return pool.map(unit => ({ kind: pickWeighted(cfg.testKinds, rng), unit }));
+}
+
+// ------------------------------------------------------------------ script primer
+// Pack-gated (pack.script + pack/script.json, docs/SCRIPT_PRIMER.md, docs/PACK_SCHEMA.md
+// "Script primer"): one stage per pack.script.stages entry, before the first word level,
+// teaches a writing system symbol by symbol. A unit is one symbol (or a symbol in one
+// role); `st` names its stage and `set` its teaching set. Progress lives in prog.script =
+// {v, u:{[unitId]:{r,w,s}}, skipped, skip:{[stageKey]:bool}, choiceSeen, notice}; skipped
+// switches the whole primer off, skip one stage. Scoring writes prog.script.u only. Taught, done and mastered are derived from records, never stored. Without
+// pack.script every function here returns its empty value and nothing else changes.
+// Item keys are "x:" + unitId (the character stage uses "c:"). All pure and DOM-free.
+const SCRIPT_PROG_VERSION = 1;
+const SCRIPT_MASTERED = 3, SCRIPT_SETS_PER_SESSION = 2, REVIEW_SIZE_SCRIPT = 12;
+const SCRIPT_KINDS = ["symSound","soundSym","symType","compose","formFind","formMatch","wordRead","wordHear"];
+const SCRIPT_SOUND_KINDS = ["symSound","soundSym","symType"]; // never asked of a sound:false unit
+const SCRIPT_TEST_KINDS = { symSound:35, soundSym:25, wordRead:25, symType:15 };
+const ZWJ = "‍";
+// pack.script with defaults filled (known kinds only), or null when the pack has none.
+// stages: [{key, label}] with unique non-empty keys, in path order.
+function scriptConfig(pack){
+  const c = pack && pack.script;
+  if(!isObj(c)) return null;
+  const kinds = (k, d) => { const f = Array.isArray(k) ? k.filter(x => SCRIPT_KINDS.includes(x)) : []; return f.length ? [...new Set(f)] : d; };
+  const seen = new Set(); const stages = [];
+  (Array.isArray(c.stages) ? c.stages : []).forEach(st => {
+    if(!isObj(st) || typeof st.key !== "string" || !st.key || seen.has(st.key)) return;
+    seen.add(st.key); stages.push({ key: st.key, label: st.label != null && st.label !== "" ? String(st.label) : st.key });
+  });
+  return {
+    stages,
+    setsPerSession: Number.isInteger(c.setsPerSession) && c.setsPerSession > 0 ? c.setsPerSession : SCRIPT_SETS_PER_SESSION,
+    mastered: typeof c.mastered === "number" && c.mastered > 0 ? c.mastered : SCRIPT_MASTERED,
+    tts: c.tts !== false,
+    learnKinds: kinds(c.learnKinds, ["symSound","soundSym"]),
+    reviewKinds: kinds(c.reviewKinds, ["symSound","soundSym","wordRead"]),
+    testKinds: testKinds(c.testKinds, SCRIPT_KINDS, SCRIPT_TEST_KINDS),
+  };
+}
+
+// ---- progress (prog.script)
+function defaultScriptProg(){ return { v:SCRIPT_PROG_VERSION, u:{}, skipped:false, skip:{}, choiceSeen:false, notice:false }; }
+// Error string or null. Validated whenever present, pack or no pack; script.v is its own
+// version (any positive integer is kept, like chars.v).
+function validateScriptShape(sc){
+  if(!isObj(sc)) return "script must be an object";
+  if(sc.v !== undefined && !(Number.isInteger(sc.v) && sc.v >= 1)) return "script.v must be a positive integer";
+  if(sc.u !== undefined){ const e = validateRecMap(sc.u, "script.u", false); if(e) return e; }
+  for(const f of ["skipped","choiceSeen","notice"]) if(sc[f] !== undefined && typeof sc[f] !== "boolean") return `script.${f} must be a boolean`;
+  if(sc.skip !== undefined){
+    if(!isObj(sc.skip)) return "script.skip must be an object";
+    for(const k of Object.keys(sc.skip)) if(typeof sc.skip[k] !== "boolean") return `script.skip.${k} must be a boolean`;
+  }
+  return null;
+}
+const hasWordRecords = data => isObj(data) && isObj(data.w) && Object.keys(data.w).length > 0;
+// Missing fields filled from defaults; fields present are kept. Stored progress with a
+// word record and no script field predates the primer: that learner is already reading,
+// so the primer starts skipped (choice answered) with a one-time notice pending, instead
+// of sending them back before their next word set. Fresh progress starts unskipped.
+function normalizeScriptProg(sc, data){
+  if(isObj(sc)){ const out = Object.assign(defaultScriptProg(), sc); if(!isObj(out.u)) out.u = {}; if(!isObj(out.skip)) out.skip = {}; return out; }
+  const out = defaultScriptProg();
+  if(hasWordRecords(data)) Object.assign(out, { skipped:true, choiceSeen:true, notice:true });
+  return out;
+}
+function ensureScript(prog){
+  if(!isObj(prog.script)) prog.script = defaultScriptProg();
+  if(!isObj(prog.script.u)) prog.script.u = {};
+  if(!isObj(prog.script.skip)) prog.script.skip = {};
+  return prog.script;
+}
+function scriptRecs(prog){ return (prog && isObj(prog.script) && isObj(prog.script.u)) ? prog.script.u : {}; }
+// The whole primer is off (no key), or that stage is off (the primer, or the stage alone).
+function scriptSkipped(prog, key){
+  const sc = prog && isObj(prog.script) ? prog.script : null;
+  if(!sc) return false;
+  if(sc.skipped === true) return true;
+  return key != null && isObj(sc.skip) && sc.skip[key] === true;
+}
+// The reversible on/off switch (Progress): flips one flag only, the primer's or (with key)
+// one stage's. The path is re-derived from it; no record, set counter or other flag is
+// touched. Turning a stage on while the whole primer is off leaves the primer off.
+function setScriptSkipped(prog, skipped, key){
+  const sc = ensureScript(prog);
+  if(key == null) sc.skipped = !!skipped; else sc.skip[String(key)] = !!skipped;
+  return prog;
+}
+// The choice card's answer: learn (primer on) or skip (primer off).
+function answerScriptChoice(prog, learn){ const sc = ensureScript(prog); sc.choiceSeen = true; sc.skipped = !learn; return prog; }
+// The one-time "a primer is available" line for learners who predate it.
+function scriptNotice(pack, prog){ return !!scriptConfig(pack) && !!(prog && isObj(prog.script) && prog.script.notice === true); }
+function dismissScriptNotice(prog){ ensureScript(prog).notice = false; return prog; }
+// Scores one script item (writes prog.script.u only).
+function markScript(prog, unitId, ok){ return markRec(ensureScript(prog).u, unitId, ok, false); }
+function scriptMastered(rec, pack){ const cfg = scriptConfig(pack); return ((rec && rec.s) || 0) >= (cfg ? cfg.mastered : SCRIPT_MASTERED); }
+
+// ---- units, sets, stages
+// A stage's units: `set` order, then file order.
+function scriptStageUnits(key, units){
+  return (Array.isArray(units) ? units : []).map((u, i) => ({u, i})).filter(x => isObj(x.u) && x.u.st === key)
+    .sort((a, b) => ((+a.u.set || 0) - (+b.u.set || 0)) || (a.i - b.i)).map(x => x.u);
+}
+// [[unit]] grouped by `set`, ascending.
+function scriptSets(key, units){
+  const out = []; let cur = null, last;
+  scriptStageUnits(key, units).forEach(u => { if(!cur || u.set !== last){ cur = []; out.push(cur); last = u.set; } cur.push(u); });
+  return out;
+}
+// A set is taught once every unit in it has a record (the characters rule).
+function scriptSetTaught(set, prog){ const r = scriptRecs(prog); return (set || []).every(u => hasCharRec(r, u.id)); }
+// Up to n (default setsPerSession) first untaught sets of the stage: [{index, units, total}].
+function nextScriptSets(key, units, pack, prog, n){
+  const cfg = scriptConfig(pack); if(!cfg) return [];
+  const k = n == null ? cfg.setsPerSession : n;
+  const sets = scriptSets(key, units); const out = [];
+  for(let i=0; i<sets.length && out.length<k; i++) if(!scriptSetTaught(sets[i], prog)) out.push({ index:i, units:sets[i], total:sets.length });
+  return out;
+}
+// Script stages for this learner, in path order ([] when skipped or without pack.script):
+// {kind:"script", key, label, recorded, nunits, nsets, frac, done}. done = every unit
+// recorded, so a missed review never pulls the stage back into the path.
+function scriptStages(pack, units, prog){
+  const cfg = scriptConfig(pack); if(!cfg || scriptSkipped(prog)) return [];
+  const recs = scriptRecs(prog);
+  return cfg.stages.filter(st => !scriptSkipped(prog, st.key)).map(st => {
+    const list = scriptStageUnits(st.key, units);
+    const rec = list.filter(u => hasCharRec(recs, u.id)).length;
+    return { kind:"script", key: st.key, label: st.label, recorded: rec, nunits: list.length,
+      nsets: scriptSets(st.key, units).length, frac: list.length ? rec/list.length : 1, done: rec >= list.length };
+  });
+}
+// Units with a script record, of a configured stage that is on: the pool Review and Test
+// draw from. Empty while the primer is skipped.
+function recordedScriptUnits(units, prog, pack){
+  const cfg = scriptConfig(pack);
+  if(!cfg || scriptSkipped(prog) || !Array.isArray(units) || !units.length) return [];
+  const recs = scriptRecs(prog); const keys = new Set(cfg.stages.filter(s => !scriptSkipped(prog, s.key)).map(s => s.key));
+  return units.filter(u => isObj(u) && keys.has(u.st) && hasCharRec(recs, u.id));
+}
+// Recorded units plus the set being taught: the distractor pool of a Learn item.
+function scriptPool(units, prog, set){
+  const recs = scriptRecs(prog); const cur = new Set((set || []).map(u => u.id));
+  return (Array.isArray(units) ? units : []).filter(u => isObj(u) && (cur.has(u.id) || hasCharRec(recs, u.id)));
+}
+// The choice card shows while it is unanswered, the primer is not switched off, and no
+// script record exists. Placement does not answer it (it tests words, not the script).
+function showScriptChoice(pack, units, prog){
+  const cfg = scriptConfig(pack); if(!cfg || !cfg.stages.length) return false;
+  const sc = (prog && isObj(prog.script)) ? prog.script : {};
+  if(sc.choiceSeen === true || sc.skipped === true) return false;
+  const recs = scriptRecs(prog);
+  return !Object.keys(recs).some(id => hasCharRec(recs, id));
+}
+
+// ---- item kinds
+const hasEx = u => Array.isArray(u.ex) && u.ex.some(e => Array.isArray(e) && e[0] != null);
+// Whether a unit can carry an item of this kind at all.
+function scriptKindFits(kind, unit){
+  if(!isObj(unit)) return false;
+  if(SCRIPT_SOUND_KINDS.includes(kind)) return unit.sound !== false && !!unit.roman;
+  if(kind === "compose") return Array.isArray(unit.syll) && unit.syll.some(s => isObj(s) && s.t && Array.isArray(s.parts) && s.parts.length);
+  if(kind === "formMatch") return unit.joins === "dual" || unit.joins === "right";
+  if(kind === "formFind" || kind === "wordRead" || kind === "wordHear") return hasEx(unit);
+  return false;
+}
+// The kind actually asked: wordHear is wordRead when the pack has no voice (tts false);
+// null when the unit cannot carry it.
+function scriptKindFor(kind, unit, cfg){
+  const k = kind === "wordHear" && cfg && !cfg.tts ? "wordRead" : kind;
+  return scriptKindFits(k, unit) ? k : null;
+}
+// One fitting kind from `kinds` at random; else the first fitting of wordRead, symSound,
+// formMatch; else null (the unit is left out).
+function pickScriptKind(kinds, unit, cfg, rng){
+  const fit = [...new Set((kinds || []).map(k => scriptKindFor(k, unit, cfg)).filter(Boolean))];
+  if(fit.length) return fit[Math.floor((rng || Math.random)() * fit.length)];
+  return ["wordRead","symSound","formMatch"].find(k => scriptKindFits(k, unit)) || null;
+}
+
+// ---- options
+// The glyph an item shows: the last space-separated form of `t` (a teach card may show
+// "upper lower"; items use the lower form).
+function scriptGlyph(unit){ const p = String((unit && unit.t) || "").trim().split(/\s+/); return p[p.length - 1]; }
+const scriptRomans = u => [u.roman, ...(Array.isArray(u.alt) ? u.alt : [])].map(normKey).filter(Boolean);
+// True when `cand` would be a second right answer to `unit`'s item: the same glyph, the
+// same `say`, the same roman, or (symSound, options are romans) a roman the unit accepts,
+// or (glyph options) a candidate that accepts the unit's roman.
+function scriptSecondRight(unit, cand, kind){
+  if(cand.id === unit.id) return true;
+  if(normKey(scriptGlyph(cand)) === normKey(scriptGlyph(unit))) return true;
+  if(unit.say && cand.say && normKey(unit.say) === normKey(cand.say)) return true;
+  const ur = normKey(unit.roman), cr = normKey(cand.roman);
+  if(ur && ur === cr) return true;
+  return kind === "symSound" ? scriptRomans(unit).includes(cr) : scriptRomans(cand).includes(ur);
+}
+// Up to 3 distractor units for a symbol item. Candidates share the unit's stage (units of
+// two stages never mix), are never a second right answer (scriptSecondRight), and are
+// pairwise distinct in glyph and roman; sound kinds skip sound:false units. Preference
+// within `pool` (recorded units plus the current set): the unit's `confuse` list, same
+// group, same set, any. Then padding from all units of the stage: `confuse` first even
+// when untaught, then same group, then any, so a set-1 item still gets 4 options.
+function scriptOpts(unit, pool, all, kind, rng){
+  const every = Array.isArray(all) ? all : (Array.isArray(pool) ? pool : []);
+  const inPool = Array.isArray(pool) ? pool : every;
+  const sound = SCRIPT_SOUND_KINDS.includes(kind);
+  const ok = v => isObj(v) && v.st === unit.st && !!v.roman && !(sound && v.sound === false) && !scriptSecondRight(unit, v, kind);
+  const confuse = new Set(Array.isArray(unit.confuse) ? unit.confuse : []);
+  const sameGroup = v => unit.group != null && v.group === unit.group;
+  const cands = inPool.filter(ok), rest = every.filter(ok);
+  const tiers = [cands.filter(v => confuse.has(v.id)), cands.filter(sameGroup), cands.filter(v => v.set === unit.set), cands,
+    rest.filter(v => confuse.has(v.id)), rest.filter(sameGroup), rest];
+  const out = [], ids = new Set([unit.id]), usedG = new Set([normKey(scriptGlyph(unit))]), usedR = new Set([normKey(unit.roman)]);
+  for(const tier of tiers){
+    for(const v of shuffle(tier.slice(), rng)){
+      if(out.length >= 3) return out;
+      const g = normKey(scriptGlyph(v)), r = normKey(v.roman);
+      if(ids.has(v.id) || usedG.has(g) || usedR.has(r)) continue;
+      out.push(v); ids.add(v.id); usedG.add(g); usedR.add(r);
+    }
+  }
+  return out;
+}
+// symSound options: the distractors' romans.
+function scriptRomanOpts(unit, pool, all, rng){ return scriptOpts(unit, pool, all, "symSound", rng).map(v => String(v.roman)); }
+// A unit's example words that exist in the pack: [{id, w, roman, unitId}].
+function scriptExamples(unit, byId){
+  return (Array.isArray(unit && unit.ex) ? unit.ex : []).filter(e => Array.isArray(e) && byId[e[0]] && byId[e[0]].w)
+    .map(e => ({ id: e[0], w: String(byId[e[0]].w), roman: String(e[1] == null ? "" : e[1]), unitId: unit.id }));
+}
+function editDistance(a, b){
+  const x = [...String(a)], y = [...String(b)];
+  let prev = y.map((_, j) => j + 1); prev.unshift(0);
+  for(let i=1; i<=x.length; i++){
+    const cur = [i];
+    for(let j=1; j<=y.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (x[i-1] === y[j-1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[y.length];
+}
+// Up to 3 distractor words for a word item (ans = {id, w, roman}): example words of the
+// same stage's units in `pool` (taught), padded from `all`; never the answer's word or a
+// word with its roman, pairwise distinct in word and roman. Nearest first: edit distance
+// to the answer (a word differing in one symbol comes first), then same length.
+function scriptWordOpts(unit, ans, pool, all, byId, rng){
+  const every = Array.isArray(all) ? all : (Array.isArray(pool) ? pool : []);
+  const inPool = Array.isArray(pool) ? pool : every;
+  const b = byId || {}; const len = cpLen(ans.w);
+  const gather = list => list.filter(u => isObj(u) && u.st === unit.st).flatMap(u => scriptExamples(u, b))
+    .filter(e => e.id !== ans.id && normKey(e.w) !== normKey(ans.w) && e.roman && normKey(e.roman) !== normKey(ans.roman));
+  const rank = list => shuffle(list, rng).map((e, i) => ({ e, d: editDistance(e.w, ans.w), l: cpLen(e.w) === len ? 0 : 1, i }))
+    .sort((p, q) => (p.d - q.d) || (p.l - q.l) || (p.i - q.i)).map(o => o.e);
+  const out = [], usedW = new Set([normKey(ans.w)]), usedR = new Set([normKey(ans.roman)]);
+  for(const tier of [rank(gather(inPool)), rank(gather(every))]){
+    for(const e of tier){
+      if(out.length >= 3) return out;
+      if(usedW.has(normKey(e.w)) || usedR.has(normKey(e.roman))) continue;
+      out.push(e); usedW.add(normKey(e.w)); usedR.add(normKey(e.roman));
+    }
+  }
+  return out;
+}
+// Joined forms for formMatch: dual joiners have initial, medial and final; right joiners
+// only final. Unicode shaping draws them from the letter plus a zero-width joiner.
+function scriptJoinedForms(unit){
+  const L = scriptGlyph(unit);
+  if(unit && unit.joins === "dual") return [{ form:"init", t: L + ZWJ }, { form:"medi", t: ZWJ + L + ZWJ }, { form:"fina", t: ZWJ + L }];
+  if(unit && unit.joins === "right") return [{ form:"fina", t: ZWJ + L }];
+  return [];
+}
+// One drill item for a unit, DOM-free: {kind, key, unitId, show, hint, form, audio, say,
+// audioUrl, wordId, options, answer, accept, reveal}.
+//  - show: the stimulus text, or null for a sound-only stimulus.
+//  - audio: "before" (the stimulus), "after" (played on answering) or null. say is the
+//    TTS text, audioUrl a recorded clip that beats it; both null when audio is null.
+//  - options: shuffled strings including answer (null for symType, which checks typed
+//    input against accept).
+//  - reveal: {t, glyph, name, roman, note, word} for the answer screen (gloss lives on
+//    the word, never in the stimulus).
+// ctx: {units (all script units), pool (distractor pool; default units), words | byId,
+// tts (false: no usable voice, so soundSym shows the roman and wordHear becomes wordRead),
+// rng}. Throws on an unknown kind or a unit that cannot carry it.
+function scriptItem(kind, unit, ctx){
+  const c = ctx || {}; const r = c.rng || Math.random;
+  const all = Array.isArray(c.units) ? c.units : []; const pool = Array.isArray(c.pool) ? c.pool : all;
+  const byId = c.byId || Object.fromEntries((c.words || []).map(w => [w.id, w]));
+  const voice = c.tts !== false;
+  if(!SCRIPT_KINDS.includes(kind)) throw new Error(`unknown script item kind ${kind}`);
+  const k = kind === "wordHear" && !voice ? "wordRead" : kind;
+  if(!scriptKindFits(k, unit)) throw new Error(`script unit ${unit && unit.id} cannot carry a ${k} item`);
+  const glyph = scriptGlyph(unit), roman = String(unit.roman || "");
+  const unitSay = voice && unit.say ? String(unit.say) : null, unitUrl = unit.audio ? String(unit.audio) : null;
+  const unitAudio = !!(unitSay || unitUrl);
+  const exs = scriptExamples(unit, byId);
+  const pickEx = () => exs[Math.floor(r() * exs.length)];
+  const wordOf = e => { const w = byId[e.id] || {}; return { id: e.id, w: e.w, roman: e.roman, en: gloss(w) }; };
+  const reveal = { t: String(unit.t), glyph, name: unit.name != null ? String(unit.name) : "", roman, note: unit.note != null ? String(unit.note) : "", word: null };
+  const it = { kind: k, key: "x:" + unit.id, unitId: unit.id, show: null, hint: null, form: null, audio: null, say: null, audioUrl: null,
+    wordId: null, options: null, answer: null, accept: null, reveal };
+  const unitSound = when => { if(unitAudio){ it.audio = when; it.say = unitSay; it.audioUrl = unitUrl; } };
+  const wordSound = (when, e) => { if(voice){ it.audio = when; it.say = e.w; } };
+  let others = [];
+  if(k === "symSound"){ it.show = glyph; it.answer = roman; others = scriptRomanOpts(unit, pool, all, r); unitSound("after"); }
+  else if(k === "soundSym"){
+    it.answer = glyph; others = scriptOpts(unit, pool, all, k, r).map(scriptGlyph);
+    if(unitAudio) unitSound("before"); else it.show = roman;
+  }
+  else if(k === "symType"){ it.show = glyph; it.answer = roman; it.accept = [roman, ...(Array.isArray(unit.alt) ? unit.alt.map(String) : [])]; unitSound("after"); }
+  else if(k === "compose"){
+    const sy = unit.syll.filter(s => isObj(s) && s.t && Array.isArray(s.parts) && s.parts.length);
+    const s = sy[Math.floor(r() * sy.length)];
+    it.show = s.parts.map(String).join(" + "); it.answer = String(s.t);
+    reveal.roman = String(s.roman || ""); reveal.syll = { t: String(s.t), parts: s.parts.map(String), roman: String(s.roman || "") };
+    const parts = new Set(s.parts.map(String));
+    const cand = list => list.filter(u => isObj(u) && u.st === unit.st && Array.isArray(u.syll)).flatMap(u => u.syll)
+      .filter(x => isObj(x) && x.t && String(x.t) !== it.answer && !(s.roman && x.roman && normKey(x.roman) === normKey(s.roman)));
+    const shares = x => Array.isArray(x.parts) && x.parts.some(p => parts.has(String(p)));
+    const used = new Set([it.answer]);
+    for(const list of [cand(pool).filter(shares), cand(pool), cand(all).filter(shares), cand(all)]){
+      for(const x of shuffle(list.slice(), r)){ if(others.length >= 3) break; if(!used.has(String(x.t))){ used.add(String(x.t)); others.push(String(x.t)); } }
+    }
+    if(voice){ it.audio = "after"; it.say = it.answer; }
+  }
+  else if(k === "formFind"){
+    const e = pickEx(); it.show = glyph; it.hint = reveal.name || null; it.answer = e.w; it.wordId = e.id; reveal.word = wordOf(e);
+    const has = w => [...glyph].every(ch => w.includes(ch));
+    const used = new Set([normKey(e.w)]);
+    const gather = list => list.filter(u => isObj(u) && u.st === unit.st).flatMap(u => scriptExamples(u, byId)).filter(x => !has(x.w));
+    for(const list of [gather(pool), gather(all)]){
+      for(const x of shuffle(list, r)){ if(others.length >= 3) break; if(!used.has(normKey(x.w))){ used.add(normKey(x.w)); others.push(x.w); } }
+    }
+    wordSound("after", e);
+  }
+  else if(k === "formMatch"){
+    const fs = scriptJoinedForms(unit); const f = fs[Math.floor(r() * fs.length)];
+    it.show = f.t; it.form = f.form; it.answer = glyph; others = scriptOpts(unit, pool, all, k, r).map(scriptGlyph);
+  }
+  else if(k === "wordRead"){
+    const e = pickEx(); it.show = e.w; it.answer = e.roman; it.wordId = e.id; reveal.word = wordOf(e);
+    others = scriptWordOpts(unit, e, pool, all, byId, r).map(x => x.roman); wordSound("after", e);
+  }
+  else if(k === "wordHear"){
+    const e = pickEx(); it.answer = e.w; it.wordId = e.id; reveal.word = wordOf(e);
+    others = scriptWordOpts(unit, e, pool, all, byId, r).map(x => x.w); wordSound("before", e);
+  }
+  if(k !== "symType") it.options = shuffle([it.answer, ...others], r);
+  return it;
+}
+
+// ---- plans
+// Learn step for a script set: per unit one item per pack learnKind that fits it. A
+// sound:false unit gets wordRead in place of the sound kinds; compose needs `syll`. A unit
+// no learnKind fits gets its first fitting kind, so every unit of the set is asked.
+function learnScriptPlan(set, pack){
+  const cfg = scriptConfig(pack); if(!cfg) return [];
+  const out = [];
+  (set || []).forEach(unit => {
+    const seen = new Set();
+    cfg.learnKinds.forEach(k0 => {
+      let k = scriptKindFor(k0, unit, cfg);
+      if(!k && SCRIPT_SOUND_KINDS.includes(k0) && isObj(unit) && unit.sound === false) k = scriptKindFits("wordRead", unit) ? "wordRead" : null;
+      if(k && !seen.has(k)){ seen.add(k); out.push({ kind: k, unit }); }
+    });
+    if(!seen.size){ const k = pickScriptKind(SCRIPT_KINDS, unit, cfg, () => 0); if(k) out.push({ kind: k, unit }); }
+  });
+  return out;
+}
+// Review weakness score, the characters rule with pack.script.mastered: an unmastered
+// unit scores at least 0; mastered units keep w*3 - s and sink.
+function scriptReviewScore(rec, pack){
+  const cfg = scriptConfig(pack); const p = rec || {}; const sc = weakScore(p);
+  return (p.s || 0) < (cfg ? cfg.mastered : SCRIPT_MASTERED) ? Math.max(sc, 0) : sc;
+}
+// Test tab's script practice: the n weakest recorded units, each with a kind drawn from
+// pack.script.testKinds among the kinds that fit it. [{kind, unit}].
+function scriptTestPlan(units, prog, pack, n, rng){
+  const cfg = scriptConfig(pack); if(!cfg) return [];
+  const rec = weakFirst(recordedScriptUnits(units, prog, pack), n, scriptRecs(prog), undefined, rng);
+  const out = [];
+  rec.forEach(unit => {
+    const w = {}; Object.keys(cfg.testKinds).forEach(k => { const f = scriptKindFor(k, unit, cfg); if(f) w[f] = (w[f] || 0) + cfg.testKinds[k]; });
+    const kind = Object.keys(w).length ? pickWeighted(w, rng) : pickScriptKind(cfg.reviewKinds, unit, cfg, rng);
+    if(kind) out.push({ kind, unit });
+  });
+  return out;
 }
 
 // ------------------------------------------------------------------ pronunciation aids
@@ -2257,6 +2671,11 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   charStageUnits, charSets, charSetTaught, nextCharSet, charStages, stagePath, nextStage, charsUnlocked, charsStarted, showCharChoice,
   charTier, sentenceTokenTier, rubyTiers, pronFirstOn, displayForm, pronClash, sentencePieces, sentenceDisplay, charOpts, recallCharOpts, charSoundOpts, charReadOpts, charItem,
   learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits, charTestPlan, pickWeighted,
+  SCRIPT_PROG_VERSION, SCRIPT_MASTERED, SCRIPT_SETS_PER_SESSION, REVIEW_SIZE_SCRIPT, SCRIPT_KINDS, scriptConfig,
+  defaultScriptProg, validateScriptShape, normalizeScriptProg, ensureScript, scriptRecs, scriptSkipped, setScriptSkipped, answerScriptChoice,
+  scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
+  recordedScriptUnits, scriptPool, showScriptChoice, scriptKindFits, scriptKindFor, pickScriptKind, scriptGlyph, scriptSecondRight,
+  scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
   tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
@@ -3974,4 +4393,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:2431027718-1451144-->
+<!--ve-build:1775891534-1478244-->
