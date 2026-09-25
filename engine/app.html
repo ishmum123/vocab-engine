@@ -117,8 +117,12 @@
   table.steps td:first-child{white-space:nowrap;padding-right:12px;vertical-align:top}
   .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:1}
   .bar i{display:block;height:100%;background:var(--ink)}
-  .path{display:flex;gap:6px;align-items:center;margin-bottom:14px}
-  .path .seg{flex:1;text-align:center;font-size:11px;color:var(--mute)}
+  /* Stage path: one line per label, bars on one top line. A segment is as wide as its label
+     plus an equal share of the rest (flex 1 1 auto), so a long script-stage label stays whole
+     beside A1; labels only ellipsize when the whole strip cannot fit. flex-start: a taller
+     label line (a target-script font) never moves its bar. */
+  .path{display:flex;gap:6px;align-items:flex-start;margin-bottom:14px}
+  .path .seg{flex:1 1 auto;min-width:0;text-align:center;font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .stmt{font-size:15px;line-height:1.5;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:14px}
   .warn{background:var(--bad-bg);border:1px solid var(--bad);color:var(--bad);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:14px}
   .done h2{font-size:22px;margin:0 0 10px;font-weight:600}
@@ -176,7 +180,7 @@
   .xcells button.xt,.xkey.xt{border-color:var(--ink)}
   .xcells button.xm,.xkey.xm{border-color:var(--ok);background:var(--ok-bg)}
   .xkey{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;font-size:13px}
-  #xcard .xteach{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px;background:var(--card)}
+  #xcard .xteach{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px;background:var(--card);scroll-margin-top:12px}
   .hasruby{line-height:2.3}
   /* pack.pronFirst: the "show written form" tap beside a word shown by its reading. */
   .showw{display:inline-block;width:auto;min-height:0;margin:0 0 0 6px;padding:2px 6px;border:0;background:none;color:var(--mute);font:400 12px/1.2 var(--font);text-decoration:underline;vertical-align:middle;cursor:pointer}
@@ -252,9 +256,14 @@
   @media (prefers-reduced-motion: reduce){ .reveal{transition:none} }
   @media (min-width: 900px){
     .wrap{max-width:640px;min-height:0}
-    html{scroll-padding-bottom:0}
+    /* Desktop: the bar is a rounded card under the content column, in flow (short screens
+       show it right below the card), and sticky at bottom:12px, so on a screen taller than
+       the viewport it stays on screen instead of sitting below the fold. While stuck it
+       overlays the content, so scroll-padding keeps scrollIntoView targets above it
+       (58px bar incl. borders + 12px offset + 8px gap). body padding is the gap below it at the page end. */
+    html{scroll-padding-bottom:78px}
     body{padding-bottom:24px}
-    .tabs{position:static;left:auto;right:auto;bottom:auto;transform:none;width:640px;max-width:100vw;margin:12px auto 0;padding-bottom:0;border:1px solid var(--line);border-radius:16px}
+    .tabs{position:sticky;left:auto;right:auto;bottom:12px;transform:none;width:640px;max-width:100vw;margin:12px auto 0;padding-bottom:0;border:1px solid var(--line);border-radius:16px}
   }
 </style>
 </head>
@@ -614,6 +623,29 @@ function showNext(){
   const nx = $("nx"); nx.style.display = "block";
   if(typeof nx.scrollIntoView === "function") nx.scrollIntoView({ block: "nearest" });
 }
+// Content that opens away from where the learner tapped (a teach card above the chart, a
+// box below the last button) can open off-screen. bringIntoView scrolls it into the part of
+// the viewport the tab bar does not cover, only when it is not fully visible there (smooth,
+// instant under prefers-reduced-motion); a taller-than-view element is aligned to its top.
+// focus: move keyboard focus onto it (tabindex -1: focusable, not a tab stop).
+const reducedMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+function bringIntoView(el, focus){
+  const tb = $("tabs");
+  if(!el || typeof el.getBoundingClientRect !== "function" || !tb || typeof tb.getBoundingClientRect !== "function") return;
+  const r = el.getBoundingClientRect(), bar = tb.getBoundingClientRect();
+  const limit = Math.min(innerHeight, bar.height ? bar.top : innerHeight);
+  if((r.top < 0 || r.bottom > limit) && typeof el.scrollIntoView === "function")
+    el.scrollIntoView({ block: r.height > limit ? "start" : "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+  if(focus){ if(!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1"); el.focus({ preventScroll: true }); }
+}
+// A new screen replacing #panel's content opens at its top: when the old screen was scrolled
+// down (a long list, a long reveal), the page stays where it was otherwise and the new screen
+// starts above the viewport. Called by every screen entry (tab switch, drill item, lesson,
+// set, passage); not by in-place re-renders (settings toggles on Progress keep their place).
+function screenTop(){
+  const p = $("panel");
+  if(p && typeof p.getBoundingClientRect === "function" && typeof scrollTo === "function" && p.getBoundingClientRect().top < 0) scrollTo(0, 0);
+}
 function showReveal(html){
   const rv = $("rv"); if(!rv) return;
   rv.innerHTML = html;
@@ -627,6 +659,7 @@ function dnext(){
   if(!D.q.length){
     const { right, seen, miss, onDone, summary, onShown } = D;
     setScore(0, 0);
+    screenTop();
     P.innerHTML = `<div class="done"><h2>${right} / ${seen}</h2>${summary ? summary(miss) : ""}<button class="next" id="ok">Continue</button></div>`;
     D = null; drillKeyHandler = null;
     $("ok").onclick = onDone;
@@ -634,6 +667,7 @@ function dnext(){
     return;
   }
   setScore(D.seen, D.seen + D.q.length);
+  screenTop();
   const it = D.q.shift();
   if(it.kind === "type") renderTypeItem(it); else renderMcItem(it);
 }
@@ -743,6 +777,7 @@ function tokTap(t){
     let g = box.querySelector(".tokgloss");
     if(!g){ g = document.createElement("div"); g.className = "gloss tokgloss"; if(DISP.rtl) g.setAttribute("dir", "rtl"); box.appendChild(g); }
     g.innerHTML = html; g.hidden = false;
+    bringIntoView(g); // appended below the sentence: a tap on its last line can open it under the tab bar
   }
   announce(html);
   say(head ? head.surface : w.w);
@@ -772,7 +807,7 @@ $("panel").addEventListener("click", e => {
   if(t.dataset.tok !== undefined){ tokTap(t); return; }
   // pack.script: data-xs a unit's own sound (data-xopen, a Script-tab chart cell, also
   // shows that unit's teach card), data-xw an example word as the primer shows it.
-  if(t.dataset.xs !== undefined){ const u = SUNIT_BY_ID[t.dataset.xs]; if(!u) return; if(t.dataset.xopen !== undefined) scriptOpenCard(u); sayUnitSound(u, t); return; }
+  if(t.dataset.xs !== undefined){ const u = SUNIT_BY_ID[t.dataset.xs]; if(!u) return; if(t.dataset.xopen !== undefined) scriptOpenCard(u, e); sayUnitSound(u, t); return; }
   if(t.dataset.xw !== undefined){ const w = SCRIPT_BYID[t.dataset.xw]; if(w && scriptVoice()) speak(w.w); return; }
   if(t.dataset.wid !== undefined){ const w = WORDS_BY_ID[t.dataset.wid]; if(w) say(w.w); return; }
   const s = SENTENCES[+t.dataset.sent]; if(s) saySentence(s);
@@ -1187,7 +1222,7 @@ document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
   render();
 });
 function render(){
-  D = null; drillKeyHandler = null;
+  D = null; drillKeyHandler = null; screenTop();
   $("htitle").textContent = { today:"Today", sounds: SCRIPT_TAB ? SCFG.stages[0].label : "Sounds", words:"Words", read:"Read", test:"Test", progress:"Progress" }[tab];
   setScore(0,0);
   ({ today: todayRender, sounds: soundsRender, words: wordsRender, read: readRender, test: testRender, progress: progressRender })[tab]();
@@ -1257,6 +1292,7 @@ function charChoiceHTML(){
   return `<div class="stmt" id="charChoice">${L} next: learn to recognise the written form of the words you already know. Or go on to ${N} first and do ${L} after it. You can change this later in Progress.<button class="next" id="choiceStart" style="margin-top:8px">Start ${L}</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to ${N}</button></div>`;
 }
 function todayRender(){
+  screenTop();
   setScore(0,0);
   const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
   const n = (prog.sessions||0) + 1;
@@ -1390,7 +1426,7 @@ function wordRowHTML(w, cls){
   return `<span class="wd${dispWord(w).isPron ? " pf" : ""}"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${readingHTML(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
 }
 function vocabTeach(list, lv, onDrill){
-  setScore(0,0);
+  setScore(0,0); screenTop();
   const P = $("panel");
   const hint = hasSpeech ? " Tap a word to hear it." : "";
   P.innerHTML = `<p class="q">${escapeHtml(levelLabel(lv))}, new set.${hint}</p>
@@ -1415,7 +1451,7 @@ function vocabTeach(list, lv, onDrill){
 // large, its reading, the linked word's meaning and one example sentence of that word.
 // Tapping the head plays the word (panel data-wid listener), the sentence plays itself.
 function charTeach(cs, stage, onDrill){
-  setScore(0,0);
+  setScore(0,0); screenTop();
   const P = $("panel");
   const hint = hasSpeech ? " Tap one to hear it." : "";
   const cards = cs.units.map(u => {
@@ -1431,7 +1467,7 @@ function charTeach(cs, stage, onDrill){
 // Teach cards for one script set (Learn, pack.script): the set's rule notes first, then a
 // card per unit (scriptTeachHTML). Sounds play from each card's own button (data-xs).
 function scriptTeach(ss, stage, onDrill){
-  setScore(0,0);
+  setScore(0,0); screenTop();
   const P = $("panel");
   const set = ss.units.length ? ss.units[0].set : null;
   P.innerHTML = `<p class="q">${tw(stage.label)}, set ${ss.index+1} of ${ss.total}: ${ss.units.length} new symbol${ss.units.length === 1 ? "" : "s"}.${scriptVoice() ? " Tap the speaker to hear one." : ""}</p>
@@ -1453,7 +1489,7 @@ function scriptLearn(snap, i){
 }
 // Lesson card `body` is trusted pack HTML (pack authors write it); everything else is escaped.
 function lessonTeach(lesson, onDone, onBack){
-  setScore(0,0);
+  setScore(0,0); screenTop();
   if(!prog.soundsOpened){ prog.soundsOpened = true; store.save(); }
   const P = $("panel");
   P.innerHTML = `${onBack ? '<div class="row"><button id="back">‹ lessons</button></div>' : ""}<p class="q">${escapeHtml(lesson.blurb)}</p>
@@ -1483,7 +1519,7 @@ function lessonTeach(lesson, onDone, onBack){
 
 // ===================== Sounds (pack lessons) =====================
 function soundsRender(){
-  setScore(0,0);
+  setScore(0,0); screenTop();
   const P = $("panel");
   if(SCRIPT_TAB){ scriptTabRender(); return; }
   if(soundsSel != null){
@@ -1524,7 +1560,13 @@ function scriptTabWire(){
   const b = $("xPractise");
   if(b) b.onclick = () => drill(scriptPractisePlan().map(p => scriptDrillItem(p.kind, p.unit, scriptCtx())), soundsRender, missSummary);
 }
-function scriptOpenCard(u){ const c = $("xcard"); if(c) c.innerHTML = scriptTeachHTML(u); }
+// The card opens above the chart, so a tap low in the chart brings it into view; keyboard
+// activation (click with detail 0) also moves focus onto it.
+function scriptOpenCard(u, e){
+  const c = $("xcard"); if(!c) return;
+  c.innerHTML = scriptTeachHTML(u);
+  bringIntoView(c.firstElementChild, !!e && e.detail === 0);
+}
 function scriptTabRender(){
   $("panel").innerHTML = scriptTabHTML();
   scriptTabWire();
@@ -1623,6 +1665,7 @@ function refreshReadUnlocks(){ if(HAS_PASSAGES && VC.updateReadUnlocks(PASSAGE_L
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const passageDone = p => (prog.read && prog.read.done && prog.read.done[p.id]) || null;
 function readRender(){
+  screenTop();
   setScore(0,0);
   if(RD){ RD.resultsDone ? readResults() : (RD.qi == null ? readPassageScreen() : readQuestionScreen()); return; }
   refreshReadUnlocks();
@@ -1828,7 +1871,7 @@ function wirePassage(box, glossEl){
   box.addEventListener("keydown", e => { const w = e.target.closest && e.target.closest("[data-pw]"); if(w && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); tap(w); } });
 }
 function readPassageScreen(){
-  setScore(0,0);
+  setScore(0,0); screenTop();
   const p = RD.p, P = $("panel");
   P.innerHTML = `<div class="row"><button id="rback">‹ passages</button></div>
     <h2 class="ptitle"${TA}>${rubyTextOr(p.title, p.titleRuby)}</h2>
@@ -1841,6 +1884,7 @@ function readPassageScreen(){
   $("rdone").onclick = () => { RD.qi = 0; RD.shown = false; readQuestionScreen(); };
 }
 function readQuestionScreen(){
+  screenTop();
   const p = RD.p, P = $("panel"), qi = RD.qi, q = p.questions[qi];
   if(!RD.answers[qi]) RD.answers[qi] = { ok: null, reopened: false, given: null };
   const rec = RD.answers[qi];
@@ -1900,7 +1944,7 @@ function markPassageFinished(){
 }
 const WHY_LABEL = { tapped: "tapped while reading", wrong: "missed question", reopened: "looked back" };
 function readResults(){
-  drillKeyHandler = null; setScore(0,0);
+  drillKeyHandler = null; setScore(0,0); screenTop();
   const p = RD.p, P = $("panel");
   const sc = RD.answers.filter(a => a && a.ok).length;
   const weak = VC.passageWeakWords(p, { tapped: RD.tapped, answers: RD.answers }, WORDS_BY_ID);
@@ -1917,12 +1961,14 @@ function readResults(){
     VC.applyWeakWords(prog, chosen, WORDS, PACK); store.save();
     $("addrev").disabled = true; P.querySelectorAll("[data-wi]").forEach(x => { x.disabled = true; });
     const m = $("addmsg"); m.hidden = false; m.textContent = chosen.length ? `Added ${chosen.length} word${chosen.length > 1 ? "s" : ""} to your next review.` : "Nothing added.";
+    bringIntoView(m);
   };
   $("rlist").onclick = () => { RD = null; readRender(); };
 }
 
 // ===================== Test (placement + free tests) =====================
 function testRender(){
+  screenTop();
   setScore(0,0);
   const P = $("panel");
   if(testSel === "placement"){ placeRender(); return; }
@@ -2059,9 +2105,10 @@ function progressRender(){
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
   };
-  $("imp").onclick = () => { $("impbox").style.display = $("impbox").style.display==="none" ? "block" : "none"; };
+  // The import box, its error and its summary open below the last buttons of a long screen.
+  $("imp").onclick = () => { const b = $("impbox"), open = b.style.display === "none"; b.style.display = open ? "block" : "none"; if(open) bringIntoView(b); };
   $("impfile").onchange = e => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { $("imptxt").value = r.result; }; r.readAsText(f); };
-  const showImportError = msg => { const el = $("impErr"); el.textContent = msg; el.style.display = "block"; };
+  const showImportError = msg => { const el = $("impErr"); el.textContent = msg; el.style.display = "block"; bringIntoView(el); };
   // Backup first; if it can't be written (read-only session, storage error) the import is
   // not applied, so the current progress is never lost unbacked.
   const applyImported = async next => {
@@ -2085,7 +2132,7 @@ function progressRender(){
         $("impErr").style.display = "none";
         const box = $("impSum");
         box.innerHTML = `${legacySummaryHTML(m, "the file you imported")}<button class="next" id="impApply" style="margin-top:8px">Import this progress</button><button class="ghost" id="impCancel" style="margin-top:8px">Cancel</button>`;
-        box.style.display = "block";
+        box.style.display = "block"; bringIntoView(box);
         $("impApply").onclick = () => applyImported(m.prog);
         $("impCancel").onclick = () => { box.style.display = "none"; box.innerHTML = ""; };
         return;
