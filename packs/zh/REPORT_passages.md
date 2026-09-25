@@ -9,25 +9,25 @@ words = the builder's word count (the band rule: tokens after segmentation); ws_
 linked words, the count the app shows for an unspaced pack (report only).
 
 - **1**: 15 passages; words/passage 64-80 (median 75); ws_words 64-78; coverage min 1.000, median 1.000 (rule >= 0.95); linked min 1.000; questions mc 40, tf 31
-- **2**: 15 passages; words/passage 85-98 (median 92); ws_words 81-92; coverage min 1.000, median 1.000 (rule >= 0.95); linked min 1.000; questions mc 44, tf 31
-- **3**: 15 passages; words/passage 102-117 (median 110); ws_words 94-115; coverage min 0.963, median 1.000 (rule >= 0.95); linked min 0.963; questions mc 45, tf 30
-- **4**: 15 passages; words/passage 120-148 (median 137); ws_words 109-140; coverage min 0.978, median 1.000 (rule >= 0.93); linked min 0.978; questions mc 44, tf 31
+- **2**: 15 passages; words/passage 85-97 (median 92); ws_words 81-92; coverage min 1.000, median 1.000 (rule >= 0.95); linked min 1.000; questions mc 44, tf 31
+- **3**: 15 passages; words/passage 100-115 (median 107); ws_words 92-113; coverage min 0.962, median 1.000 (rule >= 0.95); linked min 0.962; questions mc 45, tf 30
+- **4**: 15 passages; words/passage 118-146 (median 131); ws_words 108-139; coverage min 0.992, median 1.000 (rule >= 0.93); linked min 0.992; questions mc 44, tf 31
 
 | id | lv | title | words | ws_words | coverage | linked | out-of-pack lemmas (reason) | higher-level lemmas |
 |---|---|---|---|---|---|---|---|---|
 | p0001 | 1 | 我的家 | 76 | 68 | 1.000 | 1.000 | - | - |
 | p0002 | 1 | 在饭馆 | 75 | 64 | 1.000 | 1.000 | - | 2: 服务员 |
 | p0003 | 1 | 天气冷了 | 64 | 64 | 1.000 | 1.000 | - | 2: 一起, 穿, 给 |
-| p0004 | 1 | 买衣服 | 71 | 70 | 1.000 | 1.000 | - | 2: 件, 贵, 问 |
+| p0004 | 1 | 买衣服 | 72 | 71 | 1.000 | 1.000 | - | 2: 件, 贵, 问 |
 | p0005 | 1 | 明天看电影吗？ | 76 | 64 | 1.000 | 1.000 | - | 2: 一起, 也 |
 | p0006 | 1 | 你在哪儿？ | 79 | 78 | 1.000 | 1.000 | - | 2: 公共汽车, 船 |
 | p0007 | 1 | 我的中国同学 | 80 | 74 | 1.000 | 1.000 | - | 2: 慢 |
-| p0008 | 1 | 火车站的小商店 | 71 | 65 | 1.000 | 1.000 | - | 2: 也, 到, 晚上 |
+| p0008 | 1 | 火车站的小商店 | 70 | 65 | 1.000 | 1.000 | - | 2: 从, 到, 晚上 |
 | p0009 | 1 | 去北京 | 75 | 71 | 1.000 | 1.000 | - | 2: 一起, 穿, 要 |
 | p0010 | 1 | 我的朋友 | 77 | 66 | 1.000 | 1.000 | - | 2: 好吃, 鱼 |
 | p0011 | 1 | 看医生 | 75 | 68 | 1.000 | 1.000 | - | 2: 再, 生病, 药 |
 | p0012 | 1 | 我的星期日 | 72 | 73 | 1.000 | 1.000 | - | 2: 近 |
-| p0013 | 1 | 我学习汉语 | 73 | 64 | 1.000 | 1.000 | - | 2: 也 |
+| p0013 | 1 | 我学习汉语 | 72 | 64 | 1.000 | 1.000 | - | 2: 也 |
 | p0014 | 1 | 这个饭馆怎么样？ | 73 | 65 | 1.000 | 1.000 | - | 2: 也, 好吃, 张 |
 | p0015 | 1 | 我的房间 | 69 | 67 | 1.000 | 1.000 | - | 2: 也, 房间 |
 | p0016 | 2 | 妹妹的生日 | 95 | 92 | 1.000 | 1.000 | - | 3: 蛋糕 |
@@ -35,46 +35,46 @@ linked words, the count the app shows for an unspaced pack (report only).
 | p0018 | 2 | 孙浩的工作日 | 85 | 81 | 1.000 | 1.000 | - | 3: 以后, 公园, 骑 |
 | p0019 | 2 | 火车站怎么走？ | 96 | 89 | 1.000 | 1.000 | - | 3: 司机, 站 |
 | p0020 | 2 | 买西瓜 | 86 | 81 | 1.000 | 1.000 | - | 3: 一共 |
-| p0021 | 2 | 汉语考试 | 90 | 85 | 1.000 | 1.000 | - | 3: 半, 只, 难 |
+| p0021 | 2 | 汉语考试 | 91 | 86 | 1.000 | 1.000 | - | 3: 半, 只, 难 |
 | p0022 | 2 | 在机场 | 92 | 83 | 1.000 | 1.000 | - | 3: 才, 着急 |
-| p0023 | 2 | 多运动，身体好 | 91 | 85 | 1.000 | 1.000 | - | 3: 为什么, 以后, 越 |
-| p0024 | 2 | 我的家人 | 94 | 89 | 1.000 | 1.000 | - | - |
+| p0023 | 2 | 多运动，身体好 | 89 | 84 | 1.000 | 1.000 | - | 3: 为什么, 以后, 越 |
+| p0024 | 2 | 我的家人 | 93 | 88 | 1.000 | 1.000 | - | - |
 | p0025 | 2 | 明天的天气 | 94 | 88 | 1.000 | 1.000 | - | 3: 公园 |
 | p0026 | 2 | 新饭馆 | 91 | 91 | 1.000 | 1.000 | - | 3: 一共, 干净, 新鲜 |
 | p0027 | 2 | 怎么吃药 | 92 | 87 | 1.000 | 1.000 | - | 3: 以前, 健康, 祝 |
-| p0028 | 2 | 我的新房间 | 89 | 87 | 1.000 | 1.000 | - | 3: 黄 |
+| p0028 | 2 | 我的新房间 | 88 | 86 | 1.000 | 1.000 | - | 3: 黄 |
 | p0029 | 2 | 手表找到了 | 95 | 88 | 1.000 | 1.000 | - | 3: 以后, 礼物, 难过 |
-| p0030 | 2 | 去上海旅游 | 98 | 87 | 1.000 | 1.000 | - | 3: 楼, 甜 |
+| p0030 | 2 | 去上海旅游 | 97 | 86 | 1.000 | 1.000 | - | 3: 楼, 甜 |
 | p0031 | 3 | 搬家 | 109 | 103 | 1.000 | 1.000 | - | - |
 | p0032 | 3 | 周末去爬山 | 103 | 98 | 1.000 | 1.000 | - | - |
 | p0033 | 3 | 我的爱好 | 102 | 94 | 1.000 | 1.000 | - | 4: 对, 赢 |
-| p0034 | 3 | 感冒了 | 107 | 98 | 1.000 | 1.000 | - | - |
+| p0034 | 3 | 感冒了 | 105 | 96 | 1.000 | 1.000 | - | - |
 | p0035 | 3 | 图书馆的新要求 | 114 | 104 | 1.000 | 1.000 | - | - |
-| p0036 | 3 | 下班以后去超市 | 117 | 115 | 1.000 | 1.000 | - | 4: 取, 巧克力 |
-| p0037 | 3 | 西红柿鸡蛋面条 | 110 | 101 | 0.990 | 0.990 | 切 x1 (cut; the pack has no verb for cutting, needed in a recipe) | 4: 盐, 西红柿 |
-| p0038 | 3 | 在宾馆 | 114 | 104 | 1.000 | 1.000 | - | - |
-| p0039 | 3 | 我的城市 | 103 | 94 | 1.000 | 1.000 | - | 4: 最好 |
-| p0040 | 3 | 新同事 | 111 | 103 | 1.000 | 1.000 | - | 4: 从来, 修 |
-| p0041 | 3 | 去看熊猫 | 111 | 100 | 0.991 | 0.991 | 竹子 x1 (bamboo; what pandas eat, the pack has no word for it) | - |
+| p0036 | 3 | 下班以后去超市 | 115 | 113 | 1.000 | 1.000 | - | 4: 取, 巧克力 |
+| p0037 | 3 | 西红柿鸡蛋面条 | 107 | 99 | 0.990 | 0.990 | 切 x1 (cut; the pack has no verb for cutting, needed in a recipe) | 4: 盐, 西红柿 |
+| p0038 | 3 | 在宾馆 | 112 | 102 | 1.000 | 1.000 | - | - |
+| p0039 | 3 | 我的城市 | 100 | 92 | 1.000 | 1.000 | - | 4: 最好 |
+| p0040 | 3 | 新同事 | 107 | 99 | 1.000 | 1.000 | - | 4: 从来, 修 |
+| p0041 | 3 | 去看熊猫 | 106 | 96 | 0.990 | 0.990 | 竹子 x1 (bamboo; what pandas eat, the pack has no word for it) | - |
 | p0042 | 3 | 奶奶的故事 | 108 | 103 | 1.000 | 1.000 | - | 4: 掉 |
-| p0043 | 3 | 买了一双新鞋 | 109 | 106 | 1.000 | 1.000 | - | 4: 试, 道歉 |
-| p0044 | 3 | 骑自行车 | 113 | 106 | 1.000 | 1.000 | - | 4: 掉 |
-| p0045 | 3 | 中国的节日 | 112 | 96 | 0.963 | 0.963 | 中秋节 x2 (Mid-Autumn Festival; festival name, the pack lacks 节), 春节 x2 (Spring Festival; festival name, the pack lacks 节) | 4: 圆, 饺子 |
-| p0046 | 4 | 招聘广告 | 134 | 127 | 1.000 | 1.000 | - | - |
-| p0047 | 4 | 找工作 | 148 | 132 | 1.000 | 1.000 | - | - |
-| p0048 | 4 | 保护环境，从小事情开始 | 125 | 116 | 1.000 | 1.000 | - | - |
+| p0043 | 3 | 买了一双新鞋 | 107 | 105 | 1.000 | 1.000 | - | 4: 试, 道歉 |
+| p0044 | 3 | 骑自行车 | 111 | 104 | 1.000 | 1.000 | - | 4: 掉 |
+| p0045 | 3 | 中国的节日 | 109 | 95 | 0.962 | 0.962 | 中秋节 x2 (Mid-Autumn Festival; festival name, the pack lacks 节), 春节 x2 (Spring Festival; festival name, the pack lacks 节) | 4: 圆, 饺子 |
+| p0046 | 4 | 招聘广告 | 131 | 124 | 1.000 | 1.000 | - | - |
+| p0047 | 4 | 找工作 | 146 | 130 | 1.000 | 1.000 | - | - |
+| p0048 | 4 | 保护环境，从小事情开始 | 119 | 113 | 1.000 | 1.000 | - | - |
 | p0049 | 4 | 在网站上买沙发 | 130 | 123 | 1.000 | 1.000 | - | - |
 | p0050 | 4 | 请假 | 137 | 123 | 1.000 | 1.000 | - | - |
-| p0051 | 4 | 城市举办乒乓球比赛 | 120 | 109 | 1.000 | 1.000 | - | - |
-| p0052 | 4 | 我的留学生活 | 138 | 118 | 1.000 | 1.000 | - | - |
-| p0053 | 4 | 租房间 | 139 | 127 | 1.000 | 1.000 | - | - |
-| p0054 | 4 | 怎么解决堵车问题 | 138 | 127 | 0.978 | 0.978 | 车 x3 (vehicle, car; the pack has only 堵车 and 出租车, and the traffic topic needs the bare noun) | - |
-| p0055 | 4 | 父亲的生日 | 121 | 120 | 1.000 | 1.000 | - | - |
-| p0056 | 4 | 第一次看京剧 | 139 | 130 | 1.000 | 1.000 | - | - |
-| p0057 | 4 | 去长城 | 125 | 119 | 1.000 | 1.000 | - | - |
-| p0058 | 4 | 好的学习方法 | 134 | 123 | 1.000 | 1.000 | - | - |
-| p0059 | 4 | 航班推迟了 | 144 | 140 | 1.000 | 1.000 | - | - |
-| p0060 | 4 | 健康地减肥 | 142 | 133 | 1.000 | 1.000 | - | - |
+| p0051 | 4 | 城市举办乒乓球比赛 | 119 | 108 | 1.000 | 1.000 | - | - |
+| p0052 | 4 | 我的留学生活 | 137 | 118 | 1.000 | 1.000 | - | - |
+| p0053 | 4 | 租房间 | 137 | 125 | 1.000 | 1.000 | - | - |
+| p0054 | 4 | 怎么解决堵车问题 | 128 | 121 | 0.992 | 0.992 | 车 x1 (vehicle, car; the pack has only 堵车 and 出租车, and the traffic topic needs the bare noun) | - |
+| p0055 | 4 | 父亲的生日 | 118 | 117 | 1.000 | 1.000 | - | - |
+| p0056 | 4 | 第一次看京剧 | 137 | 128 | 1.000 | 1.000 | - | - |
+| p0057 | 4 | 去长城 | 124 | 118 | 1.000 | 1.000 | - | - |
+| p0058 | 4 | 好的学习方法 | 130 | 119 | 1.000 | 1.000 | - | - |
+| p0059 | 4 | 航班推迟了 | 143 | 139 | 1.000 | 1.000 | - | - |
+| p0060 | 4 | 健康地减肥 | 140 | 131 | 1.000 | 1.000 | - | - |
 
 Title words, and question/option words the budget does not count (a numeral-like
 pack word), that are out of the pack or above the passage's level (report only;
@@ -84,7 +84,6 @@ the budget rule above is unchanged):
 - p0033: s8 '班能赢': jieba reads a proper noun (nr), linked as 班 + 能 + 赢; declare it in names if it is one
 - p0036: s4 '太甜': jieba reads a proper noun (nr), linked as 太 + 甜; declare it in names if it is one
 - p0037: title '西红柿': 西红柿 4
-- p0041: s8 '长大': jieba reads a proper noun (ns), linked as 长 + 大; declare it in names if it is one
 - p0042: s3 '小河': jieba reads a proper noun (nr), linked as 小 + 河; declare it in names if it is one; s4 '河里': jieba reads a proper noun (ns), linked as 河 + 里; declare it in names if it is one; s5 '河里': jieba reads a proper noun (ns), linked as 河 + 里; declare it in names if it is one
 - p0048: s2 '河里': jieba reads a proper noun (ns), linked as 河 + 里; declare it in names if it is one
 - p0060: s6 '太咸': jieba reads a proper noun (nr), linked as 太 + 咸; declare it in names if it is one; s6 '太辣': jieba reads a proper noun (nr), linked as 太 + 辣; declare it in names if it is one
