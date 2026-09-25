@@ -2505,8 +2505,8 @@
      "sentence": 7
     },
     {
-     "q": "谁的考试是第一？",
-     "en": "Whose exam result is first?",
+     "q": "这次考试谁是第一？",
+     "en": "Who came first in this exam?",
      "type": "mc",
      "options": [
       "陈杰",
@@ -2597,7 +2597,7 @@
      "options": [
       "公共汽车",
       "船",
-      "飞机",
+      "地铁",
       "出租车"
      ],
      "answer": 3,
@@ -2977,8 +2977,8 @@
      "en": "What should people do when they go out in the evening?",
      "type": "mc",
      "options": [
-      "穿多一些衣服",
-      "喝多一些热水",
+      "多穿一些衣服",
+      "多喝一些热水",
       "走得慢一些",
       "在家里多休息"
      ],
@@ -4636,7 +4636,7 @@
       "地铁",
       "公共汽车",
       "自行车",
-      "公园"
+      "街道"
      ],
      "answer": 0,
      "words": [
@@ -4916,10 +4916,10 @@
      "en": "What does the daughter want to do when she grows up?",
      "type": "mc",
      "options": [
-      "跟熊猫工作",
-      "在成都开商店",
-      "画很多熊猫",
-      "写熊猫的故事"
+      "和熊猫一起工作",
+      "在成都开一个商店",
+      "画很多很多熊猫",
+      "写关于熊猫的故事"
      ],
      "answer": 0,
      "words": [
@@ -5428,8 +5428,8 @@
      "Two years of work experience is preferred."
     ],
     [
-     "售货员的要求：年龄是二十岁到三十五岁，性别没有要求。",
-     "Requirements for sales assistants: aged 20 to 35, any gender."
+     "售货员的要求：年龄是二十岁到三十五岁，男人和女人都可以。",
+     "Requirements for sales assistants: aged 20 to 35, men and women both welcome."
     ],
     [
      "性格要活泼、热情，有耐心，愿意和顾客交流。",
@@ -5881,7 +5881,7 @@
       "在商店里先看一下",
       "先上网看一下照片",
       "先问一下家里的人",
-      "先等一下打折的时候"
+      "先等到打折的时候"
      ],
      "answer": 0,
      "words": [
@@ -6927,10 +6927,10 @@
      "en": "Why should you review promptly after class?",
      "type": "mc",
      "options": [
-      "老师下课以后会检查",
-      "新知识很快不记得",
-      "考试马上就要到了",
-      "下课以后没有事情做"
+      "老师下课以后会来检查作业",
+      "学习的东西很快就忘记了",
+      "下个星期马上就要考试了",
+      "下课以后没有别的事情可以做"
      ],
      "answer": 1,
      "words": [

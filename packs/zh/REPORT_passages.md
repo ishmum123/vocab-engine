@@ -11,7 +11,7 @@ linked words, the count the app shows for an unspaced pack (report only).
 - **1**: 15 passages; words/passage 64-80 (median 75); ws_words 64-78; coverage min 1.000, median 1.000 (rule >= 0.95); linked min 1.000; questions mc 40, tf 31
 - **2**: 15 passages; words/passage 85-97 (median 92); ws_words 81-92; coverage min 1.000, median 1.000 (rule >= 0.95); linked min 1.000; questions mc 44, tf 31
 - **3**: 15 passages; words/passage 100-115 (median 107); ws_words 92-113; coverage min 0.962, median 1.000 (rule >= 0.95); linked min 0.962; questions mc 45, tf 30
-- **4**: 15 passages; words/passage 118-146 (median 131); ws_words 108-139; coverage min 0.992, median 1.000 (rule >= 0.93); linked min 0.992; questions mc 44, tf 31
+- **4**: 15 passages; words/passage 118-146 (median 133); ws_words 108-139; coverage min 0.992, median 1.000 (rule >= 0.93); linked min 0.992; questions mc 44, tf 31
 
 | id | lv | title | words | ws_words | coverage | linked | out-of-pack lemmas (reason) | higher-level lemmas |
 |---|---|---|---|---|---|---|---|---|
@@ -36,7 +36,7 @@ linked words, the count the app shows for an unspaced pack (report only).
 | p0019 | 2 | 火车站怎么走？ | 96 | 89 | 1.000 | 1.000 | - | 3: 司机, 站 |
 | p0020 | 2 | 买西瓜 | 86 | 81 | 1.000 | 1.000 | - | 3: 一共 |
 | p0021 | 2 | 汉语考试 | 91 | 86 | 1.000 | 1.000 | - | 3: 半, 只, 难 |
-| p0022 | 2 | 在机场 | 92 | 83 | 1.000 | 1.000 | - | 3: 才, 着急 |
+| p0022 | 2 | 在机场 | 92 | 83 | 1.000 | 1.000 | - | 3: 地铁, 才, 着急 |
 | p0023 | 2 | 多运动，身体好 | 89 | 84 | 1.000 | 1.000 | - | 3: 为什么, 以后, 越 |
 | p0024 | 2 | 我的家人 | 93 | 88 | 1.000 | 1.000 | - | - |
 | p0025 | 2 | 明天的天气 | 94 | 88 | 1.000 | 1.000 | - | 3: 公园 |
@@ -60,7 +60,7 @@ linked words, the count the app shows for an unspaced pack (report only).
 | p0043 | 3 | 买了一双新鞋 | 107 | 105 | 1.000 | 1.000 | - | 4: 试, 道歉 |
 | p0044 | 3 | 骑自行车 | 111 | 104 | 1.000 | 1.000 | - | 4: 掉 |
 | p0045 | 3 | 中国的节日 | 109 | 95 | 0.962 | 0.962 | 中秋节 x2 (Mid-Autumn Festival; festival name, the pack lacks 节), 春节 x2 (Spring Festival; festival name, the pack lacks 节) | 4: 圆, 饺子 |
-| p0046 | 4 | 招聘广告 | 131 | 124 | 1.000 | 1.000 | - | - |
+| p0046 | 4 | 招聘广告 | 133 | 127 | 1.000 | 1.000 | - | - |
 | p0047 | 4 | 找工作 | 146 | 130 | 1.000 | 1.000 | - | - |
 | p0048 | 4 | 保护环境，从小事情开始 | 119 | 113 | 1.000 | 1.000 | - | - |
 | p0049 | 4 | 在网站上买沙发 | 130 | 123 | 1.000 | 1.000 | - | - |
