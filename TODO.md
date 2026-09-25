@@ -121,7 +121,7 @@ ship with that switch.
 A pack-gated "Script" tab for non-Latin packs, distinct from hsk's
 characters stage: letter/jamo → sound, recognition, syllable and word
 reading, using the pack's own words as examples, TTS for the sound; unlocked
-before A1 with a "skip, I can read" option; placement untouched. Data: a
+before A1 with a "skip, I can read" option that is reversible from the Progress tab (a toggle like the characters learning-order chips, user 2026-09-25 16:05); placement untouched. Data: a
 small per-pack table (`pack/script.json`: symbol, name, romanisation, sound
 note, example word id, joining forms where the script has them). Consumers:
 ko (Hangul, 40 jamo), ru (Cyrillic, 33), fa (32, joining forms), ja (kana,
