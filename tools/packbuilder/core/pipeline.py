@@ -49,6 +49,28 @@ def build_pack_json(env, words, raw_upos):
     }
 
 
+def write_characters(env, out_words, sentences):
+    """Characters stage (docs/HSK_MERGE.md ss2.3): pack/characters.json from
+    spec.character_units, and each sentence's spec.sentence_ruby tuples cut to
+    the words that are some unit's words[0] (a ruby with no unit is never
+    rendered). No units: no file and no ruby. Returns the units."""
+    units = env.spec.character_units(out_words) or []
+    word0 = {u["words"][0] for u in units}
+    for s in sentences:
+        if "ruby" in s:
+            keep = [r for r in s["ruby"] if r[3] in word0]
+            if keep:
+                s["ruby"] = keep
+            else:
+                del s["ruby"]
+    if units:
+        stat("characters", {"units": len(units),
+                            "sentences_with_ruby": sum(1 for s in sentences if "ruby" in s),
+                            "ruby_tokens": sum(len(s.get("ruby", ())) for s in sentences)})
+        write_json(env.pack / "characters.json", units)
+    return units
+
+
 def attribution(env, ctx, users, sentences):
     sp = env.spec
     return {
@@ -167,8 +189,12 @@ def run(env, stage="all", check_remote=False):
     out_words = [{k: w[k] for k in WORD_FIELDS if k in w} for w in words]
     apply_gloss_display(sp.repo, out_words, sp.gloss_display_file)    # display-only senses, after everything else
     write_json(env.pack / "words.json", out_words)     # -rsi gate may revert entries
+    units = write_characters(env, out_words, sentences)
     write_json(env.pack / "sentences.json", sentences)
-    write_json(env.pack / "pack.json", build_pack_json(env, words, ctx["raw_upos"]), compact=False)
+    pack_json = build_pack_json(env, words, ctx["raw_upos"])
+    if units:
+        pack_json["characters"] = sp.characters
+    write_json(env.pack / "pack.json", pack_json, compact=False)
     write_json(env.pack / "attribution.json", attribution(env, ctx, users, sentences), compact=False)
     ctx.update(words=words, records=records, sentences=sentences, primary=primary)
     stat("wall_seconds_this_run", round(time.time() - t0, 1))

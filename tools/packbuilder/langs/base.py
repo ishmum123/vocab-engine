@@ -454,6 +454,26 @@ class LanguageSpec:
         fontFamily, fonts, lineHeight, spaced; see docs/PACK_SCHEMA.md)."""
         return {}
 
+    # ---- characters stage (docs/HSK_MERGE.md ss2; defaults emit nothing) -------
+    # pack.json "characters" block, written only when character_units returns units
+    characters = None
+    # True: build_sentences records where each link sits (sentence_links `where`)
+    # and asks sentence_ruby for the shipped sentence's per-token readings
+    emit_ruby = False
+
+    def sentence_ruby(self, sid, rec, surfaces, where):
+        """sentences[].ruby candidates for a shipped sentence: [[start, end, reading,
+        wordId]] in UTF-16 offsets on rec["t"], sorted and non-overlapping, wordIds
+        in rec["words"]. `surfaces` are the tagged tokens' surfaces, `where` the
+        sentence_links records. Called after sentence_fields. The writer keeps only
+        tuples whose word is some character unit's words[0]."""
+        return None
+
+    def character_units(self, words):
+        """pack/characters.json units [{id, t, words, lv, reading}] from the shipped
+        words.json records, in teaching order within each level; None: no file."""
+        return None
+
     def extra_attribution(self, env, sentences):
         """Extra top-level keys for attribution.json."""
         return {}

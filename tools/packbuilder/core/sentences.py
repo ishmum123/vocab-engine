@@ -287,6 +287,7 @@ def build_sentences(env, ctx, words, top3000):
     rank_pen = {}      # (sid, word level) -> spec.sentence_rank penalty
     cands = defaultdict(list)
     tok_forms = {}     # sid -> folded token surfaces (example_shows_word only)
+    link_where = {}    # sid -> (token surfaces, sentence_links where records); spec.emit_ruby only
     for sid, toks in chain(iter_tagged(ctx["tagged"]), ctx.get("example_tagged", ())):
         text = rows[sid][1]
         if sp.untranslated_rows and not rows[sid][3]:
@@ -307,8 +308,9 @@ def build_sentences(env, ctx, words, top3000):
         if n < 3 or n > sp.max_len:
             st["length_out_of_range"] += 1
             continue
+        where = [] if sp.emit_ruby else None
         links = sentence_links(toks, lexicon, key_to_id, allowed, text, groups, gender_of, epos_to_id,
-                               lemma_ids, rows[sid][3], homs, st)
+                               lemma_ids, rows[sid][3], homs, st, where=where)
         if links and rsi_ids & set(links):
             refl_by_sid[sid] = {key_to_id.get(r) for j, r in enumerate(lexicon.resolve_sentence(toks, groups))
                                 if r and r[1] == "VERB" and sp.carries_refl_clitic(toks, j)}
@@ -340,6 +342,8 @@ def build_sentences(env, ctx, words, top3000):
         if remoto:
             st["candidates_with_passato_remoto"] += 1
         info[sid] = (n, remoto, rows[sid][4] is not None, maxlv, links)
+        if where is not None:
+            link_where[sid] = ([t[0] for t in toks], where)
         if sp.example_shows_word:
             tok_forms[sid] = {sp.fold(t[0]) for t in toks}
         for lvx in sp.level_ids:
@@ -421,6 +425,10 @@ def build_sentences(env, ctx, words, top3000):
         if sid in example_rows:
             rec.setdefault("src", "gen")        # written for the pack (spec.example_rows)
             n_examples += 1
+        if sp.emit_ruby:
+            ruby = sp.sentence_ruby(sid, rec, *link_where[sid])
+            if ruby:
+                rec["ruby"] = ruby              # the writer keeps character units' words only
         sentences.append(rec)
         if row[2]:
             users.add(row[2])
