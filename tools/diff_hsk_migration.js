@@ -8,7 +8,8 @@
 //   5. a sample of 10 mapped words
 //   6. derived views, when the hsk checkout is found: hsk src/pinyin_core.js on the old
 //      record vs core.js on the new one (learned words and mastered counts per level,
-//      the stage path, next stage, characters started, choice card)
+//      the stage path, next stage, characters started, choice card, available sentences:
+//      hsk's pinyin_app.html rule re-stated over data/hsk_sentences.js vs VC.availableSentences)
 // Exit 0 only when nothing is unmapped and the roundtrip and derived diffs are empty.
 //
 // Usage: node tools/diff_hsk_migration.js <hsk_pinyin_progress.json> [packdir] [--hsk <hsk repo>] [--json]
@@ -26,13 +27,15 @@ const readJSON = f => JSON.parse(fs.readFileSync(f, "utf8"));
 function loadPack(dir){
   const opt = f => fs.existsSync(path.join(dir, f)) ? readJSON(path.join(dir, f)) : [];
   return { pack: readJSON(path.join(dir, "pack.json")), words: readJSON(path.join(dir, "words.json")),
-    units: opt("characters.json"), legacy: readJSON(path.join(dir, "legacy.json")) };
+    units: opt("characters.json"), sentences: opt("sentences.json"), legacy: readJSON(path.join(dir, "legacy.json")) };
 }
 function loadHsk(dir){
   if(!dir) return null;
   const core = path.join(dir, "src", "pinyin_core.js"), vocab = path.join(dir, "data", "hsk_vocab.json");
   if(!fs.existsSync(core) || !fs.existsSync(vocab)) return null;
-  return { PC: require(core), VOCAB: readJSON(vocab) };
+  const sf = path.join(dir, "data", "hsk_sentences.js");
+  const S = fs.existsSync(sf) ? new Function(fs.readFileSync(sf, "utf8") + "\nreturn { SENTENCES, SENTENCE_EXTRA };")() : null;
+  return { PC: require(core), VOCAB: readJSON(vocab), SENTENCES: S && S.SENTENCES, SENTENCE_EXTRA: S && S.SENTENCE_EXTRA };
 }
 const invert = m => { const o = {}; for(const k of Object.keys(m || {})) o[m[k]] = k; return o; };
 const isObj = x => !!x && typeof x === "object" && !Array.isArray(x);
@@ -99,6 +102,23 @@ function derivedDiff(old, prog, P, hsk){
   cmp("next stage", hStage(PC.nextStage(hp, nsets, VOCAB)), hStage(VC.nextStage(P.pack, P.words, P.units, prog)));
   cmp("characters started", PC.charsStarted(hp, nsets, VOCAB), VC.charsStarted(P.pack, P.words, P.units, prog));
   cmp("choice card shown", PC.showCharChoice(hp, nsets, VOCAB), VC.showCharChoice(P.pack, P.words, P.units, prog));
+  if(hsk.SENTENCES){
+    // hsk pinyin_app.html availableSentences: every word learned (a SENTENCE_EXTRA compound
+    // counts via its base) or the current level (first level with an untaught set, 5 when
+    // none) is past the sentence's. Compared as the set of engine sentence ids.
+    const lw = new Set(hskLearned().map(v => v.w)), EX = hsk.SENTENCE_EXTRA || {};
+    const nn = [1,2,3,4].find(lv => (hp.sets[lv]||0) < nsets[lv]), curLv = nn || 5;
+    const ok = s => (s.words||[]).every(w => lw.has(w) || (EX[w] && lw.has(EX[w].base))) || curLv > s.lv;
+    const hA = new Set(hsk.SENTENCES.filter(ok).map(s => L.s[s.zh] || "?" + s.zh));
+    const eA = new Set(VC.availableSentences(P.sentences, P.words, P.pack, prog).map(s => s.id));
+    const only = (a, b) => [...a].filter(x => !b.has(x)).sort();
+    const diff = { hskOnly: only(hA, eA), engineOnly: only(eA, hA) };
+    // Accepted (docs/HSK_MERGE.md §8): pack_from_hsk merges 分+之 into the HSK 4 word 分之,
+    // so s0823 needs 分之 learned in the engine and only 分 and 之 in hsk.
+    const ACCEPTED = new Set(["s0823"]);
+    const unexplained = [...diff.hskOnly, ...diff.engineOnly].filter(id => !ACCEPTED.has(id));
+    views.push({ name: `available sentences (hsk ${hA.size}, engine ${eA.size}; accepted: s0823 分之)`, hsk: diff.hskOnly, engine: diff.engineOnly, same: unexplained.length === 0 });
+  }
   return views;
 }
 

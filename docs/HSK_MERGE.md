@@ -124,30 +124,30 @@ Scoring writes `prog.chars.c` only. charSound drills `pron`, breaking the engine
 
 - **Once:** at boot, only if `vocab_zh` is absent and `hsk_pinyin` validates. It writes `vocab_zh` plus `vocab_zh_legacy_backup` (raw copy) and never touches `hsk_pinyin`. A second boot sees `vocab_zh` and skips. Progress import accepts hsk exports through the same function.
 - **Unmapped keys** are listed and kept in the backup. Acceptance requires none.
-- **Proof:** `tools/diff_hsk_migration.js <snapshot.json>` migrates a real Progress → Export file, reverse-maps it and diffs every record and flag. It also compares derived views, hsk `pinyin_core.js` on the old record against `core.js` on the new: per-level learned and mastered, current stage, stage fractions, choice-card state, sentence availability. The diff must be empty.
+- **Proof:** `tools/diff_hsk_migration.js <snapshot.json>` migrates a real Progress → Export file, reverse-maps it and diffs every record and flag. It also compares derived views, hsk `pinyin_core.js` on the old record against `core.js` on the new: per-level learned and mastered, current stage, stage fractions, choice-card state, sentence availability (hsk's rule re-stated over `data/hsk_sentences.js`, differing ids listed). The diff must be empty apart from the accepted deviations in §8 (s0823).
 
 ## 5. Parity checklist and rollback
-Walk `dist/zh.html`, then the hsk branch build, at 390, 360 and desktop, light and dark.
+Walk `dist/zh.html`, then the hsk branch build, at 390, 360 and desktop, light and dark. Walked 2026-09-26: every row passed except the two switch-time rows; deviations it found are in §8 ("hsk parity walk").
 
-- [ ] Fresh load, offline reload, and the old `hsk_pinyin.html` URL (question 4).
-- [ ] The migration diff is empty on the real snapshot. After boot, Today shows the same session number, learned count, strip fractions and current stage as hsk.
-- [ ] Seeds A–E from hsk `PINYIN_SPEC.md` "Browser-verify seeds", migrated:
+- [ ] Fresh load, offline reload, and the old `hsk_pinyin.html` URL (question 4). Switch-time: the old URL only exists once hsk is switched.
+- [ ] The migration diff is empty on the real snapshot. Switch-time: needs the real Export at the switch. After boot, Today shows the same session number, learned count, strip fractions and current stage as hsk.
+- [x] Seeds A–E from hsk `PINYIN_SPEC.md` "Browser-verify seeds", migrated:
   - A shows no character surface.
   - B shows the choice card. Start teaches 10 cards and a 20-item drill and records 10 units. Skip teaches HSK 4 set 1, and 字 moves after HSK 4.
   - C gives a 20-item Review with both kinds and charRecall in Recall, and Characters N runs. The mix chip changes the sentence tiers.
   - D is a v1 record that migrates.
   - E puts the deferred stage after HSK 4.
-- [ ] The learning-order chips flip the path, and a running session is unaffected.
-- [ ] Today runs all 5 steps before characters: Review 15, Learn, Listen 12, Recall 8 and Sentences 8.
-- [ ] Placement works from the hint and on retake, and a placement past HSK 3 lands on the choice card.
-- [ ] Sounds: lessons open, and lesson progress is kept.
-- [ ] Words: search, the set pager and "Drill this set".
-- [ ] Test: Placement, Listen, Recall, Sentences and Characters.
-- [ ] Progress: export, import of an old hsk export, and reset.
-- [ ] Each tap plays exactly one utterance.
-- [ ] The Samsung notice shows with a spoofed user agent, and the no-voice notice shows with voices stubbed out.
-- [ ] No overflow at 360px.
-- [ ] The user has signed off the known losses: questions 1 and 2.
+- [x] The learning-order chips flip the path, and a running session is unaffected.
+- [x] Today runs all 5 steps before characters: Review 15, Learn, Listen 12, Recall 8 and Sentences 8.
+- [x] Placement works from the hint and on retake, and a placement past HSK 3 lands on the choice card.
+- [x] Sounds: lessons open, and lesson progress is kept.
+- [x] Words: search, the set pager and "Drill this set".
+- [x] Test: Placement, Listen, Recall, Sentences and Characters.
+- [x] Progress: export, import of an old hsk export, and reset.
+- [x] Each tap plays exactly one utterance.
+- [x] The Samsung notice shows with a spoofed user agent, and the no-voice notice shows with voices stubbed out.
+- [x] No overflow at 360px.
+- [x] The user has signed off the known losses: questions 1 and 2.
 
 **Rollback:** reset hsk `main` to 3aeecc4 and republish. `hsk_pinyin` is never modified, so the old build resumes at the pre-switch state; post-switch progress stays in `vocab_zh`.
 
@@ -203,3 +203,8 @@ Flag-off packs: zh with `characters` stripped, the synthetic packs, and each sib
 - **BP done (2026-09-25):** `pack.pronFirst` (docs/PACK_SCHEMA.md "pronFirst"), true for zh (`pack_from_hsk.py`) and for ja whenever the packbuilder writes `characters` (`LanguageSpec.pron_first`, `pipeline.characters_pack_fields`). The threshold is the mastered tier, per the 16:10 decision (the §6 note's "until bare" is superseded). Mix off under pronFirst means reading-only sentences, as hsk's mix off did. The written form still appears in these places: the characters stage (by design); mastered words; the stage label (字); and zh passage titles, questions, options and unlinked names (王明, 上海: 223 of 8656 passage characters), which have no reading data. The Sounds lessons show pack-authored text as is. A later zh passage-hooks round could add `ruby` to passages and readings to titles and questions; passages with `ruby` already render by tier.
 - **BP2 done (2026-09-26, branch hsk-bp2):** the extraction losses that aid learning are restored, pack-gated (docs/PACK_SCHEMA.md "Pronunciation aids"; checks in tests/pron_aids_checks.js). (1) Word taps inside sentences: every ruby token is a tap that shows the Read-tab popover and speaks the word; the sentence is heard from its own speaker button; never in stimuli or answer options; no progress effect. (2) `pack.tones: "pinyin"`: every displayed reading is coloured per syllable (hsk's colours, light and dark); the syllable split is ported from hsk (`markSyllable`, `splitSyllable`) and checked against every zh pron, ruby reading and unit reading. (3) `pack.typing: "pron"`: the production slot alternating with recall types the pinyin, with hsk's numbered rules and a "tones missing" partial; no typed cloze; placement untouched. (4) The Sounds lessons already cover every initial, final and tone, so the chart is a collapsed Reference card built from the lesson rows (`pack.soundsReference`), not a new file. (5) `showChars` is gone except the migration's intentional drop list and historical docs. (6) Phrase-span popovers head with the tapped surface and its reading. (7) Pinyin-first passage spans longer than their word (146 of 6017) no longer drop syllables: they compose the word's pron with single-character unit readings, keeping any unread character written; a reading after a sentence-internal . ! ? is capitalised. Engine guard [10] now allows the generic word "tone" (it still bans pinyin/cjk/hsk/hanzi/kanji), since `pack.tones` is a pack-gated feature. Follow-on after merging main cc4dca0 (zh passage ruby): passage titles (list, Today read hint, heading, results), questions and mc options render their `titleRuby`/`questions[].ruby`/`optionsRuby` reading-first under pronFirst (no taps, no show-written inside buttons), so the Read tab shows no hanzi below mastered (checked over all 60 passages); every passage sentence now has ruby, so 越来越/一下 read from it as the builder wrote it (一下 yīxià, no sandhi) and composeSpanReading is only the fallback for a sentence without ruby. Residuals: readings follow the builder, which writes 一下 as yīxià (citation), not the spoken yíxià; typed pinyin accepts a sandhi-written pron (一点儿 yìdiǎnr) only as written; glosses that quote pinyin ("also pr. [shuí]") and lesson item text stay uncoloured; on a word-first characters pack, taps appear only once ruby renders (characters started, mix on); the Reference card lists one example syllable per lesson row (66 cells), not a full initial x final grid; browser verification at 390px is owed.
 - Unchanged deviations from hsk, confirmed at B8: Recall is weakest-first (hsk picks at random; question 5). Sentence tokens below mastered show ruby, not pron-only, on a word-first pack (`pronFirst` would give the pron tier). The mix chip shows once characters have started (hsk shows it once unlocked); before that it changes nothing.
+- **hsk parity walk (2026-09-26), accepted deviations:**
+  - Placement retake never moves the learner back. "Retaking can only move you forward" is an engine-wide rule across languages; hsk reset to HSK 1 set 1 after an all-wrong retake.
+  - Seed E sentence availability is 617 vs hsk's 618. `pack_from_hsk.py` merges 分+之 into the HSK 4 word 分之, so s0823 needs 分之 learned here and only 分 and 之 in hsk. `tools/diff_hsk_migration.js` did not compare sentence availability although §4 said so; it now does (hsk's rule over `data/hsk_sentences.js`, differing ids listed) and accepts only s0823 (migration_checks "walk seed E").
+  - Words search folds tones and matches hanzi, which hsk did not. Kept: strictly more useful.
+  - Progress showed the 字 stage rows ("字 0/595 taught", "字4") while characters were still locked; hsk hides them until characters start. Fixed: the rows show once `charsStarted` (hsk's own gate), checked in characters_app_checks [8]. The learning-order chips are unchanged.

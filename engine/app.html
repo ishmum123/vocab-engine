@@ -2108,21 +2108,22 @@ function progressRender(){
   };
 }
 // Progress additions for pack.characters: one row per character stage (taught = units in
-// fully taught sets, recorded = units with a record, mastered/bare by streak), and the
+// fully taught sets, recorded = units with a record, mastered/bare by streak), shown only
+// once characters have started (VC.charsStarted: no rows while the stage is locked), and the
 // controls: the path strip, the learning-order chips (VC.setCharOrder: reversible, flips
 // the path only) and the mix chip (prog.chars.mix: known units' written form in sentences).
 function charProgress(){
   const stages = VC.stagePath(PACK, WORDS, CHAR_LIST, prog, SU).filter(s => s.kind === "chars");
   const recs = VC.charRecs(prog);
   const streak = u => ((recs[u.id] || {}).s || 0);
-  const rows = stages.map(st => {
+  const unlocked = VC.charsUnlocked(PACK, WORDS, prog), started = VC.charsStarted(PACK, WORDS, CHAR_LIST, prog, SU);
+  const rows = !started ? "" : stages.map(st => {
     const list = VC.charStageUnits(st.levels, CHAR_LIST, PACK);
     const taught = VC.charSets(st.levels, CHAR_LIST, PACK).filter(set => VC.charSetTaught(set, prog)).reduce((n, set) => n + set.length, 0);
     const masteredN = list.filter(u => recs[u.id] && VC.charTier(streak(u), PACK) !== "pron").length;
     const bareN = list.filter(u => recs[u.id] && VC.charTier(streak(u), PACK) === "bare").length;
     return `<tr><td>${tw(st.label)}</td><td>${taught} / ${list.length} taught · ${st.recorded} recorded · ${masteredN} mastered · ${bareN} bare</td></tr>`;
   }).join("");
-  const unlocked = VC.charsUnlocked(PACK, WORDS, prog), started = VC.charsStarted(PACK, WORDS, CHAR_LIST, prog, SU);
   const defer = !!(prog.chars && prog.chars.defer === true);
   const deferred = VC.charStages(PACK, Object.assign({}, prog, { chars: Object.assign({}, prog.chars, { defer: true }) }));
   const top = deferred.length ? levelLabel(deferred[0].after) : "";

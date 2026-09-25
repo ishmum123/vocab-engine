@@ -107,6 +107,17 @@ for(const [name, old] of Object.entries(SEEDS)){
   else skip(`${name}: derived views (no hsk checkout at ${HSK})`);
 }
 
+// hsk PINYIN_SPEC seed E (deferred, mid-HSK 4): sentence availability differs only by the
+// accepted s0823 (分之 merged by pack_from_hsk; docs/HSK_MERGE.md §8), and the tool passes.
+{
+  const E = Object.assign(clone(HSK_FRESH), { sets:{1:nsets(1),2:nsets(2),3:nsets(3),4:7}, theme:"light", sessions:3, placedOnce:true, soundsOpened:true, charsAfterHsk4:true, charsChoiceSeen:true });
+  if(PC){
+    const rep = diffMigration(clone(E), ZH, HSK), v = rep.derived && rep.derived.find(d => /^available sentences/.test(d.name));
+    check(`walk seed E: sentence availability compared, only s0823 differs (${v ? v.name : "missing"}), tool passes`,
+      !!v && eq(v.hsk, ["s0823"]) && eq(v.engine, []) && v.same && rep.pass);
+  } else skip("walk seed E: sentence availability (no hsk checkout)");
+}
+
 console.log("\n[2] seed-specific derived state on the engine side");
 const W = WORDS, U = readJSON("characters.json");
 const mig = n => VC.migrateLegacy(PACK, LEGACY, clone(SEEDS[n])).prog;

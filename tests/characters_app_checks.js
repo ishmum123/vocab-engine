@@ -500,7 +500,9 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     const { api } = await boot();
     api.goto("progress");
     let h = api.html("panel");
-    check("fresh learner: stage rows shown, no order/mix controls", /<td><bdi[^>]*>字<\/bdi><\/td><td>0 \/ \d+ taught · 0 recorded · 0 mastered · 0 bare<\/td>/.test(h) && !/id="charCtl"/.test(h));
+    check("fresh learner (characters locked): no 字 stage rows, no order/mix controls (hsk parity)", !/<td><bdi[^>]*>字\d*<\/bdi><\/td>/.test(h) && !/ taught · \d+ recorded/.test(h) && !/id="charCtl"/.test(h));
+    { const q = seedB(); VC.answerCharChoice(q, false); api.setProg(q); api.goto("progress"); h = api.html("panel");
+      check("levels 1-3 taught, deferred, no unit record (not started): still no 字 rows", VC.charsUnlocked(PACK, WORDS, q) && !VC.charsStarted(PACK, WORDS, CHARACTERS, q) && !/>字\d*<\/bdi><\/td>/.test(h)); }
     api.setProg(seedC()); api.goto("progress");
     h = api.html("panel");
     const n1 = VC.charStageUnits(["1","2","3"], CHARACTERS, PACK).length, n4 = VC.charStageUnits(["4"], CHARACTERS, PACK).length;
