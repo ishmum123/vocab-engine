@@ -88,6 +88,10 @@ the budget rule above is unchanged):
 - p0048: s2 '河里': jieba reads a proper noun (ns), linked as 河 + 里; declare it in names if it is one
 - p0060: s6 '太咸': jieba reads a proper noun (nr), linked as 太 + 咸; declare it in names if it is one; s6 '太辣': jieba reads a proper noun (nr), linked as 太 + 辣; declare it in names if it is one
 
+Readings (`ruby`, langs/zh.py passage_ruby): 6136 reading tokens over 577 sentences (6017 on a linked word, 119 without one: names, oop words, 过, 第), 4061 in titles, questions and options.
+pypinyin readings with no override: 435 characters, 44 distinct: 周 x27, 婷 x22, 上 x19, 海 x19, 娜 x18, 杰 x17, 王 x17, 陈 x17, 丽 x15, 何 x15, 李 x14, 林 x14, 刘 x13, 孙 x13, 明 x13, 浩 x13, 芳 x13, 静 x13, 强 x12, 赵 x12, 吴 x11, 磊 x11, 安 x10, 节 x9, 郑 x9, 文 x8, 国 x6, 春 x6, 迪 x6, 杨 x5 ....
+Override readings used (SURFACE_READINGS, CHAR_READINGS, 地 rule, aspect 过): 便宜 x10, 过 (aspect) x3, 草地 x2, 长大 x2, 切 x1.
+
 <!-- manual section: kept across runs -->
 
 ## Manual QA (2026-09-25, first build)

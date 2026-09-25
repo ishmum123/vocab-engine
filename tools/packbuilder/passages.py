@@ -978,17 +978,21 @@ def run(spec, check_only=False, out=sys.stdout):
         print(f"self-check: {pid} q{j}: none of its words {ws} appears in sentence {si}", file=out)
     if errors:
         print(f"passages: {len(errors)} errors", file=out)
+    # a linker's passage_ruby (zh): per-token readings on sentences, titles, questions
+    # and options, returning its report lines
+    extra = lk.passage_ruby(passages, [names_of[id(p)] for p in src["passages"]]) \
+        if hasattr(lk, "passage_ruby") else []
     if not check_only:
         if errors:
             print("passages: not writing pack/passages.json (fix the errors first)", file=out)
             return 1
         write_json(pack_dir / "passages.json", passages)
-        write_report(repo, rows, rules, tools_dir, getattr(spec, "passage_unspaced", False))
+        write_report(repo, rows, rules, tools_dir, getattr(spec, "passage_unspaced", False), extra)
         print(f"passages: wrote {len(passages)} passages", file=out)
     return 1 if errors else 0
 
 
-def write_report(repo, rows, rules, tools_dir=None, unspaced=False):
+def write_report(repo, rows, rules, tools_dir=None, unspaced=False, extra=()):
     tools_dir = tools_dir or repo / "tools"
     if rules["budget"] == DEFAULT_RULES["budget"]:
         budget = ["punctuation not counted). Level budget (passage + questions + options): A1 may use",
@@ -1033,6 +1037,8 @@ def write_report(repo, rows, rules, tools_dir=None, unspaced=False):
         lines += ["", "Title words, and question/option words the budget does not count (a numeral-like",
                   "pack word), that are out of the pack or above the passage's level (report only;",
                   "the budget rule above is unchanged):", ""] + notes
+    if extra:
+        lines += [""] + list(extra)
     path = tools_dir / "REPORT_passages.md"
     manual = ""
     if path.exists() and MANUAL_MARK in path.read_text():

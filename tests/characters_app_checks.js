@@ -673,7 +673,11 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
   {
     const ubw = VC.unitByWord(CHARACTERS);
     // A passage whose sentences carry sentences.json-style ruby, built from its spans.
-    const src = PASSAGES.find(p => p.sentences.some(s => (s.spans || []).filter(x => ubw.get(x[2])).length >= 2));
+    // src: the same passage without any ruby (the pack's own passages carry ruby since
+    // zh-passage-ruby, so the baseline strips it).
+    const src = clone(PASSAGES.find(p => p.sentences.some(s => (s.spans || []).filter(x => ubw.get(x[2])).length >= 2)));
+    src.sentences.forEach(s => { delete s.ruby; });
+    delete src.titleRuby; src.questions.forEach(q => { delete q.ruby; delete q.optionsRuby; });
     const withRuby = clone(src);
     withRuby.sentences.forEach(s => { s.ruby = (s.spans || []).filter(x => ubw.get(x[2])).map(x => [x[0], x[1], VC.unitReading(ubw.get(x[2]), BY_ID), x[2]]); });
     const si = withRuby.sentences.findIndex(s => s.ruby.length >= 2 && new Set(s.ruby.map(r => ubw.get(r[3]).id)).size >= 2);
@@ -828,9 +832,12 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
       const box = api.html("panel").split('id="pbox">')[1] || ""; // the fake DOM keeps markup on the panel only
       const spans = [...box.matchAll(/<span class="pw" data-pw="[^"]*"(?: data-pg="[^"]*")? role="button" tabindex="0">([\s\S]*?)<\/span>/g)].map(m => m[1]);
       check(`Read: every tap span of "${PASSAGES[0].title}" reads as pinyin (${spans.length} spans)`, spans.length > 10 && spans.every(h => !visHan(h)));
+      // The pack's passage ruby covers every hanzi (names included), so nothing is left
+      // as written; before it, text no word links (names) stayed hanzi.
       const left = visHan(box);
       const unlinked = PASSAGES[0].sentences.map(x => VC.passageSegments(x, BY_ID, PF_ZH).parts.filter(q => !q.id).map(q => q.text).join("")).join("");
-      check(`Read: the only hanzi left in the passage are text no word links (names: ${left})`, left === visHan(unlinked));
+      check(`Read: no hanzi left in the passage, unlinked text (${visHan(unlinked)}) included, read by its ruby (left: ${left})`,
+        left === "" && PASSAGES[0].sentences.every(x => Array.isArray(x.ruby)));
       const qs = PASSAGES[0].sentences.map(x => api.passagePlainHTML(x));
       check("Read: question reveal sentences use the same display (tap spans in pinyin)", qs.every(h => h.includes(VC.escapeHtml(BY_ID["w0091"].pron)) || !h.includes("我")));
     }

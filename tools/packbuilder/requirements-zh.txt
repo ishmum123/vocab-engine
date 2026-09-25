@@ -1,3 +1,6 @@
 # Optional, zh passages only: jieba cross-checks proper nouns in the report
 # (python3 -m packbuilder passages packs/zh). Segmentation never depends on it.
 jieba==0.42.1
+# Required for zh passage readings (ruby) when the pack has a characters stage:
+# characters the pack does not cover (names, oop words) are read by pypinyin.
+pypinyin==0.55.0
