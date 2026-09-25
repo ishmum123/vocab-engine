@@ -15,7 +15,7 @@ The Italian pack (`key: "it"`) was the first language. The shared builder reprod
 
 ```
 packbuilder/
-  cli.py              python3 -m packbuilder {build,check,scan,sample} --lang <code> --repo <path>; passages <repo>
+  cli.py              python3 -m packbuilder {build,check,scan,sample} --lang <code> --repo <path>; passages <repo>; script <repo>
   core/               language-agnostic stages
     sources.py        downloads into <repo>/.cache, the Tatoeba corpus stage, audio recorders
     tag.py            truecasing and tagging (cached): tag_docs/doc_tokens run spaCy or spec.tag_texts (fa, id: Stanza)
@@ -27,7 +27,9 @@ packbuilder/
     words.py          pool, entry/sense choice, second-POS entries, levels (assign_levels), ids (assign_ids)
     sentences.py      in-context links, sentence choice, -rsi gate
     report.py         REPORT.md (keeps the manual section)
-    pipeline.py       stage driver (finish_words: sentences, refill, finalize_words), pack.json, attribution.json
+    pipeline.py       stage driver (finish_words: sentences, refill, finalize_words), pack.json, attribution.json, write_script
+    script.py         script primer emitter: spec script table + generated say/ex/syll -> script.json
+    script_cli.py     `script` command: script.json + the pack.json script key only
   passages.py         reading passages: tools/passages_src.json -> pack/passages.json
   langs/base.py       LanguageSpec: the interface and its defaults
   langs/it.py         Italian
@@ -70,8 +72,13 @@ python3 -m packbuilder scan   --lang it --repo . [--only 1|2|3]
 python3 -m packbuilder sample --lang it --repo . --seed 303
 python3 -m packbuilder passages . [--lang it] [--check]    # reading passages, see below
 python3 -m packbuilder passages ../packs/zh [--check]      # a flat pack dir (zh, from vocab-engine/tools), see "Chinese (zh) passages"
+python3 -m packbuilder script --lang ko .                  # script primer only, see below
 python3 -m unittest discover -s engine/tools/packbuilder/tests -t engine/tools
 ```
+
+### Script primer
+
+`script` (and the `final` build stage, via `pipeline.write_script`) writes `pack/script.json` for a spec with a `script` block and a `script_units()` table (ko, ru, fa, ja; docs/SCRIPT_PRIMER.md ss3). The table is hand-written (glyph, set, group, name, roman, alt, confuse, note, joins/base/italic). `core/script.py` adds `say` (the spec's `script_say`: one function per language, so a TTS probe result changes one place), `ex` (up to 3 words from the first level whose every symbol is taught by the unit's set; then the second level; then one unknown symbol) and `syll` (ko blocks from first-level words). `stat("script")` / the command's output lists every unit whose `ex` needed a fallback or has none. The `script` command reads the shipped `pack/words.json`, rewrites only `script.json`, `script.js`, the `script` key of `pack.json` and `pack.js`, and is byte-identical on a second run. Run it with the repo's `.venv` python and `PYTHONPATH=<engine>/tools`.
 
 ### Reading passages
 

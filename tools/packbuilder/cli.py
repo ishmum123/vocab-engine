@@ -6,6 +6,9 @@
     sample  stratified word / sentence samples for hand QA (--seed)
     passages  <repo>: tools/passages_src.json -> pack/passages.json (--check: report only);
               <repo> may be a flat pack dir (packs/zh: passages_src.json -> passages.json beside it)
+    script  <repo>: the script primer only -- pack/script.json (+ script.js) and the
+            "script" key of pack/pack.json (+ pack.js) from the shipped pack/words.json;
+            touches no other file
 """
 import argparse
 
@@ -38,11 +41,18 @@ def main(argv=None):
     pg.add_argument("repo", help="language repo root, or a flat pack dir (packs/zh)")
     pg.add_argument("--lang", help="language code (default: pack/pack.json key)")
     pg.add_argument("--check", action="store_true", help="report coverage/validation only, write nothing")
+    sc = sub.add_parser("script", help="script primer: pack/script.json + pack.json script key")
+    sc.add_argument("repo", help="language repo root (holds pack/)")
+    sc.add_argument("--lang", required=True, help="language code (packbuilder/langs/<code>.py)")
     args = ap.parse_args(argv)
 
     if args.cmd == "passages":
         from .passages import main as passages_main
         return passages_main(args.repo, args.lang, args.check)
+
+    if args.cmd == "script":
+        from .core.script_cli import main as script_main
+        return script_main(args.lang, args.repo)
 
     spec = get_spec(args.lang, args.repo)
     if args.cmd == "build":

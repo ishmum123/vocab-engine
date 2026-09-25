@@ -1206,6 +1206,138 @@ class _PassageAlias(dict):
         return d
 
 
+# ---- script primer (docs/SCRIPT_PRIMER.md ss3) -------------------------------
+# Hangul: 47 units in 7 sets. One jamo in two roles is two units (ㄱ initial,
+# ㄱ final). Blocks are split by Unicode arithmetic; example romanisation is
+# Revised Romanization block by block (a final moves onto a following ㅇ, ㄹㄹ is
+# ll; no other sound change -- the ex ranking avoids finals before the last block).
+HANGUL_L = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+HANGUL_V = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+HANGUL_T = ["", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ",
+            "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
+RR_L = dict(zip(HANGUL_L, "g kk n d tt r m b pp s ss - j jj ch k t p h".split()))
+RR_L["ㅇ"] = ""
+RR_V = dict(zip(HANGUL_V, "a ae ya yae eo e yeo ye o wa wae oe yo u wo we wi yu eu ui i".split()))
+RR_T = {"": "", "ㄱ": "k", "ㄲ": "k", "ㄳ": "k", "ㄴ": "n", "ㄵ": "n", "ㄶ": "n", "ㄷ": "t", "ㄹ": "l",
+        "ㄺ": "k", "ㄻ": "m", "ㄼ": "l", "ㄽ": "l", "ㄾ": "l", "ㄿ": "p", "ㅀ": "l", "ㅁ": "m", "ㅂ": "p",
+        "ㅄ": "p", "ㅅ": "t", "ㅆ": "t", "ㅇ": "ng", "ㅈ": "t", "ㅊ": "t", "ㅋ": "k", "ㅌ": "t", "ㅍ": "p", "ㅎ": "t"}
+# a final before a ㅇ-initial block moves over: (stays, moves)
+KO_LIAISON = {"ㄳ": ("ㄱ", "ㅅ"), "ㄵ": ("ㄴ", "ㅈ"), "ㄶ": ("ㄴ", "ㅎ"), "ㄺ": ("ㄹ", "ㄱ"), "ㄻ": ("ㄹ", "ㅁ"),
+              "ㄼ": ("ㄹ", "ㅂ"), "ㄽ": ("ㄹ", "ㅅ"), "ㄾ": ("ㄹ", "ㅌ"), "ㄿ": ("ㄹ", "ㅍ"), "ㅀ": ("ㄹ", "ㅎ"),
+              "ㅄ": ("ㅂ", "ㅅ")}
+
+# (set, group, slug, glyph, name, roman, alt, confuse slugs, note)
+KO_SCRIPT = [
+    (1, "vowel", "a", "ㅏ", "아", "a", [], ["eo", "ya"], "a as in 'father'"),
+    (1, "vowel", "eo", "ㅓ", "어", "eo", [], ["a", "yeo"], "open o, like 'u' in 'cut'"),
+    (1, "vowel", "o", "ㅗ", "오", "o", [], ["u", "yo"], "o as in 'go', no glide"),
+    (1, "vowel", "u", "ㅜ", "우", "u", [], ["o", "yu"], "oo as in 'moon'"),
+    (1, "vowel", "eu", "ㅡ", "으", "eu", [], ["i", "u"], "'oo' with the lips spread flat"),
+    (1, "vowel", "i", "ㅣ", "이", "i", [], ["eu", "a"], "ee as in 'see'"),
+    (2, "consonant", "g", "ㄱ", "기역", "g", ["k"], ["k", "n"], "soft g/k; k at the end of a syllable"),
+    (2, "consonant", "n", "ㄴ", "니은", "n", [], ["d", "r"], "n"),
+    (2, "consonant", "d", "ㄷ", "디귿", "d", ["t"], ["t", "n"], "soft d/t"),
+    (2, "consonant", "r", "ㄹ", "리을", "r", ["l"], ["d", "m"], "a light tap r between vowels, l at the end"),
+    (2, "consonant", "m", "ㅁ", "미음", "m", [], ["b", "ieung"], "m"),
+    (2, "consonant", "b", "ㅂ", "비읍", "b", ["p"], ["p", "m"], "soft b/p"),
+    (2, "consonant", "s", "ㅅ", "시옷", "s", [], ["j", "ss"], "s; sh before ㅣ"),
+    (2, "consonant", "ieung", "ㅇ", "이응", "(silent)", [], ["h", "m"],
+     "silent at the start of a block (아 = a); ng at the end"),
+    (3, "consonant", "j", "ㅈ", "지읒", "j", [], ["ch", "s"], "soft j/ch"),
+    (3, "consonant", "ch", "ㅊ", "치읓", "ch", [], ["j", "h"], "ch with a puff of air"),
+    (3, "consonant", "k", "ㅋ", "키읔", "k", [], ["g", "kk"], "k with a puff of air"),
+    (3, "consonant", "t", "ㅌ", "티읕", "t", [], ["d", "tt"], "t with a puff of air"),
+    (3, "consonant", "p", "ㅍ", "피읖", "p", [], ["b", "pp"], "p with a puff of air"),
+    (3, "consonant", "h", "ㅎ", "히읗", "h", [], ["ieung", "ch"], "h"),
+    (4, "vowel", "ya", "ㅑ", "야", "ya", [], ["a", "yeo"], "ya: ㅏ with an extra stroke adds y"),
+    (4, "vowel", "yeo", "ㅕ", "여", "yeo", [], ["eo", "ya"], "yeo"),
+    (4, "vowel", "yo", "ㅛ", "요", "yo", [], ["o", "yu"], "yo"),
+    (4, "vowel", "yu", "ㅠ", "유", "yu", [], ["u", "yo"], "yu"),
+    (4, "vowel", "ae", "ㅐ", "애", "ae", [], ["e", "a"], "e as in 'bed' (said like ㅔ today)"),
+    (4, "vowel", "e", "ㅔ", "에", "e", [], ["ae", "eo"], "e as in 'bed'"),
+    (5, "tense", "kk", "ㄲ", "쌍기역", "kk", [], ["g", "k"], "tight k, no puff of air"),
+    (5, "tense", "tt", "ㄸ", "쌍디귿", "tt", [], ["d", "t"], "tight t, no puff of air"),
+    (5, "tense", "pp", "ㅃ", "쌍비읍", "pp", [], ["b", "p"], "tight p, no puff of air"),
+    (5, "tense", "ss", "ㅆ", "쌍시옷", "ss", [], ["s", "jj"], "tight, hissed s"),
+    (5, "tense", "jj", "ㅉ", "쌍지읒", "jj", [], ["j", "ch"], "tight j, no puff of air"),
+    (6, "vowel", "yae", "ㅒ", "얘", "yae", [], ["ye", "ae"], "ye (like ㅖ)"),
+    (6, "vowel", "ye", "ㅖ", "예", "ye", [], ["yae", "e"], "ye"),
+    (6, "vowel", "wa", "ㅘ", "와", "wa", [], ["wo", "wae"], "ㅗ + ㅏ = wa"),
+    (6, "vowel", "wae", "ㅙ", "왜", "wae", [], ["we", "oe"], "ㅗ + ㅐ = we"),
+    (6, "vowel", "oe", "ㅚ", "외", "oe", [], ["wae", "we"], "said 'we' today"),
+    (6, "vowel", "wo", "ㅝ", "워", "wo", [], ["wa", "we"], "ㅜ + ㅓ = wo"),
+    (6, "vowel", "we", "ㅞ", "웨", "we", [], ["wae", "oe"], "ㅜ + ㅔ = we"),
+    (6, "vowel", "wi", "ㅟ", "위", "wi", [], ["ui", "wo"], "ㅜ + ㅣ = wi"),
+    (6, "vowel", "ui", "ㅢ", "의", "ui", [], ["wi", "eu"], "ㅡ + ㅣ = ui"),
+    (7, "final", "g-fin", "ㄱ", "기역 받침", "k", ["g"], ["b-fin", "ng-fin"], "unreleased k (also ㅋ ㄲ)"),
+    (7, "final", "n-fin", "ㄴ", "니은 받침", "n", [], ["l-fin", "ng-fin"], "n"),
+    (7, "final", "d-fin", "ㄷ", "디귿 받침", "t", ["d"], ["n-fin", "g-fin"], "unreleased t (also ㅅ ㅆ ㅈ ㅊ ㅌ ㅎ)"),
+    (7, "final", "l-fin", "ㄹ", "리을 받침", "l", ["r"], ["n-fin", "d-fin"], "l"),
+    (7, "final", "m-fin", "ㅁ", "미음 받침", "m", [], ["b-fin", "ng-fin"], "m"),
+    (7, "final", "b-fin", "ㅂ", "비읍 받침", "p", ["b"], ["m-fin", "g-fin"], "unreleased p (also ㅍ)"),
+    (7, "final", "ng-fin", "ㅇ", "이응 받침", "ng", [], ["n-fin", "m-fin"], "ng as in 'sing'"),
+]
+KO_SCRIPT_NOTES = [
+    {"st": "hangul", "set": 1, "h": "Blocks",
+     "body": "Hangul is written in syllable blocks. A vowel never stands alone: a block with no "
+             "consonant sound starts with a silent ㅇ, so ㅏ is written 아."},
+    {"st": "hangul", "set": 2, "h": "Building a block",
+     "body": "The consonant goes left of a tall vowel (나, 이) or on top of a flat one (노, 누)."},
+    {"st": "hangul", "set": 5, "h": "Three kinds of consonant",
+     "body": "Plain ㄱ ㄷ ㅂ ㅈ are soft, aspirated ㅋ ㅌ ㅍ ㅊ carry a puff of air, and doubled "
+             "ㄲ ㄸ ㅃ ㅉ ㅆ are tight with no air."},
+    {"st": "hangul", "set": 7, "h": "Final consonants (batchim)",
+     "body": "A consonant under the block closes the syllable. Only seven sounds end a syllable: "
+             "k n t l m p ng, so ㅅ ㅆ ㅈ ㅊ ㅌ ㅎ at the end sound t. Before a vowel the final "
+             "moves over: 먹어 is said meo-geo."},
+]
+_KO_FIN_UNIT = {"ㄱ": "g-fin", "ㄴ": "n-fin", "ㄷ": "d-fin", "ㄹ": "l-fin", "ㅁ": "m-fin", "ㅂ": "b-fin",
+                "ㅇ": "ng-fin"}
+_KO_FIN_READ = {"ㄲ": "g-fin", "ㅋ": "g-fin", "ㅍ": "b-fin",
+                **{c: "d-fin" for c in "ㅅㅆㅈㅊㅌㅎ"}}
+_KO_INIT_UNIT = {u[3]: u[2] for u in KO_SCRIPT if u[1] != "final" and u[3] in HANGUL_L}
+_KO_VOWEL_UNIT = {u[3]: u[2] for u in KO_SCRIPT if u[3] in HANGUL_V}
+
+
+def hangul_split(ch):
+    """A composed Hangul syllable -> (initial, vowel, final) compatibility jamo
+    (final "" when open); None for anything else."""
+    n = ord(ch) - 0xAC00
+    if not 0 <= n < 11172:
+        return None
+    return HANGUL_L[n // 588], HANGUL_V[n % 588 // 28], HANGUL_T[n % 28]
+
+
+def hangul_join(l, v, t=""):
+    return chr(0xAC00 + HANGUL_L.index(l) * 588 + HANGUL_V.index(v) * 28 + HANGUL_T.index(t))
+
+
+def ko_romanize(text):
+    """Revised Romanization, block by block, with the final moved onto a
+    following ㅇ-initial block and ㄹㄹ as ll; None when text has a non-block."""
+    blocks = [hangul_split(c) for c in text]
+    if not blocks or None in blocks:
+        return None
+    out = []
+    for i, (l, v, t) in enumerate(blocks):
+        nxt = blocks[i + 1] if i + 1 < len(blocks) else None
+        init = RR_L[l]
+        if i and l == "ㄹ" and blocks[i - 1][2] == "ㄹ":
+            init = "l"
+        elif i and l == "ㅇ" and blocks[i - 1][2] not in ("", "ㅇ"):
+            prev = blocks[i - 1][2]
+            moved = KO_LIAISON.get(prev, (None, prev))[1]
+            init = RR_L.get(moved, "")
+            if moved in ("ㅇ", "ㅎ"):    # 좋아 joa: ㅎ drops before a vowel
+                init = ""
+        fin = RR_T[t]
+        if nxt and t not in ("", "ㅇ") and nxt[0] == "ㅇ":
+            fin = RR_T[KO_LIAISON[t][0]] if t in KO_LIAISON else ""
+        out.append(init + RR_V[v] + fin)
+    return "".join(out)
+
+
+
 class Korean(LanguageSpec):
     code = "ko"
     name_en = "Korean"
@@ -2430,5 +2562,77 @@ class Korean(LanguageSpec):
                 # or after its object 잠, not the noun 자기
                 out[j] = [t[0], "자다", "VERB", "Ko=verb|G=VERB|X="]
         return out
+
+    # ---- script primer ------------------------------------------------------
+    script = {"stages": [{"key": "hangul", "label": "한글"}],
+              "setsPerSession": 2, "mastered": 3, "tts": True,
+              "learnKinds": ["symSound", "compose"],
+              "reviewKinds": ["symSound", "soundSym", "compose", "wordRead"],
+              "testKinds": {"symSound": 30, "soundSym": 20, "compose": 20, "wordRead": 20, "symType": 10}}
+
+    def script_units(self):
+        out = []
+        for st, group, slug, t, name, roman, alt, confuse, note in KO_SCRIPT:
+            u = {"id": "ko-" + slug, "st": "hangul", "set": st, "group": group, "t": t, "name": name,
+                 "roman": roman, "alt": alt, "note": note, "confuse": ["ko-" + c for c in confuse]}
+            if slug == "ieung":
+                u["sound"] = False
+            out.append(u)
+        return out
+
+    def script_notes(self):
+        return KO_SCRIPT_NOTES
+
+    def script_tokens(self, text):
+        toks = []
+        for i, ch in enumerate(text):
+            b = hangul_split(ch)
+            if b is None:
+                return None
+            l, v, t = b
+            toks += [("ko-" + _KO_INIT_UNIT[l], True, i), ("ko-" + _KO_VOWEL_UNIT[v], True, i)]
+            if t in _KO_FIN_UNIT:
+                toks.append(("ko-" + _KO_FIN_UNIT[t], True, i))
+            elif t in _KO_FIN_READ:      # read as that final, spelled with a known consonant
+                toks += [("ko-" + _KO_FIN_READ[t], False, i), ("ko-" + _KO_INIT_UNIT[t], False, i)]
+            elif t:                      # double final (ㄺ, ㅄ ...): no unit
+                toks.append((None, False, i))
+        return toks
+
+    def script_ex_roman(self, word, text, toks):
+        return ko_romanize(text)
+
+    def script_ex_penalty(self, toks):
+        """1 when a final consonant sits before the last block (liaison and sound
+        changes start there), so open-syllable words (나, 우리, 가다) come first."""
+        last = toks[-1][2]
+        return int(any(uid is None or uid.endswith("-fin") for uid, _, p in toks if p < last))
+
+    def script_syllables(self, text):
+        out = []
+        for ch in text:
+            b = hangul_split(ch)
+            if b is None:
+                continue
+            l, v, t = b
+            if t and t not in _KO_FIN_UNIT:
+                continue
+            parts = ["ko-" + _KO_INIT_UNIT[l], "ko-" + _KO_VOWEL_UNIT[v]] + (["ko-" + _KO_FIN_UNIT[t]] if t else [])
+            out.append((ch, parts, ko_romanize(ch)))
+        return out
+
+    def script_say(self, unit):
+        """Carrier syllables (docs/SCRIPT_PRIMER.md ss5 default: bare jamo are read as
+        names or not at all): a vowel after silent ㅇ (아), a consonant before ㅏ (가),
+        a final under 아 (악). Silent ㅇ has none."""
+        if unit.get("sound") is False:
+            return None
+        g = unit["t"]
+        if unit["group"] == "final":
+            return hangul_join("ㅇ", "ㅏ", g)
+        if g in HANGUL_V:
+            return hangul_join("ㅇ", g)
+        return hangul_join(g, "ㅏ")
+
 
 SPEC = Korean

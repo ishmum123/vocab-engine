@@ -93,6 +93,77 @@ def n_vowels(s):
     return sum(1 for ch in s.lower() if ch in VOWELS)
 
 
+# ---- script primer (docs/SCRIPT_PRIMER.md ss3) -------------------------------
+# Cyrillic: 33 letters in 6 sets (true friends, false friends, new shapes,
+# hushers, vowels, signs). Romanisation BGN-like; й is "i" (ICAO) so it never
+# shares a roman with ы. Example words are romanised letter by letter from
+# this table (е is "ye" at the start and after a vowel or sign, else "e").
+# (set, group, slug, glyph pair, name, roman, alt, confuse slugs, italic, note)
+RU_SCRIPT = [
+    (1, "friend", "a", "А а", "а", "a", [], ["ya", "o"], None, "a as in 'father'; unstressed often like 'u' in 'cut'"),
+    (1, "friend", "k", "К к", "ка", "k", [], ["kh", "zh"], None, "k"),
+    (1, "friend", "m", "М м", "эм", "m", [], ["t", "n"], None, "m"),
+    (1, "friend", "o", "О о", "о", "o", [], ["a", "yo"], None, "o when stressed; like 'a' when not"),
+    (1, "friend", "t", "Т т", "тэ", "t", [], ["m", "p"], "т", "t (italic т looks like m)"),
+    (1, "friend", "ye", "Е е", "е", "ye", ["e"], ["yo", "e"], None, "ye as in 'yes'; e after a consonant, which it softens"),
+    (2, "false", "v", "В в", "вэ", "v", [], ["b", "soft"], None, "v, not b"),
+    (2, "false", "n", "Н н", "эн", "n", [], ["p", "i"], None, "n, not h"),
+    (2, "false", "r", "Р р", "эр", "r", [], ["p", "ya"], None, "rolled r, not p"),
+    (2, "false", "s", "С с", "эс", "s", [], ["e", "ye"], None, "s, not k"),
+    (2, "false", "u", "У у", "у", "u", [], ["ch", "i-short"], None, "oo as in 'moon', not y"),
+    (2, "false", "kh", "Х х", "ха", "kh", ["h", "x"], ["zh", "k"], None, "ch as in Scottish 'loch', not x"),
+    (3, "new", "b", "Б б", "бэ", "b", [], ["v", "soft"], None, "b"),
+    (3, "new", "g", "Г г", "гэ", "g", [], ["p", "d"], "г", "g as in 'go'"),
+    (3, "new", "d", "Д д", "дэ", "d", [], ["l", "g"], "д", "d (italic д looks like g)"),
+    (3, "new", "z", "З з", "зэ", "z", [], ["e", "zh"], None, "z"),
+    (3, "new", "i", "И и", "и", "i", [], ["i-short", "n"], "и", "ee as in 'see' (italic и looks like u)"),
+    (3, "new", "i-short", "Й й", "и краткое", "i", ["y", "j"], ["i", "u"], None, "short y as in 'boy'"),
+    (3, "new", "l", "Л л", "эль", "l", [], ["d", "p"], None, "l"),
+    (3, "new", "p", "П п", "пэ", "p", [], ["l", "n"], "п", "p (italic п looks like n)"),
+    (3, "new", "f", "Ф ф", "эф", "f", [], ["kh", "r"], None, "f"),
+    (4, "hush", "zh", "Ж ж", "жэ", "zh", [], ["kh", "sh"], None, "s as in 'pleasure'"),
+    (4, "hush", "ts", "Ц ц", "цэ", "ts", ["c"], ["shch", "sh"], None, "ts as in 'cats'"),
+    (4, "hush", "ch", "Ч ч", "че", "ch", [], ["u", "ts"], None, "ch as in 'church'"),
+    (4, "hush", "sh", "Ш ш", "ша", "sh", [], ["shch", "ts"], None, "hard sh"),
+    (4, "hush", "shch", "Щ щ", "ща", "shch", ["sch"], ["sh", "ts"], None, "long soft sh"),
+    (5, "vowel", "y", "Ы ы", "ы", "y", [], ["soft", "i"], None, "a dark i, said with the tongue pulled back"),
+    (5, "vowel", "e", "Э э", "э", "e", [], ["ye", "z"], None, "e as in 'bed'"),
+    (5, "vowel", "yu", "Ю ю", "ю", "yu", [], ["u", "ya"], None, "yu as in 'you'"),
+    (5, "vowel", "ya", "Я я", "я", "ya", [], ["a", "r"], None, "ya as in 'yard'"),
+    (5, "vowel", "yo", "Ё ё", "ё", "yo", [], ["ye", "o"], None, "yo as in 'yonder'; always stressed"),
+    (6, "sign", "soft", "Ь ь", "мягкий знак", "(soft)", [], ["hard", "b"], None, "no sound: softens the consonant before it"),
+    (6, "sign", "hard", "Ъ ъ", "твёрдый знак", "(hard)", [], ["soft", "b"], None, "no sound: keeps a y sound after it apart"),
+]
+RU_SCRIPT_NOTES = [
+    {"st": "cyr", "set": 1, "h": "Stress",
+     "body": "Every word has one stressed syllable. Unstressed о sounds like a, and unstressed е "
+             "and я lean towards i. Words in this pack mark the stress: тако́й."},
+    {"st": "cyr", "set": 2, "h": "False friends",
+     "body": "В Н Р С У Х look like Latin letters but say v n r s u kh."},
+    {"st": "cyr", "set": 6, "h": "Soft and hard sign",
+     "body": "Ь and Ъ have no sound. Ь softens the consonant before it (мать); Ъ keeps a following "
+             "е ё ю я apart from the consonant (подъезд)."},
+]
+RU_LETTERS = {g.split()[-1]: slug for _, _, slug, g, *_ in RU_SCRIPT}
+RU_ROMAN = {g.split()[-1]: roman for _, _, _, g, _, roman, *_ in RU_SCRIPT}
+RU_ROMAN.update({"ь": "'", "ъ": "\"", "е": "ye"})
+RU_VOWELS = set("аеёиоуыэюя")
+
+
+def ru_romanize(text):
+    """Letter-by-letter romanisation from the primer table; е is e after a consonant."""
+    out = []
+    for i, c in enumerate(text):
+        r = RU_ROMAN.get(c)
+        if r is None:
+            return None
+        if c == "е" and i and text[i - 1] not in RU_VOWELS and text[i - 1] not in "ьъ":
+            r = "e"
+        out.append(r)
+    return "".join(out)
+
+
+
 class Russian(LanguageSpec):
     code = "ru"
     name_en = "Russian"
@@ -755,6 +826,50 @@ class Russian(LanguageSpec):
     qa_adj_inflected_re = r"(ая|яя|ое|ее|ые|ие|ого|его|ому|ему)$"
     qa_foreign_letters_re = r"[a-z]"
     qa_proper_re = r"\b(Moscow|Russia|Russian|Petersburg|Christ|God|Lenin|Soviet)\b"
+
+    # ---- script primer ------------------------------------------------------
+    script = {"stages": [{"key": "cyr", "label": "Алфавит"}],
+              "setsPerSession": 2, "mastered": 3, "tts": True,
+              "learnKinds": ["symSound", "soundSym"],
+              "reviewKinds": ["symSound", "soundSym", "wordRead", "wordHear"],
+              "testKinds": {"symSound": 35, "soundSym": 25, "wordRead": 25, "symType": 15}}
+
+    def script_units(self):
+        out = []
+        for st, group, slug, t, name, roman, alt, confuse, italic, note in RU_SCRIPT:
+            u = {"id": "ru-" + slug, "st": "cyr", "set": st, "group": group, "t": t, "name": name,
+                 "roman": roman, "alt": alt, "note": note, "confuse": ["ru-" + c for c in confuse]}
+            if group == "sign":
+                u["sound"] = False
+            if italic:
+                u["italic"] = italic
+            out.append(u)
+        return out
+
+    def script_notes(self):
+        return RU_SCRIPT_NOTES
+
+    def script_tokens(self, text):
+        text = text.lower()
+        if any(c not in RU_LETTERS for c in text):
+            return None
+        return [("ru-" + RU_LETTERS[c], True, i) for i, c in enumerate(text)]
+
+    def script_ex_roman(self, word, text, toks):
+        return ru_romanize(text.lower())
+
+    def script_say(self, unit):
+        """Carriers (docs/SCRIPT_PRIMER.md ss5 default: bare consonants are read as
+        their names): a consonant before а (ба), й after а (ай); a vowel is its own
+        name, so it is said bare. Signs have no sound."""
+        if unit.get("sound") is False:
+            return None
+        g = unit["t"].split()[-1]
+        if g in RU_VOWELS:
+            return g
+        if g == "й":
+            return "ай"
+        return g + "а"
 
 
 SPEC = Russian

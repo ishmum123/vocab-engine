@@ -9,6 +9,7 @@ from .freq import corpus_usage, stage_freq
 from .lex import stage_lex
 from .lexicon import Lexicon, FUNCTION_UPOS
 from .report import write_report
+from .script import build_script
 from .sentences import build_sentences
 from .sources import ensure_downloaded, stage_corpus, audio_recorders
 from .tag import stage_tag, truecase_stats, iter_tagged, tag_rows
@@ -80,6 +81,25 @@ def characters_pack_fields(sp, units):
     if sp.pron_first:
         out["pronFirst"] = True
     return out
+
+
+def write_script(env, out_words):
+    """Script primer (docs/SCRIPT_PRIMER.md ss3): pack/script.json from the spec's
+    script_units table plus the generated say/ex/syll (core/script.py), over the
+    shipped words.json records. No table: no file, nothing written. Returns the
+    script.json dict or None. stat("script") lists every unit whose ex needed a
+    fallback (second level, one unknown unit, none)."""
+    doc, stats = build_script(env.spec, out_words)
+    if doc is None:
+        return None
+    stat("script", stats)
+    write_json(env.pack / "script.json", doc)
+    return doc
+
+
+def script_pack_fields(sp, doc):
+    """pack.json "script" (spec.script), only when script.json was written."""
+    return {"script": sp.script} if doc else {}
 
 
 def attribution(env, ctx, users, sentences):
@@ -204,6 +224,7 @@ def run(env, stage="all", check_remote=False):
     write_json(env.pack / "sentences.json", sentences)
     pack_json = build_pack_json(env, words, ctx["raw_upos"])
     pack_json.update(characters_pack_fields(sp, units))
+    pack_json.update(script_pack_fields(sp, write_script(env, out_words)))
     write_json(env.pack / "pack.json", pack_json, compact=False)
     write_json(env.pack / "attribution.json", attribution(env, ctx, users, sentences), compact=False)
     ctx.update(words=words, records=records, sentences=sentences, primary=primary)
