@@ -81,5 +81,39 @@
   "那些",
   "那儿",
   "那里"
- ]
+ ],
+ "characters": {
+  "label": "字",
+  "stages": [
+   {
+    "after": "3",
+    "levels": [
+     "1",
+     "2",
+     "3"
+    ]
+   },
+   {
+    "after": "4",
+    "levels": [
+     "4"
+    ]
+   }
+  ],
+  "setSize": 10,
+  "mastered": 3,
+  "bare": 6,
+  "learnKinds": [
+   "charPick",
+   "charRead"
+  ],
+  "reviewKinds": [
+   "charRead",
+   "charSound"
+  ]
+ },
+ "legacy": {
+  "key": "hsk_pinyin",
+  "format": "hsk-v2"
+ }
 }
