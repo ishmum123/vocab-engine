@@ -1,0 +1,44 @@
+MIT License
+
+Copyright (c) 2026 Ishmum Khan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+This licence covers the engine, tools, tests, and docs (engine/, tools/,
+tests/, docs/, build.sh, and other code in this repository).
+
+## Pack data
+
+The data under `packs/*/` (currently the Mandarin pack in `packs/zh/`,
+ported from the `hsk` project) is licensed under the Creative Commons
+Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+
+This reflects upstream share-alike terms: glosses and inflection data
+originate from Wiktionary via kaikki.org (CC BY-SA 3.0), and frequency
+data originates from hermitdave/FrequencyWords (CC BY-SA 4.0), both of
+which require share-alike redistribution of derived data. Where a pack
+directory has its own `attribution.json`, per-source and per-contributor
+attribution is recorded there.
+
+Build-time tools and models used to construct pack data (for example
+part-of-speech taggers) may carry non-commercial or copyleft licences of
+their own. These are used only while building a pack and ship nothing
+into the built output, so they do not affect the licence of the shipped
+engine or pack data.

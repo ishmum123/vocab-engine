@@ -108,3 +108,8 @@ The full reference is in docs/PACK_SCHEMA.md. The key rules are:
 - Everything language-specific comes from the pack: levels, set size, placement buckets, function words, typing rules, and the TTS locale.
 - `pron` is display-only and never drilled.
 - Sentence `words` are word ids resolved when the pack is built. There is no runtime lookup.
+
+## Licence
+
+Code (engine/, tools/, tests/, docs/) is MIT. Pack data under `packs/*/` is
+CC BY-SA 4.0. See LICENSE for details and attribution.
