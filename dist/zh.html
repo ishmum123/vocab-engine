@@ -3050,7 +3050,7 @@ function todayRender(){
   P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${legacyFail ? `<div class="stmt" id="legacyFail">${legacyFailHTML(legacyFail)}<button class="ghost" id="legacySkip" style="margin-top:8px">Start without it</button></div>` : ""}${pathStrip()}
     ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice ? charChoiceHTML() : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
-    ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${tw(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
+    ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${rubyTw(readHint.title, readHint.titleRuby)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
     </div>${choice ? "" : `<div class="actions"><button class="next" id="go">Start today</button></div>`}`;
@@ -3338,7 +3338,7 @@ function readRender(){
       const ps = PASSAGE_LIST.filter(p => p.lv === l.lv);
       return `<div class="rlv"><div class="rlh">${L}<span class="q" style="margin:0">${ps.filter(passageDone).length} / ${ps.length} done</span></div>
         <div class="plist">${ps.map(p => { const d = passageDone(p);
-          return `<button data-pid="${escapeHtml(p.id)}"${SCRIPT.rtl ? ' dir="rtl"' : ""}><span>${tw(p.title)}<span class="q" style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick">✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
+          return `<button data-pid="${escapeHtml(p.id)}"${SCRIPT.rtl ? ' dir="rtl"' : ""}><span>${rubyTw(p.title, p.titleRuby, true)}<span class="q" style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick">✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
     }).join("")}`;
   P.querySelectorAll("[data-pid]").forEach(b => b.onclick = () => startPassage(PASSAGE_LIST.find(p => p.id === b.dataset.pid)));
 }
@@ -3453,7 +3453,36 @@ function passagePlainHTML(s){
   const pf = PRON_FIRST ? pfPassage(s, VC.passageSegments(s, WORDS_BY_ID, PACK), "tok") : null;
   return pf ? pf.html : escapeHtml(s.t);
 }
-const TOKBOX = PRON_FIRST ? " data-tokbox" : ""; // passage reveals hold word taps (passagePlainHTML)
+const TOKBOX = PRON_FIRST ? " data-tokbox" : "";
+// pack.pronFirst text carrying its own ruby (passages.json titleRuby, questions[].ruby,
+// questions[].optionsRuby): reading-first by the sentence tier rules (VC.rubyTiers +
+// VC.sentencePieces), readings tone-coloured (readingHTML); a token with a null wordId (a
+// name) shows its reading. No word taps. null when pronFirst is off or the text has no
+// ruby: the caller shows it as written, exactly as before.
+function pfRubyText(t, ruby){
+  if(!PRON_FIRST || !Array.isArray(ruby) || !ruby.length) return null;
+  const obj = { t: String(t == null ? "" : t), ruby };
+  const toks = VC.rubyTiers(obj, CHAR_LIST, prog, PACK, VC.charsStarted(PACK, WORDS, CHAR_LIST, prog));
+  if(!toks) return null;
+  let hasRuby = false, anyPron = false;
+  const html = VC.sentencePieces(obj, toks).map(p => {
+    if(p.kind === "tok" && p.tier === "pron"){ anyPron = true; return escapeHtml(p.pre) + readingHTML(p.text); }
+    if(p.kind === "tok"){ hasRuby = true; return escapeHtml(p.pre) + rubyTokHTML(escapeHtml(p.text), showPron() ? p : Object.assign({}, p, { tier:"bare" })); }
+    return escapeHtml(p.pre) + escapeHtml(p.text);
+  }).join("");
+  return { html, ruby: hasRuby, written: anyPron ? obj.t : false };
+}
+// Target-language text with optional ruby, as inner HTML: under pronFirst by pfRubyText
+// plus the show-written tap (none when inButton: option and list buttons are tap targets
+// themselves), else escaped as written.
+function rubyTextOr(t, ruby, inButton){
+  const pf = pfRubyText(t, ruby);
+  return pf ? pf.html + (inButton ? "" : pfWrittenTap(pf)) : escapeHtml(t);
+}
+// The same wrapped as target-language text (tw) for places that used tw(text).
+function rubyTw(t, ruby, inButton){
+  return pfRubyText(t, ruby) ? `<bdi${TA}>${rubyTextOr(t, ruby, inButton)}</bdi>` : tw(t);
+} // passage reveals hold word taps (passagePlainHTML)
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
 // RTL packs: the popover runs right-to-left (tapped word at the right edge, then pron and
 // gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
@@ -3503,7 +3532,7 @@ function readPassageScreen(){
   setScore(0,0);
   const p = RD.p, P = $("panel");
   P.innerHTML = `<div class="row"><button id="rback">‹ passages</button></div>
-    <h2 class="ptitle"${TA}>${escapeHtml(p.title)}</h2>
+    <h2 class="ptitle"${TA}>${rubyTextOr(p.title, p.titleRuby)}</h2>
     <p class="q">${escapeHtml(levelLabel(p.lv))} · ${VC.passageLength(p, PACK)} words. Tap a word to see its meaning.</p>
     ${glossBox()}
     <div class="passage" id="pbox">${passageHTML(-1)}</div>
@@ -3522,7 +3551,7 @@ function readQuestionScreen(){
   const tf = q.type === "tf";
   const order = tf ? [true, false] : shuffle([0,1,2,3]);
   P.innerHTML = `<div class="drill-body top"><p class="q">Question ${qi+1} / ${p.questions.length}</p>
-    <div class="med wd"${TA}>${escapeHtml(q.q)}</div>${q.en ? `<div class="q">${escapeHtml(q.en)}</div>` : ""}
+    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${q.en ? `<div class="q">${escapeHtml(q.en)}</div>` : ""}
     <div class="opts ${tf ? "" : "opts-w"}" id="o"></div>
     <div class="reveal" id="rv"></div>
     <button class="ghost" id="ptoggle" aria-expanded="${RD.shown}" style="margin-top:12px">${RD.shown ? "Hide passage" : "Show passage"}</button>
@@ -3540,7 +3569,7 @@ function readQuestionScreen(){
   const box = $("o");
   order.forEach((v, i) => {
     const b = document.createElement("button");
-    b.innerHTML = `<b class="num">${i+1}</b>${tf ? (v ? "True" : "False") : tw(q.options[v])}`;
+    b.innerHTML = `<b class="num">${i+1}</b>${tf ? (v ? "True" : "False") : rubyTw(q.options[v], (q.optionsRuby || [])[v], true)}`;
     if(!tf && SCRIPT.rtl) b.dir = "rtl";
     b.dataset.v = String(v);
     b.onclick = () => {
@@ -3577,9 +3606,9 @@ function readResults(){
   const sc = RD.answers.filter(a => a && a.ok).length;
   const weak = VC.passageWeakWords(p, { tapped: RD.tapped, answers: RD.answers }, WORDS_BY_ID);
   P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
-    <p class="q"${TA} style="margin-bottom:8px">${escapeHtml(p.title)}</p>
+    <p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
-      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${escapeHtml(q.q)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
+      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
     ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${SCRIPT.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
     <div id="addmsg" class="q" hidden></div>
@@ -3922,4 +3951,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:542500526-1447405-->
+<!--ve-build:2878411772-1449314-->
