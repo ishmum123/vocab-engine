@@ -317,22 +317,26 @@ def check_placement(pack, words, rep):
             rep.err(f"placement bucket {i} (level {b['lv']}, sets {b['s0'] + 1}-{b['s1']}) has {b['n']} words; needs >= {MIN_BUCKET_WORDS}")
 
 
-def check_ruby(ruby, t, ws, char_word0, where, rep):
+def check_ruby(ruby, t, ws, char_word0, where, rep, null_ok=False):
     """sentences[].ruby (optional): [[start, end, reading, wordId], ...] in UTF-16 code
     units of t, sorted, non-overlapping, wordId in the sentence's words and some
-    characters.json unit's words[0] (docs/PACK_SCHEMA.md sentences.json "ruby")."""
+    characters.json unit's words[0] (docs/PACK_SCHEMA.md sentences.json "ruby").
+    null_ok (passages.json): wordId may be null (a token of no pack word); ws None:
+    no words list to be in (titleRuby, questions[].ruby, optionsRuby)."""
     if not isinstance(ruby, list):
         rep.err(f"{where}.ruby must be a list of [start, end, reading, wordId]")
         return
     u = t.encode("utf-16-le") if isinstance(t, str) else b""
     n = len(u) // 2
+    free = ws is None
     ws = set(ws) if isinstance(ws, list) else set()
     prev = 0
     for k, x in enumerate(ruby):
         rw = f"{where}.ruby[{k}]"
         if not (isinstance(x, list) and len(x) == 4 and all(isinstance(v, int) and not is_bool(v) for v in x[:2])
-                and is_str(x[2]) and isinstance(x[3], str) and x[3]):
-            rep.err(f"{rw} must be [start, end, reading, wordId] with integer offsets and non-empty strings")
+                and is_str(x[2]) and ((isinstance(x[3], str) and x[3]) or (null_ok and x[3] is None))):
+            rep.err(f"{rw} must be [start, end, reading, wordId] with integer offsets and non-empty strings"
+                    + (" (wordId may be null)" if null_ok else ""))
             continue
         a, b, reading, wid = x
         if not 0 <= a < b <= n:
@@ -341,7 +345,9 @@ def check_ruby(ruby, t, ws, char_word0, where, rep):
         if a < prev:
             rep.err(f"{rw} starts at {a}, before the previous ruby's end {prev} (ruby must be sorted and not overlap)")
         prev = max(prev, b)
-        if wid not in ws:
+        if wid is None:
+            pass
+        elif not free and wid not in ws:
             rep.err(f"{rw} word {wid!r} is not in the sentence's words")
         elif char_word0 is not None and wid not in char_word0:
             rep.err(f"{rw} word {wid!r} is not words[0] of any characters.json unit")
@@ -524,9 +530,11 @@ def check_passages(passages, levels, by_id, rep, char_word0=None):
                     # Same rules as sentences.json ruby; the Read tab renders it by tier.
                     if char_word0 is None:
                         rep.warn(f"{sw}.ruby present but pack.characters is absent: ruby is never rendered")
-                    check_ruby(s["ruby"], s.get("t"), ws, char_word0, sw, rep)
+                    check_ruby(s["ruby"], s.get("t"), ws, char_word0, sw, rep, null_ok=True)
                 if is_str(s.get("t")) and text and s["t"].strip() not in text:
                     rep.warn(f"{sw}.t does not appear in the passage text")
+        if "titleRuby" in p:
+            passage_ruby_field(p["titleRuby"], p.get("title"), char_word0, f"{where}.title", rep)
         qs = p.get("questions")
         if not isinstance(qs, list) or not qs:
             rep.err(f"{where}.questions must be a non-empty list")
@@ -568,6 +576,24 @@ def check_passages(passages, levels, by_id, rep, char_word0=None):
             si = q.get("sentence")
             if not (isinstance(si, int) and not is_bool(si) and 0 <= si < nsent):
                 rep.err(f"{qw}.sentence must be an index into {where}.sentences (0..{nsent - 1})")
+            if "ruby" in q:
+                passage_ruby_field(q["ruby"], q.get("q"), char_word0, f"{qw}.q", rep)
+            if "optionsRuby" in q:
+                opts, orb = q.get("options"), q["optionsRuby"]
+                if not (isinstance(opts, list) and isinstance(orb, list) and len(orb) == len(opts)):
+                    rep.err(f"{qw}.optionsRuby must be a list with one ruby list per option")
+                else:
+                    for k, (o, r) in enumerate(zip(opts, orb)):
+                        passage_ruby_field(r, o, char_word0, f"{qw}.options[{k}]", rep)
+
+
+def passage_ruby_field(ruby, t, char_word0, where, rep):
+    """passages.json titleRuby, questions[].ruby, questions[].optionsRuby[k]: the
+    sentences[].ruby format for that text, wordId null or a characters.json unit's
+    words[0] (no words list to be in)."""
+    if char_word0 is None:
+        rep.warn(f"{where} ruby present but pack.characters is absent: ruby is never rendered")
+    check_ruby(ruby, t, None, char_word0, where, rep, null_ok=True)
 
 
 def check_characters_data(chars, char_levels, by_id, rep):
