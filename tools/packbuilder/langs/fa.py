@@ -112,7 +112,6 @@ COLLOQ_RAFTAN = {"برم", "بری", "بره", "بریم", "برن", "میرم",
 TOKEN_PUNCT = "،؛؟!.:«»\"'()…"
 PART_ADJ = {"پیچیده", "گسترده", "پخته", "سوخته", "یخزده"}   # participles taught as adjectives
 GEN_SID_BASE = 90_000_000          # corpus sids of sentences written for the pack
-EXAMPLE_SID_BASE = 95_000_000      # sids of example-only written sentences (example_rows)
 
 
 FINAL_HAMZA_RE = re.compile("اء(?![\u0600-\u06ff])")
@@ -1526,19 +1525,8 @@ class Persian(LanguageSpec):
             rows.append([GEN_SID_BASE + len(rows), fa.strip(), "", en.strip(), None, None])
         return rows
 
-    def example_rows(self, env):
-        # tools/generated_examples.tsv: written examples that must not move the
-        # frequency pass (کم‌کم, whose only corpus examples are کمک + م)
-        p = env.repo / "tools" / "generated_examples.tsv"
-        rows = []
-        if not p.exists():
-            return rows
-        for line in p.read_text(encoding="utf-8").splitlines():
-            if not line.strip() or line.startswith("#"):
-                continue
-            fa, en = line.split("\t")[:2]
-            rows.append([EXAMPLE_SID_BASE + len(rows), fa.strip(), "", en.strip(), None, None])
-        return rows
+    # example_rows: base default reads tools/generated_examples.tsv (کم‌کم,
+    # whose only corpus examples are کمک + م; خودکشی, whose are policy-dropped)
 
     def sentence_fields(self, row):
         rec = {"t": display_sentence(row[1])}
@@ -1626,6 +1614,8 @@ class Persian(LanguageSpec):
                 w["pron"] = p
             else:
                 no_pron.append(key)
+            if key == PLEASE_PHRASE:
+                w["pos"] = "phrase"     # forced as INTJ to hold the gloss; taught as one phrase
             if w["pos"] == "verb":
                 stem = None
                 for r in info.get(key, []):

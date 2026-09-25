@@ -15,6 +15,34 @@ MIN_COVERAGE_1 = 90    # % of words with >=1 sentence (fail below)
 MIN_COVERAGE_2 = 70    # % of words with >=2 sentences (warn below)
 
 
+def example_pairs(spec):
+    """(text, English) of the spec's hand-reviewed example rows
+    (spec.example_rows), as sentences.json shows them."""
+    from ..core.util import Env
+    out = set()
+    for row in spec.example_rows(Env(spec)):
+        t = spec.sentence_fields(row).get("t", spec.clean_sentence_text(row[1]))
+        out.add((t, row[3]))
+    return out
+
+
+def drop_all_violation(spec, s, examples):
+    """A shipped sentence matching spec.drop_all_levels. Only a "src": "gen"
+    sentence that is one of the spec's example rows (`examples`, from
+    example_pairs) is exempt, as in the build."""
+    if spec.drop_all_levels is None:
+        return False
+    if s.get("src") == "gen" and (s.get("t", ""), s.get("en", "")) in examples:
+        return False
+    return bool(spec.drop_all_levels.search(s.get("t", "")) or spec.drop_all_levels.search(s.get("en", "")))
+
+
+def word_ceiling_violation(spec, w):
+    """A word below the top level whose gloss matches spec.word_ceiling_re."""
+    rx = getattr(spec, "word_ceiling_re", None)
+    return rx is not None and w.get("lv") != spec.level_ids[-1] and bool(rx.search(w.get("en", "")))
+
+
 def check(spec):
     pack, words, sentences = load_pack(spec)
     valid_levels = set(spec.level_ids)
@@ -38,6 +66,8 @@ def check(spec):
         if w["id"] in ids_seen:
             fail(f"duplicate word id: {w['id']}")
         ids_seen.add(w["id"])
+        if word_ceiling_violation(spec, w):
+            fail(f"word {w['id']} {w['w']!r}: word_ceiling gloss below {spec.level_ids[-1]}: {w['en']!r}")
         err = spec.check_word(w)
         if err:
             fail(err)
@@ -64,13 +94,13 @@ def check(spec):
     if unknown_fw:
         fail(f"functionWords references unknown word ids: {sorted(unknown_fw)[:10]}")
 
+    examples = example_pairs(spec)
     sent_ids_seen = set()
     for s in sentences:
         for key in ("id", "t", "en", "lv", "words"):
             if key not in s:
                 fail(f"sentence {s.get('id','?')} missing key {key}")
-        if spec.drop_all_levels is not None and (spec.drop_all_levels.search(s.get("t", "")) or
-                                                 spec.drop_all_levels.search(s.get("en", ""))):
+        if drop_all_violation(spec, s, examples):
             fail(f"sentence {s['id']}: matches drop_all_levels: {s.get('t')!r}")
         if s["id"] in sent_ids_seen:
             fail(f"duplicate sentence id: {s['id']}")

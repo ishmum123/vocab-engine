@@ -238,6 +238,15 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
     return links
 
 
+def dropped_everywhere(sp, sid, text, en, example_rows):
+    """spec.drop_all_levels on a sentence (its text or English). Hand-reviewed
+    example rows (sid in spec.example_rows) are exempt: they exist for words
+    whose only corpus uses are dropped (it suicidio, fr suicide, fa خودکشی)."""
+    if sp.drop_all_levels is None or sid in example_rows:
+        return False
+    return bool(sp.drop_all_levels.search(text) or sp.drop_all_levels.search(en))
+
+
 def build_sentences(env, ctx, words, top3000):
     sp = env.spec
     lv_ord = {b: i for i, b in enumerate(sp.level_ids)}
@@ -257,6 +266,7 @@ def build_sentences(env, ctx, words, top3000):
     rsi_ids = {w["id"] for w in words if w.get("_base")}
     refl_by_sid = {}
     rows = {**ctx["rows_by_sid"], **ctx.get("example_rows", {})}
+    example_rows = ctx.get("example_rows", {})
     key_to_id = {w["_key"]: w["id"] for w in words}
     lv_of = {w["id"]: w["lv"] for w in words}
     allowed = {w["lemma"] for w in words} | top3000
@@ -310,8 +320,7 @@ def build_sentences(env, ctx, words, top3000):
             links = fixed
         if not links:
             continue
-        if sp.drop_all_levels is not None and (sp.drop_all_levels.search(text) or
-                                               sp.drop_all_levels.search(rows[sid][3])):
+        if dropped_everywhere(sp, sid, text, rows[sid][3], example_rows):
             st["dropped_all_levels"] += 1
             continue
         sensitive = sp.sensitive_re is not None and bool(
@@ -397,6 +406,7 @@ def build_sentences(env, ctx, words, top3000):
 
     sel = sorted(primary)
     sentences = []
+    n_examples = 0
     users = set()
     for i, sid in enumerate(sel):
         n, remoto, aud, maxlv, links = info[sid]
@@ -407,6 +417,9 @@ def build_sentences(env, ctx, words, top3000):
         if row[4] is not None:
             rec["audio"] = f"https://tatoeba.org/audio/download/{row[4]}"
         rec.update(sp.sentence_fields(row))     # fa: "src": "gen" on sentences written for the pack
+        if sid in example_rows:
+            rec.setdefault("src", "gen")        # written for the pack (spec.example_rows)
+            n_examples += 1
         sentences.append(rec)
         if row[2]:
             users.add(row[2])
@@ -460,4 +473,5 @@ def build_sentences(env, ctx, words, top3000):
         "rsi_reverted_to_base": st_rev,
     })
     stat("sentences", dict(st))
+    ctx["example_rows_shipped"] = n_examples
     return sentences, sorted(users), primary

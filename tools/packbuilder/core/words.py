@@ -498,6 +498,9 @@ def build_words(env, ctx):
         stat("sensitive_glosses", {"cleaned": cleaned, "moved_to_top_level": sorted(records[k]["lemma"] for k in moved),
                                    "forced_unresolved": forced_hits})
 
+    if sp.word_ceiling_re is not None:
+        chosen, level_of = apply_word_ceiling(records, forced_ok, chosen, level_of, sp)
+
     words = []
     for k in final:
         rec = records[k]
@@ -554,18 +557,38 @@ def build_words(env, ctx):
     return words, records, top3000
 
 
-def apply_level_floor(chosen, forced_ok, sp):
-    """spec.level_floor {(lemma, group): level}: a chosen key ranked into an
-    earlier band moves to the start of its floor band (the keys it passes
-    move up one place each)."""
+def apply_word_ceiling(records, forced_ok, chosen, level_of, sp):
+    """Cross-pack word ceiling (spec.word_ceiling_re): a chosen key below the
+    top level whose final gloss matches gets the top level as its floor (moves
+    to the start of the top band; the keys it passes move up one place each).
+    Ranks and ids are untouched: only levels move. Forced keys stay and are
+    reported (check fails on them). Returns (chosen, level_of)."""
+    top = sp.level_ids[-1]
+    hit = [k for k in chosen if level_of[k] != top and sp.word_ceiling_re.search(records[k]["en"])]
+    forced_hits = sorted(records[k]["lemma"] for k in forced_ok
+                         if level_of[k] != top and sp.word_ceiling_re.search(records[k]["en"]))
+    stat("word_ceiling", {"moved_to_top_level": [f"{records[k]['lemma']} {level_of[k]}" for k in hit],
+                          "forced_unresolved": forced_hits})
+    if not hit:
+        return chosen, level_of
+    floor = {**(sp.level_floor or {}), **{k: top for k in hit}}
+    chosen = apply_level_floor(chosen, forced_ok, sp, floor)
+    return chosen, assign_levels(forced_ok, chosen, sp.bands)
+
+
+def apply_level_floor(chosen, forced_ok, sp, floor=None):
+    """spec.level_floor {(lemma, group): level} (or `floor`, which replaces
+    it): a chosen key ranked into an earlier band moves to the start of its
+    floor band (the keys it passes move up one place each)."""
+    floor = sp.level_floor if floor is None else floor
     start, acc = {}, -len(forced_ok)
     for lv, n in sp.bands:
         start[lv] = max(acc, 0)
         acc += n
-    out = [k for k in chosen if k not in sp.level_floor]
+    out = [k for k in chosen if k not in floor]
     for i, k in enumerate(chosen):
-        if k in sp.level_floor:
-            out.insert(min(max(i, start[sp.level_floor[k]]), len(out)), k)
+        if k in floor:
+            out.insert(min(max(i, start[floor[k]]), len(out)), k)
     # spec.level_ceiling {(lemma, group): level} (ko: a NIKL beginner word is
     # never B1): a key ranked past the end of its ceiling band moves into that
     # band, and the band's last keys without a ceiling move down one band each

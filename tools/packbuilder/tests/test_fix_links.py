@@ -1,8 +1,10 @@
 """spec.fix_links: sentence-links-only corrections (sentences.json links and
 example choice; never the frequency pass). Stdlib only."""
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # vocab-engine/tools
 
@@ -26,7 +28,8 @@ class Default(unittest.TestCase):
     def test_base_is_noop(self):
         links = ["w1", "w2"]
         self.assertIs(LanguageSpec.fix_links(None, row("x"), [], links, {}), links)
-        self.assertEqual(LanguageSpec.example_rows(None, None), [])
+        with tempfile.TemporaryDirectory() as d:     # no tools/generated_examples.tsv: none
+            self.assertEqual(LanguageSpec.example_rows(None, SimpleNamespace(repo=Path(d))), [])
 
     def test_other_specs_inherit_noop(self):
         for code in ("it", "es", "fr", "de", "ru", "id", "ko", "ja"):

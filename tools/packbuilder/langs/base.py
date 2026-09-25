@@ -55,6 +55,28 @@ def drop_all_re(own=None, flags=re.I):
     return re.compile(r"(?:" + own + r")|" + eng, flags)
 
 
+# Shared word-level ceiling (spec.word_ceiling_re): a pack word whose chosen
+# gloss matches ships at the top level only (never A1/A2), in every language.
+# Cross-pack policy: killing, murder, weapons, blood and corpses, sex, nudity,
+# prostitution, narcotics, rape, suicide, plus the vulgar SENSITIVE_GLOSS_EN
+# class. "drug" counts only when the gloss has no medical sense (fa دارو
+# "medicine, drug" stays). English only: glosses are English.
+WORD_CEILING_EN = (r"kill(?:s|ed|ing|er|ers)?|murder\w*|weapons?|guns?|pistols?|rifles?|firearms?|"
+                   r"blood|bloody|corpses?|dead bod(?:y|ies)|"
+                   r"sex|sexy|sexual\w*|naked|nude|prostitut\w*|narcotics?|"
+                   r"rape[ds]?|raping|rapist\w*|suicid\w*|" + SENSITIVE_GLOSS_EN)
+_NARCOTIC_DRUG = r"^(?!.*(?:medic|pharmac))(?=.*(?<![A-Za-z])drugs?(?![A-Za-z]))"
+
+
+def make_word_ceiling_re(own=None, flags=re.I):
+    """spec.word_ceiling_re: the shared WORD_CEILING_EN (whole words) plus a
+    spec's own English gloss terms `own` (pattern string, whole words)."""
+    terms = WORD_CEILING_EN if own is None else WORD_CEILING_EN + "|" + own
+    return re.compile(r"(?<![A-Za-z])(?:" + terms + r")(?![A-Za-z])|" + _NARCOTIC_DRUG, flags)
+
+
+EXAMPLE_SID_BASE = 95_000_000   # sids of example-only written sentences (spec.example_rows)
+
 TATOEBA_AUDIO = ("audio.tar.bz2", "https://downloads.tatoeba.org/exports/sentences_with_audio.tar.bz2")
 
 # UD (corpus) POS -> Wiktionary POS headers, in preference order. The first is
@@ -269,6 +291,7 @@ class LanguageSpec:
     sensitive_re = None         # sentences matching (text or English) are kept to the top level
     drop_all_levels = None      # sentences matching (text or English) are removed at every level; build with drop_all_re(own-language terms)
     lower_level_gloss_re = None # a below-top-level gloss matching it keeps its clean ";"-segments or moves to the top level
+    word_ceiling_re = make_word_ceiling_re()  # cross-pack: a word whose final gloss matches ships at the top level (check fails below it); specs add terms via make_word_ceiling_re(own)
 
     strict_pronominal_links = False  # a verb shown with its reflexive pronoun links only sentences that have it
     revert_dedupe_gloss = False     # a reverted -rsi/-se verb with the same head gloss shows it once
@@ -399,11 +422,23 @@ class LanguageSpec:
 
     def example_rows(self, env):
         """Corpus-format rows [sid, text, user, english, audio, licence] written
-        as example sentences only (fa: tools/generated_examples.tsv). They are
-        tagged apart from the corpus and join only sentence choice, never the
+        as example sentences only: tools/generated_examples.tsv in the language
+        repo (text<TAB>English, "#" comments; no file: none). They are tagged
+        apart from the corpus and join only sentence choice, never the
         frequency pass, glosses or lemma votes, so adding one cannot re-rank
-        words. sids must not collide with corpus sids. Default: none."""
-        return []
+        words. Hand-reviewed, they are exempt from drop_all_levels (they exist
+        for words whose only corpus uses are dropped) and ship with "src":
+        "gen". sids start at EXAMPLE_SID_BASE, above every corpus sid."""
+        p = env.repo / "tools" / "generated_examples.tsv"
+        rows = []
+        if not p.exists():
+            return rows
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            text, en = line.split("\t")[:2]
+            rows.append([EXAMPLE_SID_BASE + len(rows), text.strip(), "", en.strip(), None, None])
+        return rows
 
     def extra_corpus_rows(self, env):
         """Extra corpus rows [sid, text, user, english, audio_id, licence]

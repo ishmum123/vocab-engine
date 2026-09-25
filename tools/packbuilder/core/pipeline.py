@@ -63,6 +63,11 @@ def attribution(env, ctx, users, sentences):
         "audio": {"source": "Tatoeba sentences_with_audio.tsv",
                   "licences": "per clip; recorders listed per licence",
                   "recorders": audio_recorders(env, sentences)},
+        **({"written_examples": {
+            "source": "written for this pack (tools/generated_examples.tsv) and reviewed; marked \"src\": \"gen\"",
+            "licence": "CC-BY-SA-4.0", "count": ctx["example_rows_shipped"],
+            "note": "Example sentences only, for words whose corpus sentences are missing or dropped by policy; no audio."}}
+           if ctx.get("example_rows_shipped") else {}),
         **sp.extra_attribution(env, sentences),
     }
 
