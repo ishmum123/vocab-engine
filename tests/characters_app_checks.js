@@ -691,6 +691,18 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     let bad = 0;
     withRuby.sentences.forEach((x, i) => { const r = on.api.passageSentenceHTML(x, i, false); if(stripTags((r.match(/<div class="ptxt[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "") !== x.t) bad++; });
     check(`every sentence of the passage renders to its own text (${bad} bad)`, bad === 0);
+    {
+      // Span display glosses (spans[i][3]) survive the ruby render: each glossed tap span
+      // carries the same data-pg with and without ruby.
+      const pgs = h => [...h.matchAll(/data-pw="([^"]+)" data-pg="([^"]*)"/g)].map(m => m[1] + "=" + m[2]).join("|");
+      let pgBad = 0, pgN = 0;
+      withRuby.sentences.forEach((x, i) => {
+        const r = pgs(on.api.passageSentenceHTML(x, i, false)), r0 = pgs(plain.api.passageSentenceHTML(src.sentences[i], i, false));
+        const want = (x.spans || []).filter(k => typeof k[3] === "string" && k[3].trim()).length;
+        pgN += want; if(r !== r0 || (r ? r.split("|").length : 0) !== want) pgBad++;
+      });
+      check(`passage ruby: tap spans keep their span gloss (data-pg) under ruby (${pgN} glossed spans, ${pgBad} sentences off)`, pgN > 0 && pgBad === 0);
+    }
     on.api.getProg().chars.mix = false;
     check("mix off: passage sentence renders exactly as without ruby", on.api.passageSentenceHTML(s, si, false) === h0);
     on.api.getProg().chars.mix = true; on.api.getProg().showPron = false;
