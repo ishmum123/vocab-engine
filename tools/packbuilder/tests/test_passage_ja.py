@@ -474,8 +474,6 @@ class PassageRuby(unittest.TestCase):
                  {"id": "c3", "t": "家", "words": ["w3"]}]))
             sp = rspec(self.SEGS, {})
             sp.repo = Path(d)
-            sp._sentence_ruby_skips = lambda ps: {"sent_none": 0, "uncovered": 0, "sent_uncovered": 0,
-                                                  "stats": Counter()}
             ps = [{"id": "p1", "title": "田中の会社",
                    "sentences": [{"t": "会社で働きます。", "en": "x", "words": ["w1", "w2"],
                                   "spans": [[0, 2, "w1"], [3, 5, "w2"]]}],

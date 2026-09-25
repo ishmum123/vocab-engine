@@ -2350,45 +2350,59 @@ class Japanese(LanguageSpec):
         return out
 
     def sentence_ruby(self, sid, rec, surfaces, where):
-        """Per-token readings from the sentence's kana line (kana_line pieces):
-        one [start, end, kana, wordId] per linked token that contains kanji, the
-        edge kana the reading shares with the text left out (帰った かえった ->
-        帰 かえ, お金 -> 金 かね). A token is skipped when its reading cannot be
-        cut from the line: a furigana segment crossing a token boundary (一人
-        read ひとり over 一|人), a kanji with no reading, or a reading that is
-        not kana (a digit kept as written)."""
+        """Per-token readings covering every kanji of the sentence, from its kana
+        line (kana_line pieces), by the passage token rule (ruby_over): each
+        linked token holding a kanji is one [start, end, kana, wordId] with the
+        edge kana it shares with the text left out (帰った かえった -> 帰 かえ,
+        お金 -> 金 かね); every other kanji segment is a token with wordId null
+        (a name, a word the sentence does not link; write_characters also nulls
+        a linked word that is no unit's words[0]). A kana segment crossing a
+        token edge is cut there (一人 ひとり over 一|人: _split_reading), a kanji
+        with no reading reads by Sudachi. When the tokens or the kana line do
+        not spell the text, the links are left out (every token null) and the
+        kana line is Sudachi's (_passage_segments). Nothing is skipped: the
+        stats count tokens, null tokens, cuts and Sudachi fallbacks."""
         text = rec["t"]
         segs = self._kana_pieces.get(sid)
-        if "".join(surfaces) != text or not segs or "".join(b for b, _ in segs) != text:
-            self.stats["ruby: sentences skipped (tokens or kana segments do not spell the text)"] += 1
-            return None
-        tok_at = [0]
-        for x in surfaces:
-            tok_at.append(tok_at[-1] + len(x))
-        seg_at, at = [], 0
-        for b, r in segs:
-            seg_at.append((at, at + len(b), r))
-            at += len(b)
+        seg_ok = bool(segs) and "".join(b for b, _ in segs) == text
+        tok_ok = "".join(surfaces) == text
+        if not (seg_ok and tok_ok):
+            self.stats["ruby: sentences with tokens or kana segments not spelling the text (read by Sudachi, unlinked)"] += 1
+        if seg_ok and tok_ok:
+            seg_at, at = [], 0
+            for b, r in segs:
+                if b:
+                    seg_at.append((at, at + len(b), r))
+                at += len(b)
+        else:
+            seg_at = self._passage_segments(text, rec.get("en", ""))
         spans = []
-        for kind, a, b, wid in where:
-            if wid not in rec["words"]:
-                continue                # a link fix_links dropped
-            s0, e0 = (tok_at[a], tok_at[b + 1]) if kind == "tok" else (a, b)
-            if KANJI_RE.search(text[s0:e0]):
-                spans.append((s0, e0, wid))
-        out = []
-        for s0, e0, wid in sorted(spans):
-            r = self._token_ruby(text, seg_at, s0, e0)
-            if r is None:
+        if tok_ok:
+            tok_at = [0]
+            for x in surfaces:
+                tok_at.append(tok_at[-1] + len(x))
+            for kind, a, b, wid in where:
+                if wid not in rec["words"]:
+                    continue                # a link fix_links dropped
+                s0, e0 = (tok_at[a], tok_at[b + 1]) if kind == "tok" else (a, b)
+                if KANJI_RE.search(text[s0:e0]):
+                    spans.append((s0, e0, wid))
+        keep = []
+        for sp_ in sorted(spans):
+            if keep and sp_[0] < keep[-1][1]:
+                self.stats["ruby: links overlapping the previous one (left to the first)"] += 1
                 continue
-            a, b, rd = r
-            if out and a < out[-1][1]:
-                self.stats["ruby: tokens skipped (overlaps the previous token's ruby)"] += 1
-                continue
-            out.append([a, b, rd, wid])
+            keep.append(sp_)
+        log = defaultdict(list)
+        out = self.ruby_over(text, seg_at, keep, lambda w: True, log)
         self.stats["ruby: tokens"] += len(out)
-        u16 = lambda i: len(text[:i].encode("utf-16-le")) // 2      # noqa: E731
-        return [[u16(a), u16(b), rd, wid] for a, b, rd, wid in out] or None
+        self.stats["ruby: tokens with no linked word (wordId null)"] += sum(1 for k in out if k[3] is None)
+        self.stats["ruby: kana segments cut at a token edge"] += len(log["split"])
+        self.stats["ruby: kana segments cut by each side's own Sudachi reading"] += sum(1 for x in log["split"] if x[-1])
+        self.stats["ruby: tokens read by Sudachi (no reading in the kana line)"] += len(log["fallback"])
+        self.stats["ruby: kanji left outside every token (should be 0)"] += sum(len(x[1]) for x in log["uncovered"])
+        self.stats["ruby: readings not kana (should be 0)"] += len(log["bad"])
+        return out or None
 
     def _token_ruby(self, text, seg_at, s0, e0):
         """(start, end, kana) for the token text[s0:e0] from the kana segments
@@ -2551,8 +2565,8 @@ class Japanese(LanguageSpec):
             return None, r[len(L):], False
         if not KANJI_RE.search(R) and r.endswith(hira(R)):
             return r[:len(r) - len(R)], None, False
-        if not KANJI_RE.search(L) and DIGIT_RE.search(L):
-            # a number read with its counter (3日 みっか, 1人 ひとり): the counter
+        if (not KANJI_RE.search(L) and DIGIT_RE.search(L)) or (L and all(ch in KANJI_NUM for ch in L)):
+            # a number read with its counter (3日 みっか, 一人 ひとり): the counter
             # keeps its own tail of the reading
             for tail in self.COUNTER_TAILS.get(R, ()):
                 if r.endswith(tail) and len(tail) < len(r):
@@ -2572,7 +2586,8 @@ class Japanese(LanguageSpec):
         characters.json units (passages: splitting a reading at a tap edge)."""
         if getattr(self, "_pack_rd", None) is None:
             out = defaultdict(list)
-            pack = self.repo / "pack" if self.repo is not None else None
+            repo = getattr(self, "repo", None)
+            pack = repo / "pack" if repo is not None else None
             if pack is not None and (pack / "words.json").exists():
                 for w in json.loads((pack / "words.json").read_text()):
                     rd = (w.get("pron") or "").strip("〜")
@@ -2623,8 +2638,14 @@ class Japanese(LanguageSpec):
         fallback, logged. A span's reading that is not its linked word's
         (words: id -> words.json entry) is replaced by it (_agree_word).
         log: lists by kind (fallback, split, agree, bad, uncovered)."""
+        return self.ruby_over(text, self._passage_segments(text, en), spans, wid_ok, log, words)
+
+    def ruby_over(self, text, segs, spans, wid_ok, log, words=None):
+        """text_ruby's token rule over given kana segments [(start, end, kana or
+        None)] tiling the text (sentence_ruby: the sentence's kana line;
+        passages: _passage_segments). spans: non-overlapping [(start, end,
+        wordId)] in code points."""
         words = words or {}
-        segs = self._passage_segments(text, en)
         spans = sorted(s for s in spans if s[1] > s[0])
         cuts = sorted({a for a, _b, _w in spans} | {b for _a, b, _w in spans})
         cut_segs = []
@@ -2642,9 +2663,12 @@ class Japanese(LanguageSpec):
                 if r is None:
                     break
             cut_segs.append((x0, x1, r))
-        # a kanji piece with no reading (none from Sudachi): its Sudachi reading per span
-        cut_segs = [(p, q, r if r is not None or not KANJI_RE.search(text[p:q]) else (self._span_reading(text[p:q]) or None))
-                    for p, q, r in cut_segs]
+        # a kanji piece with no reading (none in the kana line): Sudachi's reading of it
+        for i, (p, q, r) in enumerate(cut_segs):
+            if r is None and KANJI_RE.search(text[p:q]):
+                rd = hira(self._span_reading(text[p:q]))
+                log["fallback"].append((text[p:q], text[p:q], rd))
+                cut_segs[i] = (p, q, rd or None)
         parts, at = [], 0
         for a, b, wid in spans:
             if a > at:
@@ -2722,7 +2746,6 @@ class Japanese(LanguageSpec):
         self.stats = Counter()
         log = defaultdict(list)
         n = Counter()
-        skip = self._sentence_ruby_skips(passages)
 
         def cp_spans(text, spans):
             # UTF-16 spans -> code points
@@ -2786,43 +2809,9 @@ class Japanese(LanguageSpec):
                     if log["agree"] else "") + ".",
                  "Kana rules applied (count over all texts): "
                  + (", ".join(f"{k} x{v}" for k, v in sorted(rules.items())) or "none") + ".",
-                 f"The sentences.json ruby rules (sentence_ruby: linked spans only, a token skipped when its "
-                 f"reading cannot be cut) would give {skip['sent_none']} of {n['sent']} sentences no ruby and "
-                 f"leave {skip['uncovered']} kanji in {skip['sent_uncovered']} sentences without a reading "
-                 f"(tokens skipped: " + (", ".join(f"{k[6:]} x{v}" for k, v in sorted(skip['stats'].items())
-                                                   if k.startswith("ruby: tokens skipped")) or "none")
-                 + "); the passage rules above skip nothing."]
+                 "Sentences in sentences.json get their ruby by the same token rule (sentence_ruby over the "
+                 "sentence's kana line), so both cover every kanji."]
         return lines
-
-    def _sentence_ruby_skips(self, passages):
-        """Report only: what sentence_ruby (the sentences.json path, over the same
-        Sudachi kana segments without the passage counter rule) would do with
-        each passage sentence's spans."""
-        saved = Counter(self.stats)
-        self.stats = Counter()
-        out = Counter()
-        for pi, p in enumerate(passages):
-            for si, s in enumerate(p["sentences"]):
-                t = s["t"]
-                key = ("passage", pi, si)
-                self._kana_pieces[key] = self._kana_segments(self._sudachi_pieces(t), t, s["en"])
-                idx = {_u16(t, i): i for i in range(len(t) + 1)}
-                where = [("chars", idx[a], idx[b], w) for a, b, w in (x[:3] for x in s.get("spans") or [])]
-                r = self.sentence_ruby(key, {"t": t, "words": s.get("words") or []}, [t], where)
-                del self._kana_pieces[key]
-                if not KANJI_RE.search(t):
-                    continue
-                if r is None:
-                    out["sent_none"] += 1
-                cov = set()
-                for a, b, _r, _w in r or []:
-                    cov |= set(range(a, b))       # BMP text: UTF-16 == code points
-                miss = sum(1 for i, ch in enumerate(t) if KANJI_RE.match(ch) and i not in cov)
-                out["uncovered"] += miss
-                out["sent_uncovered"] += miss > 0
-        stats = self.stats
-        self.stats = saved
-        return {**out, "stats": stats}
 
     def character_units(self, words):
         """Kanji-word units (docs/HSK_MERGE.md ss2.1): every word whose headword

@@ -359,7 +359,8 @@ def check_ruby(ruby, t, ws, char_word0, where, rep, null_ok=False):
     """sentences[].ruby (optional): [[start, end, reading, wordId], ...] in UTF-16 code
     units of t, sorted, non-overlapping, wordId in the sentence's words and some
     characters.json unit's words[0] (docs/PACK_SCHEMA.md sentences.json "ruby").
-    null_ok (passages.json): wordId may be null (a token of no pack word); ws None:
+    null_ok (sentences.json and passages.json): wordId may be null (a token of no
+    unit word: a name, a word with no characters.json unit); ws None:
     no words list to be in (titleRuby, questions[].ruby, optionsRuby)."""
     if not isinstance(ruby, list):
         rep.err(f"{where}.ruby must be a list of [start, end, reading, wordId]")
@@ -432,7 +433,7 @@ def check_sentences(sents, levels, by_id, rep, char_word0=None):
         if "ruby" in s:
             if char_word0 is None:
                 rep.warn(f"{where}.ruby present but pack.characters is absent: ruby is never rendered")
-            check_ruby(s["ruby"], s.get("t"), ws, char_word0, where, rep)
+            check_ruby(s["ruby"], s.get("t"), ws, char_word0, where, rep, null_ok=True)
 
 
 def check_lessons(pack, lessons, rep):
