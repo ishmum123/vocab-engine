@@ -865,12 +865,13 @@ function buildRecallPlan(learned, prog, pack, n, opts){
   return pool.map((word,i)=>({ kind: kinds[i], word }));
 }
 // Sentence kind: hear 50 / read 25 / gap 25. Gap is "gapType" (type the blank) half
-// the time when the pack has typing, else multiple choice.
+// the time when the pack types written words, else multiple choice. A pack that types
+// the reading (typing "pron", pronTypingOn) never gets gapType: the blank is written.
 function sentenceKind(pack, rng){
   const r = (rng || Math.random)();
   if(r < 0.5) return "hear";
   if(r < 0.75) return "read";
-  return typingEnabled(pack) && (rng || Math.random)() < 0.5 ? "gapType" : "gap";
+  return typingEnabled(pack) && !pronTypingOn(pack) && (rng || Math.random)() < 0.5 ? "gapType" : "gap";
 }
 
 // ------------------------------------------------------------------ lessons
@@ -1430,12 +1431,20 @@ function sentencePieces(sentence, toks, blank, cuts){
   text(pos, t.length);
   const shown = p => (p.kind === "tok" && p.tier === "pron") || p.kind === "blank";
   if(!out.some(p => p.kind === "tok" && p.tier === "pron" && LATIN_RE.test(p.text))) return out;
-  if(out[0] && out[0].kind === "tok" && out[0].tier === "pron") out[0].text = out[0].text.charAt(0).toUpperCase() + out[0].text.slice(1);
   // Latin line: full-width punctuation in ASCII form; a reading or blank is spaced from
   // a neighbour that meets it with a letter or digit (a token, or text such as a name).
   const edgeL = p => p.kind !== "text" || /^[\p{L}\p{N}]/u.test(p.text);
   const edgeR = p => p.kind !== "text" || /[\p{L}\p{N}]$/u.test(p.text);
   out.forEach(p => { if(p.kind === "text") p.text = p.text.replace(/[\uff0c\u3001\u3002\uff01\uff1f\uff1a\uff1b\uff08\uff09\u201c\u201d\u2018\u2019\u300a\u300b\u2026\u2014]/g, c => ASCII_PUNCT[c]); });
+  // A reading that starts a sentence is capitalised: the first one when only opening
+  // punctuation precedes it, and the first after a sentence-internal . ! or ? (ba! Ni...).
+  let atStart = true;
+  out.forEach(p => {
+    if(p.kind === "tok" && p.tier === "pron"){ if(atStart) p.text = p.text.charAt(0).toUpperCase() + p.text.slice(1); atStart = false; }
+    else if(p.kind !== "text") atStart = false;
+    else if(/[.!?][\s"'\u201d\u2019)]*$/.test(p.text)) atStart = true;
+    else if(!/^[\s"'\u201c\u2018(]*$/.test(p.text)) atStart = false;
+  });
   out.forEach((p, i) => { const prev = out[i-1]; if(prev && (shown(p) || shown(prev)) && edgeL(p) && edgeR(prev)) p.pre = " "; });
   // tidy: no doubled or edge spaces
   let last = "";
@@ -1633,6 +1642,212 @@ function charTestPlan(units, learned, prog, pack, n, rng){
   return pool.map(unit => ({ kind: pickWeighted(cfg.testKinds, rng), unit }));
 }
 
+// ------------------------------------------------------------------ pronunciation aids
+// Pack-gated helpers (docs/PACK_SCHEMA.md "Pronunciation aids"), all pure. Off for every
+// pack without the field, so no other pack's output changes.
+//  - pack.tones: the reading is Latin letters with tone marks on a vowel (macron 1, acute
+//    2, caron 3, grave 4, unmarked 5 = neutral). The validator admits one mark system,
+//    whose syllable inventory is SYL_FINALS below; toneHTML colours each syllable.
+//  - pack.typing === "pron": typed production of the reading (checkPronTyped).
+//  - composeSpanReading: the reading of a tap span longer than its word.
+const TONE_MARKS = {
+  a: ["a","\u0101","\u00e1","\u01ce","\u00e0"],
+  e: ["e","\u0113","\u00e9","\u011b","\u00e8"],
+  i: ["i","\u012b","\u00ed","\u01d0","\u00ec"],
+  o: ["o","\u014d","\u00f3","\u01d2","\u00f2"],
+  u: ["u","\u016b","\u00fa","\u01d4","\u00f9"],
+  "\u00fc": ["\u00fc","\u01d6","\u01d8","\u01da","\u01dc"],
+};
+const MARK_OF = {}; // marked (or plain) vowel -> [plain vowel, tone 1-4, or 0 for none]
+Object.keys(TONE_MARKS).forEach(v => TONE_MARKS[v].forEach((c, t) => { MARK_OF[c] = [v, t]; }));
+function tonesOn(pack){ return !!(pack && typeof pack.tones === "string" && pack.tones); }
+// A reading with its tone marks removed, case and everything else kept.
+function stripMarks(s){
+  return [...String(s == null ? "" : s).normalize("NFC")].map(c => {
+    const m = MARK_OF[c.toLowerCase()]; if(!m) return c;
+    return c === c.toLowerCase() ? m[0] : m[0].toUpperCase();
+  }).join("");
+}
+// Tone of a marked letter string: the tone of its (first) marked vowel, 5 when unmarked.
+function syllableTone(s){
+  for(const c of String(s || "")){ const m = MARK_OF[c.toLowerCase()]; if(m && m[1]) return m[1]; }
+  return 5;
+}
+const markCount = s => [...String(s || "")].filter(c => { const m = MARK_OF[c.toLowerCase()]; return !!(m && m[1]); }).length;
+// Mark placement: a, else e, else o, else the last of i/u/ü. tone 0 or 5: unmarked.
+function markVowelIndex(letters){
+  const lower = String(letters).toLowerCase();
+  for(const v of ["a","e","o"]){ const i = lower.indexOf(v); if(i >= 0) return i; }
+  for(let i = lower.length - 1; i >= 0; i--) if("iu\u00fc".indexOf(lower[i]) >= 0) return i;
+  return -1;
+}
+function markSyllable(letters, tone){
+  const s = String(letters); const i = markVowelIndex(s); const t = +tone;
+  if(i < 0 || !(t >= 1 && t <= 4)) return s;
+  const c = s[i]; const m = MARK_OF[c.toLowerCase()];
+  const out = TONE_MARKS[m ? m[0] : c.toLowerCase()][t];
+  return s.slice(0, i) + (c !== c.toLowerCase() ? out.toUpperCase() : out) + s.slice(i + 1);
+}
+// Syllable inventory: initial -> finals, spelled as written (zero initial uses y/w forms;
+// j/q/x/y write ü as u). "" holds the zero-initial syllables.
+const SYL_FINALS = {
+  b: "a ai an ang ao o ei en eng i ie iao ian in iang ing u",
+  p: "a ai an ang ao o ei en eng ou i ie iao ian in iang ing u",
+  m: "a ai an ang ao o ei en eng ou i ie iao iu ian in iang ing u e",
+  f: "a an ang ei en eng ou u o",
+  d: "a ai an ang ao e ei en eng ong i ia ie iao iu ian ing ou u uo ui uan un",
+  t: "a ai an ang ao e eng ong i ian iao ie ing ou u uo ui uan un",
+  n: "a ai an ang ao e ei en eng i ian iang iao ie in ing iu ong ou u uan uo \u00fc \u00fce",
+  l: "a ai an ang ao e ei eng i ia ian iang iao ie in ing iu ong ou u uan un uo \u00fc \u00fce o",
+  g: "a ai an ang ao e ei en eng ong ou u ua uai uan uang ui un uo",
+  k: "a ai an ang ao e ei en eng ong ou u ua uai uan uang ui un uo",
+  h: "a ai an ang ao e ei en eng ong ou u ua uai uan uang ui un uo",
+  j: "i ia ian iang iao ie in ing iong iu u uan ue un",
+  q: "i ia ian iang iao ie in ing iong iu u uan ue un",
+  x: "i ia ian iang iao ie in ing iong iu u uan ue un",
+  zh: "a ai an ang ao e ei en eng i ong ou u ua uai uan uang ui un uo",
+  ch: "a ai an ang ao e en eng i ong ou u ua uai uan uang ui un uo",
+  sh: "a ai an ang ao e ei en eng i ou u ua uai uan uang ui un uo",
+  r: "an ang ao e en eng i ong ou u ua uan ui un uo",
+  z: "a ai an ang ao e ei en eng i ong ou u uan ui un uo",
+  c: "a ai an ang ao e en eng i ong ou u uan ui un uo",
+  s: "a ai an ang ao e en eng i ong ou u uan ui un uo",
+  "": "a o e ai ei ao ou an en ang eng er yi ya ye yao you yan yin yang ying yong wu wa wo wai wei wan wen wang weng yu yue yuan yun yo",
+};
+const SYL_SET = {}; Object.keys(SYL_FINALS).forEach(k => { SYL_SET[k] = new Set(SYL_FINALS[k].split(" ")); });
+const SYL_INITIALS = Object.keys(SYL_FINALS).filter(Boolean).sort((a, b) => b.length - a.length);
+// Toneless syllable -> {initial, final}, or null when it is not in the inventory.
+function splitSyllable(toneless){
+  const s = String(toneless || "").toLowerCase();
+  for(const ini of SYL_INITIALS) if(s.indexOf(ini) === 0 && SYL_SET[ini].has(s.slice(ini.length))) return { initial: ini, final: s.slice(ini.length) };
+  return SYL_SET[""].has(s) ? { initial: "", final: s } : null;
+}
+// A syllable with a trailing r-suffix ("r" after a full syllable, not "er" itself).
+const isRSuffixed = s => s.length > 1 && s[s.length - 1] === "r" && s !== "er" && !!splitSyllable(s.slice(0, -1));
+const SYL_MAX = 7;
+// One run of letters -> syllables [{text, tone, r}] or null when it does not split into
+// the inventory with at most one mark each. Fewest syllables wins; a syllable starting
+// with a/o/e inside the run (where the writing would put an apostrophe) costs extra;
+// among equals the longest first syllable wins (the usual left-to-right reading).
+function splitRun(run){
+  const chars = [...run]; const n = chars.length;
+  const bare = chars.map(c => { const m = MARK_OF[c.toLowerCase()]; return m ? m[0] : c.toLowerCase(); });
+  const best = new Array(n + 1).fill(null); best[n] = { cost: 0, next: -1 };
+  for(let i = n - 1; i >= 0; i--){
+    for(let j = Math.min(n, i + SYL_MAX); j > i; j--){
+      if(!best[j]) continue;
+      const b = bare.slice(i, j).join("");
+      const r = !splitSyllable(b) && isRSuffixed(b);
+      if(!r && !splitSyllable(b)) continue;
+      if(markCount(chars.slice(i, j).join("")) > 1) continue;
+      const cost = best[j].cost + 1 + (r ? 0.5 : 0) + (i > 0 && /^[aoe]/.test(b) ? 10 : 0);
+      if(!best[i] || cost < best[i].cost) best[i] = { cost, next: j, r };
+    }
+  }
+  if(!best[0]) return null;
+  const out = []; let i = 0;
+  while(i < n){ const j = best[i].next; const text = chars.slice(i, j).join(""); out.push({ text, tone: syllableTone(text), r: !!best[i].r }); i = j; }
+  return out;
+}
+// Reading -> pieces [{text, tone?}]: each syllable of each letter run with its tone; text
+// between runs (spaces, punctuation, other scripts) has no tone. A run that does not split
+// is one piece, toned only when it carries exactly one mark.
+const LETTER_RUN = /[\p{Script=Latin}\u0300-\u036f]+/gu;
+function splitReading(text){
+  const t = String(text == null ? "" : text).normalize("NFC");
+  const out = []; let pos = 0;
+  for(const m of t.matchAll(LETTER_RUN)){
+    if(m.index > pos) out.push({ text: t.slice(pos, m.index) });
+    const syl = splitRun(m[0]);
+    if(syl) syl.forEach(x => out.push({ text: x.text, tone: x.tone }));
+    else out.push(markCount(m[0]) === 1 ? { text: m[0], tone: syllableTone(m[0]) } : { text: m[0] });
+    pos = m.index + m[0].length;
+  }
+  if(pos < t.length) out.push({ text: t.slice(pos) });
+  return out;
+}
+// Escaped HTML of a reading, each syllable in <span class="t1".."t5">.
+function toneHTML(text){
+  return splitReading(text).map(p => p.tone ? `<span class="t${p.tone}">${escapeHtml(p.text)}</span>` : escapeHtml(p.text)).join("");
+}
+// ---- typed reading (pack.typing === "pron")
+function pronTypingOn(pack){ return !!(pack && pack.typing === "pron"); }
+// Comparison key: case-folded, v and u: as ü, ü after j/q/x/y as u (the writing drops
+// the dots there), apostrophes, hyphens, spaces and punctuation removed; marks and digits kept.
+function pronKey(s){
+  return String(s == null ? "" : s).normalize("NFC").toLowerCase()
+    .replace(/u:/g, "\u00fc").replace(/v/g, "\u00fc")
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .replace(/([jqxy])([\u00fc\u01d6\u01d8\u01da\u01dc])/g, (m, a, b) => a + TONE_MARKS.u[MARK_OF[b][1]]);
+}
+const NUMBERED_MAX = 64;
+// Every numbered spelling of pron: syllable letters + tone digit; a neutral syllable as
+// 5, 0 or no digit; an r-suffixed syllable with its digit before or after the r.
+// [] when pron does not split into syllables (then only the marked form is accepted).
+function numberedForms(pron){
+  const runs = String(pron || "").normalize("NFC").match(LETTER_RUN) || [];
+  let combos = [""];
+  for(const run of runs){
+    const syl = splitRun(run); if(!syl) return [];
+    for(const x of syl){
+      const b = stripMarks(x.text).toLowerCase();
+      const d = x.tone === 5 ? ["5", "0", ""] : [String(x.tone)];
+      const opts = [];
+      d.forEach(k => { opts.push(b + k); if(x.r && k) opts.push(b.slice(0, -1) + k + "r"); });
+      const next = []; combos.forEach(c => opts.forEach(o => next.push(c + o)));
+      if(next.length > NUMBERED_MAX) return [];
+      combos = next;
+    }
+  }
+  return runs.length ? combos.map(pronKey) : [];
+}
+// Typed reading vs a word's pron: "ok" (marked, or numbered per numberedForms, case and
+// apostrophes ignored), "tones" (right letters, no tone marks or digits: counts as wrong,
+// the reveal gives the marked form) or "wrong".
+function checkPronTyped(input, pron){
+  const got = pronKey(input);
+  if(!got || !pron) return "wrong";
+  if(got === pronKey(pron) || numberedForms(pron).indexOf(got) >= 0) return "ok";
+  if(!/\p{N}/u.test(got) && markCount(got) === 0 && got === pronKey(stripMarks(pron))) return "tones";
+  return "wrong";
+}
+// ---- span reading
+// Joins two readings: with pack.tones an apostrophe goes before a syllable starting with
+// a/o/e (the writing's syllable-boundary rule), otherwise they are simply concatenated.
+function joinReadings(a, b, pack){
+  if(!a) return b; if(!b) return a;
+  return tonesOn(pack) && /^[aoe]/i.test(stripMarks(b)) && /[\p{L}]$/u.test(a) ? a + "'" + b : a + b;
+}
+// The reading of a tap span whose text may be longer than its word (越来越 for 越, 一下 for
+// 下). Returns pieces [{start, end, reading}] covering text in order, offsets relative to
+// text: each occurrence of the word's written form gets word.pron, every other character
+// readingOf(char) (e.g. its single-character unit's reading), and a character with no
+// reading gets reading "" (shown written). Adjacent read pieces are merged with
+// joinReadings, as are adjacent written ones. No character is ever dropped.
+function composeSpanReading(text, word, readingOf, pack){
+  const t = String(text == null ? "" : text); const w = String((word && word.w) || ""); const wp = String((word && word.pron) || "");
+  const raw = []; let i = 0;
+  while(i < t.length){
+    if(w && wp && t.startsWith(w, i)){ raw.push({ start: i, end: i + w.length, reading: wp }); i += w.length; continue; }
+    const cp = t.codePointAt(i); const c = String.fromCodePoint(cp);
+    const r = readingOf ? String(readingOf(c) || "") : "";
+    raw.push({ start: i, end: i + c.length, reading: r }); i += c.length;
+  }
+  const out = [];
+  raw.forEach(p => {
+    const last = out[out.length - 1];
+    if(last && !!last.reading === !!p.reading){ last.end = p.end; last.reading = p.reading ? joinReadings(last.reading, p.reading, pack) : ""; }
+    else out.push(Object.assign({}, p));
+  });
+  return out;
+}
+// The reading line of a span as one string: composeSpanReading's readings, with a written
+// piece's own text in place.
+function spanReadingText(text, word, readingOf, pack){
+  const t = String(text == null ? "" : text);
+  return composeSpanReading(t, word, readingOf, pack).map(p => p.reading || t.slice(p.start, p.end)).join("");
+}
+
 // ------------------------------------------------------------------ legacy migration
 // One-way import of a predecessor app's progress into this pack's shape (design: the
 // merge plan in docs/, §4). zh: the hsk trainer's "hsk_pinyin" record. Every hsk release
@@ -1774,6 +1989,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   charStageUnits, charSets, charSetTaught, nextCharSet, charStages, stagePath, nextStage, charsUnlocked, charsStarted, showCharChoice,
   charTier, sentenceTokenTier, rubyTiers, pronFirstOn, displayForm, pronClash, sentencePieces, sentenceDisplay, charOpts, recallCharOpts, charSoundOpts, charReadOpts, charItem,
   learnCharPlan, charReviewScore, rankUnified, unifiedReviewPlan, unifiedRecallPlan, todaySnapshot, newCharUnits, charTestPlan, pickWeighted,
+  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
