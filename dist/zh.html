@@ -1967,7 +1967,7 @@ function todaySnapshot(pack, words, units, prog, sunits){
   const cset = stage && stage.kind === "chars" ? nextCharSet(stage.levels, units, pack, prog) : null;
   const started = charsStarted(pack, words, units, prog, sunits);
   const snap = { stage, cset, charsStarted: started, reviewSize: started ? REVIEW_SIZE_CHARS : REVIEW_SIZE, choice: showCharChoice(pack, words, units, prog, sunits) };
-  const scfg = scriptConfig(pack);
+  const scfg = scriptActive(pack, sunits) ? scriptConfig(pack) : null; // no units: the flag-off snapshot
   if(scfg){
     const onScript = !!(stage && stage.kind === "script");
     snap.ssets = onScript ? nextScriptSets(stage.key, sunits, pack, prog, scfg.setsPerSession) : [];
@@ -2111,8 +2111,11 @@ function nextScriptSets(key, units, pack, prog, n){
 // Script stages for this learner, in path order ([] when skipped or without pack.script):
 // {kind:"script", key, label, recorded, nunits, nsets, frac, done}. done = every unit
 // recorded, so a missed review never pulls the stage back into the path.
+// The primer runs only with a config AND its units: pack.script without script.js data
+// (absent or empty units) is the primer off everywhere, exactly the flag-off output.
+function scriptActive(pack, units){ return !!scriptConfig(pack) && Array.isArray(units) && units.length > 0; }
 function scriptStages(pack, units, prog){
-  const cfg = scriptConfig(pack); if(!cfg || scriptSkipped(prog)) return [];
+  const cfg = scriptConfig(pack); if(!cfg || !scriptActive(pack, units) || scriptSkipped(prog)) return [];
   const recs = scriptRecs(prog);
   return cfg.stages.filter(st => !scriptSkipped(prog, st.key)).map(st => {
     const list = scriptStageUnits(st.key, units);
@@ -2137,7 +2140,7 @@ function scriptPool(units, prog, set){
 // The choice card shows while it is unanswered, the primer is not switched off, and no
 // script record exists. Placement does not answer it (it tests words, not the script).
 function showScriptChoice(pack, units, prog){
-  const cfg = scriptConfig(pack); if(!cfg || !cfg.stages.length) return false;
+  const cfg = scriptConfig(pack); if(!cfg || !cfg.stages.length || !scriptActive(pack, units)) return false;
   const sc = (prog && isObj(prog.script)) ? prog.script : {};
   if(sc.choiceSeen === true || sc.skipped === true) return false;
   const recs = scriptRecs(prog);
@@ -2732,7 +2735,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   SCRIPT_PROG_VERSION, SCRIPT_MASTERED, SCRIPT_SETS_PER_SESSION, REVIEW_SIZE_SCRIPT, SCRIPT_KINDS, scriptConfig,
   defaultScriptProg, validateScriptShape, normalizeScriptProg, ensureScript, scriptRecs, scriptSkipped, setScriptSkipped, answerScriptChoice,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
-  recordedScriptUnits, scriptPool, showScriptChoice, scriptKindFits, scriptKindFor, pickScriptKind, scriptGlyph, scriptSecondRight,
+  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindFits, scriptKindFor, pickScriptKind, scriptGlyph, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
   tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
@@ -2774,6 +2777,9 @@ const CHAR_CTX = { units: CHAR_LIST, words: WORDS, byId: WORDS_BY_ID }; // VC.ch
 const SCRIPT_DATA = (typeof SCRIPT !== "undefined" && SCRIPT && typeof SCRIPT === "object" && Array.isArray(SCRIPT.units)) ? SCRIPT : null;
 const HAS_SCRIPT = VC.scriptConfig(PACK) !== null && !!SCRIPT_DATA && SCRIPT_DATA.units.length > 0;
 const SCFG = HAS_SCRIPT ? VC.scriptConfig(PACK) : null;
+// pack.script without its data (no script.js, or no units): the primer is off everywhere
+// (SU undefined, so core returns the flag-off path/snapshot), with one console warning.
+if(VC.scriptConfig(PACK) !== null && !HAS_SCRIPT) console.warn("pack.script is set but script.js has no units: the script primer is off");
 const SUNITS = HAS_SCRIPT ? SCRIPT_DATA.units : [];
 const SNOTES = HAS_SCRIPT && Array.isArray(SCRIPT_DATA.notes) ? SCRIPT_DATA.notes : [];
 const SU = HAS_SCRIPT ? SUNITS : undefined;
@@ -3715,7 +3721,7 @@ function todayRender(){
   refreshReadUnlocks();
   const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
   const choice = !!(snap && snap.choice);
-  const xChoice = !!(snap && snap.choice === "script");
+  const xChoice = HAS_SCRIPT && !!(snap && snap.choice === "script");
   const xNotice = showScriptNotice();
   P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${legacyFail ? `<div class="stmt" id="legacyFail">${legacyFailHTML(legacyFail)}<button class="ghost" id="legacySkip" style="margin-top:8px">Start without it</button></div>` : ""}${xNotice ? `<div class="stmt" id="scriptNotice">A script primer is available. Turn it on in Progress.<button class="ghost" id="scriptNoticeOk" style="margin-top:8px">OK</button></div>` : ""}${pathStrip()}${xChoice ? scriptChoiceHTML() : ""}
     ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice && !xChoice ? charChoiceHTML() : ""}
@@ -4710,4 +4716,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:2950793056-1503395-->
+<!--ve-build:1620631527-1504157-->
