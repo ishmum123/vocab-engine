@@ -394,7 +394,11 @@ def build_words(env, ctx):
             # ones, and keep their own rank order (ko: 졸리다, 이빨)
             extra = [k for k in ranked if k in sp.keep_keys and k not in fem_folded and k not in chosen]
             if extra:
-                chosen = sorted(chosen[:need - len(extra)] + extra, key=lambda k: order.get(k, 10**9))
+                # the cut drops unkept words only: a kept word already near the
+                # end of the chosen list stays (id: tiru, pengantin)
+                kept = [k for k in chosen if k in sp.keep_keys]
+                rest = [k for k in chosen if k not in sp.keep_keys][:need - len(extra) - len(kept)]
+                chosen = sorted(rest + kept + extra, key=lambda k: order.get(k, 10**9))
         in_pack = defaultdict(list)
         for kk in forced_ok + chosen:
             in_pack[records[kk]["lemma"]].append(kk)

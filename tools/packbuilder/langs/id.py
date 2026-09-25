@@ -17,7 +17,11 @@ Lemmas (bind_lexicon rewrites the lexicon in memory):
 - -an / ke-an / pe(N)-an nouns (makanan, pekerjaan) stay separate lemmas.
 - Reduplication (anak-anak, buku-buku) is a plural: its senses repeating the
   base fold into the base; lexicalised ones (mata-mata "spy", tiba-tiba,
-  hati-hati "careful") stay words.
+  hati-hati "careful") stay words, link their own entry (rata-rata
+  "average") and rank from the subtitle list (extra_wordfreq).
+- host + enclitic is split (bukunya -> buku + nya) unless it is a word of
+  its own: LEXICAL_CLITIC, a gloss unlike the host's (sekolah), or a
+  function word whose host is a content word (misalnya, tampaknya).
 No gender, articles or tense. Colloquial Jakarta forms are mapped to the
 formal lemma for frequency (gue -> aku, udah -> sudah); nggak, banget,
 gimana and the discourse particles are A2+ words glossed "(colloquial)".
@@ -146,6 +150,12 @@ FORM_OF = {"berikan": "beri"}
 # host + enclitic spellings that are words by convention
 LEXICAL_CLITIC = {"apakah", "adalah", "ialah", "akhirnya", "bagaimanapun", "sebelumnya", "sesungguhnya",
                   "sebenarnya", "sebaiknya", "seharusnya", "setidaknya", "sejujurnya", "biasanya", "sepertinya"}
+# Wiktionary POS of a function word: host + enclitic listed only as one of these
+# while its host is a content word is a word of its own (misalnya "for example"
+# / misal "example", tampaknya, awalnya, contohnya, singkatnya)
+FUNCTION_KPOS = {"adv", "prep", "conj", "particle", "intj", "prep_phrase", "adv_phrase"}
+# quotative katanya "he/she said" is kata + nya, read in post_resolve
+CLITIC_SPLIT_KEEP = {"katanya"}
 # a derived surface: ber-/ter-/ke-/pe(r)-/se- prefix or -an suffix
 DERIVED_RE = re.compile(r"^(?:ber|be|ter|ke|pe|per|pen|pem|peng|se)[a-z]{3,}$|^[a-z]{3,}(?<!k)an$")   # not -kan verbs
 # ber- spellings that are not the ber- verb of the root (berikut "following" is not ber- + ikut)
@@ -192,6 +202,7 @@ FORCED_IDIOMS = {tuple(p.split()) for p in (
 # reduplications that are words of their own, not a plural/intensive of the
 # root (satu-satunya "the only one" is not satu "one"); kaikki entries add more
 LEXICAL_REDUP = {"satu-satu"}
+REDUP_KPOS_GROUP = {"noun": "NOUN", "verb": "VERB", "adj": "ADJ", "adv": "ADV"}
 # subject pronouns before an object-voice verb ("yang pernah kamu alami")
 AGENT_PRONOUNS = {"aku", "saya", "kamu", "kau", "engkau", "dia", "ia", "mereka", "kami", "kita", "anda", "beliau"}
 # enclitics written onto a word (makanlah, rumahnya): stripped to find the word
@@ -319,6 +330,22 @@ class Indonesian(LanguageSpec):
     extra_corpus_files = ("tools/generated_sentences.tsv",)
     corpus_rank_weight = 1.5     # the subtitle list is colloquial: Tatoeba counts weigh more
     refill_unexampled = True
+    # everyday words the reading passages needed and the frequency blend ranks
+    # past the cut (Tatoeba barely has them): kept, replacing the lowest-ranked
+    # chosen words. Words with <2 usable Tatoeba sentences have generated ones.
+    keep_keys = frozenset({
+        ("daun", "NOUN"), ("tiba-tiba", "ADV"), ("padahal", "CONJ"), ("misalnya", "ADP"), ("layar", "NOUN"),
+        ("dosen", "NOUN"), ("warung", "NOUN"), ("helm", "NOUN"), ("pelabuhan", "NOUN"), ("rupiah", "NOUN"),
+        ("menu", "NOUN"), ("penelitian", "NOUN"), ("rata-rata", "NOUN"), ("karyawan", "NOUN"),
+        ("pengumuman", "NOUN"), ("sambal", "NOUN"), ("kursus", "NOUN"), ("panen", "NOUN"),
+        ("pinggir", "NOUN"), ("lowongan", "NOUN"), ("disiplin", "NOUN"), ("adat", "NOUN"), ("doa", "NOUN"),
+        ("rekaman", "NOUN"), ("mencatat", "VERB"), ("mewah", "ADJ"), ("ulasan", "NOUN"), ("pemandu", "NOUN"),
+        ("penghuni", "NOUN"), ("kerupuk", "NOUN"), ("nyenyak", "ADJ"), ("bising", "ADJ"),
+        ("keseimbangan", "NOUN"), ("justru", "ADV"), ("pembeli", "NOUN"), ("bambu", "NOUN"), ("tur", "NOUN"),
+        # words the reading passages use, which the words above would push out
+        ("pedas", "ADJ"), ("kemacetan", "NOUN"), ("keluhan", "NOUN"), ("kelebihan", "NOUN"), ("handuk", "NOUN"),
+        ("tiru", "VERB"), ("keberhasilan", "NOUN"), ("penerjemah", "NOUN"), ("pengantin", "NOUN"),
+        ("hidangan", "NOUN"), ("bermanfaat", "VERB")})
     example_shows_word = True
     prefer_headword_sentence = True
     strict_selection = True
@@ -382,7 +409,9 @@ class Indonesian(LanguageSpec):
         ("menarik", "VERB"): ("menarik", "ADJ"), ("kasih", "VERB"): ("kasih", "NOUN"),
         ("segala", "DET"): ("segala", "PRON"),
         # kaikki's "hearing (able to hear)" adjective is only the verb's participle
-        ("mendengar", "ADJ"): ("dengar", "VERB")}
+        ("mendengar", "ADJ"): ("dengar", "VERB"),
+        # a reduplicated root with its ber- verb's sense links the ber- verb
+        ("pura-pura", "VERB"): ("berpura-pura", "VERB")}
 
     bad_text_re = re.compile(UNTAUGHT_SLANG_RE.pattern + "|^(?:" + "|".join(re.escape(t) for t in BAD_TEXTS) + ")$",
                              re.I)
@@ -435,7 +464,7 @@ class Indonesian(LanguageSpec):
     # ---- tagging (Stanza) ---------------------------------------------------
     def tagger_desc(self):
         import stanza
-        return f"Stanza {stanza.__version__}, id gsd (tokenize, mwt, pos, lemma); clitic rule 2"
+        return f"Stanza {stanza.__version__}, id gsd (tokenize, mwt, pos, lemma); clitic rule 3"
 
     def _kaikki_words(self):
         """kaikki headword -> (POS set, gloss words) over its definitional
@@ -485,6 +514,9 @@ class Indonesian(LanguageSpec):
             content = cl not in ("kah", "lah") or kw.get(low, (set(),))[0] & {"noun", "verb", "adj"}
             if low in kw and content and not overlaps(kw[low][1], kw[base][1]):
                 return None             # sekolah, masalah, bangku: words of their own
+            if low in kw and kw[low][0] and kw[low][0] <= FUNCTION_KPOS and not kw[base][0] & FUNCTION_KPOS and \
+                    low not in CLITIC_SPLIT_KEEP:
+                return None             # misalnya, tampaknya: a function word, its host a content word
             return base, cl
         return None
 
@@ -569,6 +601,32 @@ class Indonesian(LanguageSpec):
 
     def sentence_fields(self, row):
         return {"src": "gen"} if row[0] >= self.GEN_BASE else {}
+
+    def extra_wordfreq(self, raw):
+        """wordfreq splits tiba-tiba / rata-rata at the hyphen, so its top list
+        never has a lexicalised reduplication or hyphenated compound. Add the
+        hyphenated subtitle surfaces (top 20,000) that keep a usable Wiktionary
+        entry of their own; a plural reduplication (anak-anak) is only a form
+        of its base and stays out. Zipf as fr: wordfreq's phrase zipf capped
+        at the subtitle zipf."""
+        import math
+        from wordfreq import zipf_frequency
+        if self._lx is None:
+            return
+        hy, total = {}, 0
+        with open(self.repo / ".cache" / self.subtitles_file, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                w, _, c = line.rstrip("\n").partition(" ")
+                c = int(c) if c.isdigit() else 0
+                total += c
+                w = self.fold(w)
+                if i < 20000 and "-" in w and w not in raw and w not in hy and \
+                        self._lx.usable_entries(w, None):
+                    hy[w] = c
+        for w, c in sorted(hy.items()):
+            z = min(zipf_frequency(w, self.wordfreq_code), math.log10(c / total * 1e9) if c else 0)
+            if z > 0:
+                raw[w] = 10 ** z
 
     def extra_corpus_rows(self, env):
         import bz2
@@ -1135,8 +1193,12 @@ class Indonesian(LanguageSpec):
                 # nothing with the root's (rata-rata "average", mata-mata "spy",
                 # satu-satunya "the only"), is not its root; dalam-dalam
                 # "deeply" and bunga-bungaan "various flowers" keep it
-                out[i] = None
-                st["lexicalised reduplication: no root link"] += 1
+                # it links its own entry (rata-rata the noun "average"): in the
+                # resolved group when it has an entry there
+                g = r[1] if lx.usable_entries(low, self.group_kpos.get(r[1])) else next(
+                    (REDUP_KPOS_GROUP[e["p"]] for e in lx.usable_entries(low, None) if e["p"] in REDUP_KPOS_GROUP), None)
+                out[i] = (low, g) if g else None
+                st["lexicalised reduplication: its own entry, no root link"] += 1
                 continue
             if not r or r[1] == "PROPN" or r[1] not in self.group_kpos or low in self.closed_surfaces:
                 continue
