@@ -129,8 +129,8 @@ Scoring writes `prog.chars.c` only. charSound drills `pron`, breaking the engine
 ## 5. Parity checklist and rollback
 Walk `dist/zh.html`, then the hsk branch build, at 390, 360 and desktop, light and dark. Walked 2026-09-26: every row passed except the two switch-time rows; deviations it found are in §8 ("hsk parity walk").
 
-- [ ] Fresh load, offline reload, and the old `hsk_pinyin.html` URL (question 4). Switch-time: the old URL only exists once hsk is switched.
-- [ ] The migration diff is empty on the real snapshot. Switch-time: needs the real Export at the switch. After boot, Today shows the same session number, learned count, strip fractions and current stage as hsk.
+- [ ] Fresh load and offline reload: PASS on dist/zh.html (walk 2026-09-26). The old `hsk_pinyin.html` URL (question 4): switch-time, verified on the hsk branch build.
+- [x] The migration diff is empty on the real snapshot (user export of 2026-09-25, .cache/hsk-switch/hsk_pinyin.real.json: diff PASS; walk 2026-09-26: boot migrates, Today shows Session 1, 0 learned, HSK 1 set 1, identical to hsk). After boot, Today shows the same session number, learned count, strip fractions and current stage as hsk (seeds A–E all identical).
 - [x] Seeds A–E from hsk `PINYIN_SPEC.md` "Browser-verify seeds", migrated:
   - A shows no character surface.
   - B shows the choice card. Start teaches 10 cards and a 20-item drill and records 10 units. Skip teaches HSK 4 set 1, and 字 moves after HSK 4.
