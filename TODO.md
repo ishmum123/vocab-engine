@@ -90,6 +90,7 @@ characters-stage fields, and writes `vocab_zh`.
 
 ### 1. Merge hsk's post-fork state into the engine, then (last task) move hsk onto the engine
 DECISION 2026-09-25 16:10 (user): pronunciation-first for zh (pinyin) and ja (kana); never start a logographic pack with the written form; UX and ease of learning over coding ease. Briefs BP (pronFirst) and BP2 (restore per-word taps, tone colouring, typed pinyin, pinyin chart) follow the B8 polish; see docs/HSK_MERGE.md §8.
+BP2 addition (browser recheck 2026-09-25 16:20, cosmetic): phrase-span popovers show the linked word headword+pinyin (越 yuè for 越来越, 下 xià for 一下); use the tapped span surface (with its reading when available) as the popover headword.
 STATUS 2026-09-25 16:00: design docs/HSK_MERGE.md; briefs B0–B7 merged on main (characters stage core + app, zh characters.json/ruby/legacy map, ja ruby + kanji units, migration core + boot hook + tools/diff_hsk_migration.js, flag-off golden harness); B8 review + browser walk done (no blockers), polish round in progress. Remaining: polish merge, republish wave of live languages, Japanese rebuild with kanji stage, then the final switch (needs the user's real hsk_pinyin export and the pinyin-first decision).
 hsk (`../hsk`, read-only until the user says go) kept evolving after the
 2026-09-23 extraction: characters stage (v2.2/v2.3, 10 new / 16 drilled per
