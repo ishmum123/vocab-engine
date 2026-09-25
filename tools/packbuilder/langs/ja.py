@@ -566,6 +566,14 @@ class Japanese(LanguageSpec):
 
     GEN_BASE = 1_000_000_000
 
+    # characters stage (docs/HSK_MERGE.md ss2.2): kanji-word units, reading plus
+    # meaning, unlocked after A2 (A1+A2 units) and after B1
+    characters = {"label": "漢字",
+                  "stages": [{"after": "A2", "levels": ["A1", "A2"]}, {"after": "B1", "levels": ["B1"]}],
+                  "setSize": 10, "mastered": 3, "bare": 6,
+                  "learnKinds": ["charSound", "charRead"], "reviewKinds": ["charRead", "charSound"]}
+    emit_ruby = True
+
     def __init__(self, repo=None):
         super().__init__(repo)
         self._kana_verb = {}         # hiragana verb surface -> Counter(lemma), tagging pass (_homophone)
@@ -593,6 +601,7 @@ class Japanese(LanguageSpec):
         self._noun_pref = {}
         self._shipped = []
         self._last_sid = None
+        self._kana_pieces = {}       # sid -> [(written, its kana or None)] of its kana line (sentence_ruby)
         self.compounds = []
         self.stats = Counter()
         self.function_lemmas = set(self.function_lemmas)
@@ -2080,12 +2089,95 @@ class Japanese(LanguageSpec):
         sid = row[0]
         if self._last_sid is not None and sid <= self._last_sid:
             self._shipped = []          # a new build_sentences pass (refill) started
+            for k in [k for k in self.stats if k.startswith("ruby: ")]:
+                del self.stats[k]       # sentence_ruby counts the shipped pass only
         self._last_sid = sid
         self._shipped.append(sid)
         out = {"pron": self.kana_line(sid, row[1], row[3] or "")}
         if sid >= self.GEN_BASE:
             out["src"] = "gen"
         return out
+
+    def sentence_ruby(self, sid, rec, surfaces, where):
+        """Per-token readings from the sentence's kana line (kana_line pieces):
+        one [start, end, kana, wordId] per linked token that contains kanji, the
+        edge kana the reading shares with the text left out (帰った かえった ->
+        帰 かえ, お金 -> 金 かね). A token is skipped when its reading cannot be
+        cut from the line: a furigana segment crossing a token boundary (一人
+        read ひとり over 一|人), a kanji with no reading, or a reading that is
+        not kana (a digit kept as written)."""
+        text = rec["t"]
+        segs = self._kana_pieces.get(sid)
+        if "".join(surfaces) != text or not segs or "".join(b for b, _ in segs) != text:
+            self.stats["ruby: sentences skipped (tokens or kana segments do not spell the text)"] += 1
+            return None
+        tok_at = [0]
+        for x in surfaces:
+            tok_at.append(tok_at[-1] + len(x))
+        seg_at, at = [], 0
+        for b, r in segs:
+            seg_at.append((at, at + len(b), r))
+            at += len(b)
+        spans = []
+        for kind, a, b, wid in where:
+            if wid not in rec["words"]:
+                continue                # a link fix_links dropped
+            s0, e0 = (tok_at[a], tok_at[b + 1]) if kind == "tok" else (a, b)
+            if KANJI_RE.search(text[s0:e0]):
+                spans.append((s0, e0, wid))
+        out = []
+        for s0, e0, wid in sorted(spans):
+            r = self._token_ruby(text, seg_at, s0, e0)
+            if r is None:
+                continue
+            a, b, rd = r
+            if out and a < out[-1][1]:
+                self.stats["ruby: tokens skipped (overlaps the previous token's ruby)"] += 1
+                continue
+            out.append([a, b, rd, wid])
+        self.stats["ruby: tokens"] += len(out)
+        u16 = lambda i: len(text[:i].encode("utf-16-le")) // 2      # noqa: E731
+        return [[u16(a), u16(b), rd, wid] for a, b, rd, wid in out] or None
+
+    def _token_ruby(self, text, seg_at, s0, e0):
+        """(start, end, kana) for the token text[s0:e0] from the kana segments
+        (start, end, kana or None) tiling the text, or None."""
+        ov = [x for x in seg_at if x[0] < e0 and x[1] > s0]
+        a, b = ov[0][0], ov[-1][1]
+        rd = "".join(r if r is not None else text[x0:x1] for x0, x1, r in ov)
+        # the kana (or digits) the reading shares with the text at either edge
+        while a < b and rd and not KANJI_RE.match(text[a]) and hira(text[a]) == hira(rd[0]):
+            a, rd = a + 1, rd[1:]
+        while a < b and rd and not KANJI_RE.match(text[b - 1]) and hira(text[b - 1]) == hira(rd[-1]):
+            b, rd = b - 1, rd[:-1]
+        if not (s0 <= a < b <= e0):
+            self.stats["ruby: tokens skipped (reading crosses a token boundary)"] += 1
+            return None
+        if any(r is None and KANJI_RE.search(text[max(a, x0):min(b, x1)]) for x0, x1, r in ov):
+            self.stats["ruby: tokens skipped (kanji without a reading)"] += 1
+            return None
+        if not rd or not KANA_ONLY_RE.match(rd):
+            self.stats["ruby: tokens skipped (reading not kana)"] += 1
+            return None
+        return a, b, rd
+
+    def character_units(self, words):
+        """Kanji-word units (docs/HSK_MERGE.md ss2.1): every word whose headword
+        has a kanji, read by its kana pron, in words.json order within each
+        level. The 〜 of a suffix or counter (〜年 〜ねん) is not part of the
+        reading."""
+        from ..core.util import stat
+        lv = {x: i for i, x in enumerate(self.level_ids)}
+        units, left_out = [], []
+        for w in sorted((w for w in words if KANJI_RE.search(w["w"])), key=lambda w: lv[w["lv"]]):
+            rd = w["pron"].strip("〜")
+            if not KANA_ONLY_RE.match(rd):
+                left_out.append(f"{w['w']} {w['pron']}")
+                continue
+            units.append({"id": f"c{len(units) + 1:04d}", "t": w["w"], "words": [w["id"]],
+                          "lv": w["lv"], "reading": rd})
+        stat("ja_characters_left_out_reading_not_kana", left_out)
+        return units
 
     def _transcriptions(self):
         if self._trans is None:
@@ -2134,7 +2226,9 @@ class Japanese(LanguageSpec):
         self._day_counts(pieces)
         self._minute_counts(pieces)
         self._naka(pieces, en)
-        return "".join(self._kana_digits(b, r) for b, r in pieces)
+        segs = [(b, self._kana_digits(b, r) if r is not None else None) for b, r in pieces]
+        self._kana_pieces[sid] = segs
+        return "".join(r if r is not None else b for b, r in segs)
 
     def _person_counts(self, pieces):
         """一人/二人 fused into a following compound (一人当たり, 二人組): Sudachi
