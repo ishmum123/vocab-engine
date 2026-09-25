@@ -185,9 +185,10 @@ def main(argv):
         "setSize": 10,
         "placement": [["1", 3], ["2", 3], ["3", 4], ["4", 6]],
         "functionWords": fw,
-        # Typing Chinese needs an IME; hsk's typed drill was pinyin, which the engine
-        # never drills (pron is display-only). Production for zh is recall-only.
-        "typing": None,
+        # Typing Chinese needs an IME, so the typed production step types the pinyin
+        # instead (hsk's typed drill; docs/PACK_SCHEMA.md "Pronunciation aids"): the same
+        # word slot recall uses, never a stand-alone pinyin drill.
+        "typing": "pron",
         "showPron": True,
         "hasLessons": True,
         "spaced": False,
@@ -208,6 +209,10 @@ def main(argv):
         # Pronunciation first (docs/HSK_MERGE.md §8, 2026-09-25): a word is shown by its
         # pinyin until its character unit reaches the mastered tier, as hsk does.
         "pronFirst": True,
+        # Pronunciation aids (docs/PACK_SCHEMA.md, brief BP2): pinyin syllables coloured
+        # by tone as hsk did, and a Reference card of every lesson sound in the Sounds tab.
+        "tones": "pinyin",
+        "soundsReference": True,
     }
 
     # ---- characters: one unit per word, same order as words.json (docs/HSK_MERGE.md §2.1).

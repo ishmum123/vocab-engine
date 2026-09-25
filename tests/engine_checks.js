@@ -14,7 +14,9 @@ const ZH = path.join(ROOT, "packs", "zh");
 function loadConst(file, name){
   return new Function(fs.readFileSync(file, "utf8") + `\nreturn ${name};`)();
 }
-const PACK = loadConst(path.join(ZH, "pack.js"), "PACK");
+// The zh data as the typing-off baseline pack: the shipped pack's typing "pron" (typed
+// reading, brief BP2) is set back to null here; tests/pron_aids_checks.js checks it.
+const PACK = Object.assign({}, loadConst(path.join(ZH, "pack.js"), "PACK"), { typing: null });
 const WORDS = loadConst(path.join(ZH, "words.js"), "WORDS");
 const SENTENCES = loadConst(path.join(ZH, "sentences.js"), "SENTENCES");
 const LESSONS = loadConst(path.join(ZH, "lessons.js"), "LESSONS");
@@ -339,8 +341,11 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
 
 // ------------------------------------------------------------ [10] engine is language-agnostic
 (function(){
-  console.log("\n[10] no pinyin/tone/script-specific logic in engine/");
-  // Allowed: the HTML charset declaration only. "char" is not banned: the characters
+  console.log("\n[10] no pinyin/script-specific logic in engine/");
+  // Allowed: the HTML charset declaration only. "tone" is not banned since BP2: tone
+  // marks on a Latin reading are a pack-gated feature (pack.tones, core.js "pronunciation
+  // aids"; tones are not specific to one language); the names below still are.
+  // "char" is not banned: the characters
   // stage (pack.characters, prog.chars) is a pack-generic feature used by zh and ja
   // (docs/HSK_MERGE.md §2); language-specific terms below still are.
   // One exemption: core.js's delimited legacy-migration section (merge plan §4) reads the
@@ -359,12 +364,12 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     if(f === "core.js"){ lo = lines.indexOf(LEGACY_START); hi = lo >= 0 ? lines.indexOf(LEGACY_END, lo) : -1; if(lo >= 0 && hi > lo) legacyLines = hi - lo - 1; else lo = hi = -1; }
     lines.forEach((line, i)=>{
       if(i > lo && i < hi) return;
-      if(/tone|pinyin|cjk|hsk|hanzi|kanji/i.test(line) && !ALLOW.some(re=>re.test(line))) hits.push(`${f}:${i+1}: ${line.trim().slice(0,100)}`);
+      if(/pinyin|cjk|hsk|hanzi|kanji/i.test(line) && !ALLOW.some(re=>re.test(line))) hits.push(`${f}:${i+1}: ${line.trim().slice(0,100)}`);
     });
   });
   check(`core.js legacy-migration section is delimited and at most ${LEGACY_MAX_LINES} lines (${legacyLines})`, legacyLines > 0 && legacyLines <= LEGACY_MAX_LINES);
   hits.forEach(h=>console.log("    " + h));
-  check("engine/ has no tone/pinyin/CJK/hsk/hanzi/kanji references (besides <meta charset>)", hits.length === 0);
+  check("engine/ has no pinyin/CJK/hsk/hanzi/kanji references (besides <meta charset>)", hits.length === 0);
 })();
 
 // ------------------------------------------------------------ [11] homographs / homophones (review major 1)
@@ -754,7 +759,9 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const bare = [...app.matchAll(/class="(big wd|med wd|wd|st|rw)"(?!\$\{TA\})/g)].map(m=>m[0]);
   const optsW = [...app.matchAll(/optHtml: wordOptHtml\([^)]*\)(, optsT: true)?/g)];
   check("app.html: every target-text element (big/med/wd/st/rw) carries ${TA}; every word-option item sets optsT",
-    bare.length === 0 && optsW.length >= 2 && optsW.every(m=>!!m[1]) && /id="tin"[^>]*\$\{TA\}/.test(app));
+    bare.length === 0 && optsW.length >= 2 && optsW.every(m=>!!m[1]) && /id="tin"[^>]*\$\{it\.inputTA !== undefined \? it\.inputTA : TA\}/.test(app)
+    // the only override is the typed-reading item (Latin reading, not the target script)
+    && [...app.matchAll(/inputTA: /g)].length === 1 && /function pronTypeItem[\s\S]*?inputTA: ""/.test(app));
 })();
 
 // ------------------------------------------------------------ [18] validator script fields; distractor word class

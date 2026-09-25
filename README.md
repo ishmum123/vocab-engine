@@ -33,6 +33,7 @@ tools/check_site.sh       stale-build guard for a language repo's index.html + s
 tools/pack_from_hsk.py    reproducible hsk -> packs/zh converter
 tools/packbuilder/        shared corpus-based pack builder for language repos (it; see its README)
 tests/engine_checks.js    Node checks, no dependencies
+tests/pron_aids_checks.js Node checks for the pronunciation aids (docs/PACK_SCHEMA.md "Pronunciation aids"), incl. a byte-identical control against main's engine
 tests/flagoff_snapshot.js Golden harness proving hsk-merge work is a no-op for every pack without `characters` (see docs/HSK_MERGE.md); tests/golden/ holds the goldens
 dist/zh.html dist/sw.js   built zh trainer + its service worker (committed; the tests fail if either is stale)
 docs/PACK_SCHEMA.md       pack format (authoritative)

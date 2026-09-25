@@ -100,9 +100,9 @@ def check_pack(pack, rep):
     if "typing" not in pack:
         rep.warn("pack.typing absent: typed items are off (same as typing: null)")
     ty = pack.get("typing", None)
-    if ty is not None:
+    if ty is not None and ty != "pron":
         if not isinstance(ty, dict):
-            rep.err("pack.typing must be an object or null")
+            rep.err('pack.typing must be an object, "pron" or null')
         else:
             if not is_bool(ty.get("caseSensitive", False)):
                 rep.err("pack.typing.caseSensitive must be a boolean")
@@ -124,6 +124,7 @@ def check_pack(pack, rep):
         if not (isinstance(lg, dict) and is_str(lg.get("key")) and is_str(lg.get("format"))):
             rep.err("pack.legacy must be {key: non-empty string, format: non-empty string}")
     char_levels = check_characters_pack(pack, ids, rep)
+    check_pron_aids_pack(pack, rep)
     if "pronFirst" in pack:
         if not is_bool(pack["pronFirst"]):
             rep.err("pack.pronFirst must be a boolean")
@@ -133,6 +134,43 @@ def check_pack(pack, rep):
 
 
 CHAR_KINDS = ("charRead", "charSound", "charPick", "charRecall")
+
+# Pronunciation aids (docs/PACK_SCHEMA.md "Pronunciation aids"). pack.tones names the tone-
+# mark system of the readings; the engine implements exactly one (Latin letters, tone marks
+# on the vowel, its syllable inventory), so only that literal is accepted.
+TONE_SYSTEMS = ("pinyin",)
+
+
+def check_pron_aids_pack(pack, rep):
+    """pack.tones, pack.soundsReference (pack.typing "pron" is checked with typing)."""
+    if "tones" in pack and pack["tones"] not in TONE_SYSTEMS:
+        rep.err(f"pack.tones must be one of {list(TONE_SYSTEMS)} (got {pack['tones']!r})")
+    if "soundsReference" in pack:
+        if pack["soundsReference"] is not True:
+            rep.err("pack.soundsReference must be true when present")
+        elif pack.get("hasLessons") is not True:
+            rep.warn("pack.soundsReference is set but pack.hasLessons is not true: the Reference card has no lessons to build from")
+
+
+def check_pron_aids_data(pack, words, lessons, rep):
+    """Data the pronunciation aids need: typed readings need prons; the Reference card
+    needs lesson rows with a one-character `say`."""
+    if pack.get("typing") == "pron":
+        nopron = [w.get("id") for w in words if isinstance(w, dict) and not (isinstance(w.get("pron"), str) and w["pron"].strip())]
+        if len(nopron) == len(words):
+            rep.err('pack.typing is "pron" but no word has a pron')
+        elif nopron:
+            rep.warn(f'pack.typing is "pron": {len(nopron)} words have no pron and get recall instead (e.g. {nopron[:3]})')
+    if pack.get("soundsReference") is True and isinstance(lessons, list):
+        cells = 0
+        for l in lessons:
+            for c in (l.get("cards") or []) if isinstance(l, dict) else []:
+                rows, say = c.get("rows") or [], c.get("say") or []
+                for i, r in enumerate(rows):
+                    if isinstance(r, list) and r and isinstance(r[0], str) and r[0] and i < len(say) and isinstance(say[i], str) and len(say[i]) == 1:
+                        cells += 1
+        if cells == 0:
+            rep.warn("pack.soundsReference is set but no lesson row has a one-character say: the Reference card is empty")
 
 
 def check_characters_pack(pack, level_ids, rep):
@@ -696,6 +734,7 @@ def validate(packdir):
     char_ids, char_word0 = check_characters_data(chars, char_levels, by_id, rep)
     check_sentences(sents, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
     check_lessons(pack, lessons, rep)
+    check_pron_aids_data(pack, words, lessons, rep)
     check_passages(passages, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
     check_legacy(pack, legacy, by_id, {s.get("id") for s in sents if isinstance(s, dict)}, char_ids, rep)
     r = subprocess.run([sys.executable, os.path.join(HERE, "jsonify_pack.py"), packdir, "--check"],

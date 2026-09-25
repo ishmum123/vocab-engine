@@ -22,7 +22,9 @@ function tryLoadConst(file, name){ try{ return loadConst(file, name); }catch(e){
 // The zh pack is pronunciation-first (pack.pronFirst, brief BP). Sections [1]-[13] check
 // the word-first characters stage, which every characters pack without pronFirst gets,
 // on the same data with pronFirst off; [14] checks the pack as shipped (PACK_ZH).
-const PACK_ZH = loadConst(path.join(ZH, "pack.js"), "PACK");
+// BP2's pronunciation aids (tones, typing "pron", soundsReference) are left out here, so
+// these checks keep testing BP's markup; tests/pron_aids_checks.js checks the pack with them.
+const PACK_ZH = (p => { const q = Object.assign({}, p); delete q.tones; delete q.soundsReference; if(q.typing === "pron") q.typing = null; return q; })(loadConst(path.join(ZH, "pack.js"), "PACK"));
 const PACK = Object.assign({}, PACK_ZH, { pronFirst: false });
 const WORDS = loadConst(path.join(ZH, "words.js"), "WORDS");
 const SENTENCES = loadConst(path.join(ZH, "sentences.js"), "SENTENCES");
@@ -229,7 +231,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     check("teach card: written form, reading and gloss of every unit",
       cs.units.every(u => h.includes(`>${u.t}</span>`) && h.includes(VC.unitReading(u, BY_ID)) && h.includes(VC.escapeHtml(VC.unitGloss(u, BY_ID)))));
     const withEx = cs.units.filter(u => VC.exampleSentences(BY_ID[u.words[0]], SENTENCES, PACK, 1).length).length;
-    check(`teach cards carry the linked word's example sentence (${withEx} of 10 have one)`, count(h, /class="sent"/g) === withEx && withEx > 0);
+    check(`teach cards carry the linked word's example sentence (${withEx} of 10 have one)`, count(h, /class="sent[" ]/g) === withEx && withEx > 0);
     check("teach heading uses the stage label and set position", /<bdi[^>]*>字<\/bdi>, set 1 of \d+: the written form/.test(h));
     api.el("dr").click();
     const first = api.getD();
@@ -352,7 +354,9 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     let bad = 0;
     SENTENCES.forEach(x => {
       const e = BY_ID[(x.words || [])[0]];
-      const r1 = api.sentenceRowHTML(x), r2 = api.sentenceRowHTML(x, e);
+      // BP2: a row with word taps carries its speaker button (.ssay) inside the text line.
+      const noSay = h => h.replace(/<button type="button" class="replay ssay"[\s\S]*?<\/button>/g, "");
+      const r1 = noSay(api.sentenceRowHTML(x)), r2 = noSay(api.sentenceRowHTML(x, e));
       const t1 = stripTags((r1.match(/<div class="st[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "");
       const t2 = stripTags((r2.match(/<div class="st[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || "");
       if(t1 !== x.t || t2 !== x.t) bad++;
@@ -747,7 +751,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
   console.log("\n[14] pronunciation-first (pack.pronFirst, brief BP): the zh pack as shipped");
   // Visible written characters in markup: Han outside the show-written tap's hidden form.
   // (data-pg: a span's display gloss, shown only in the popover, may quote its headword.)
-  const visHan = h => (String(h == null ? "" : h).replace(/data-(showw|pg)="[^"]*"/g, "").match(/\p{Script=Han}/gu) || []).join("");
+  const visHan = h => (String(h == null ? "" : h).replace(/data-(showw|pg|ts)="[^"]*"/g, "").match(/\p{Script=Han}/gu) || []).join("");
   const onlyLabel = h => /^字*$/.test(visHan(h)); // the stage label 字 / 字4 (path strip, Progress rows)
   const PF_ZH = PACK_ZH;
   const NSZ = lv => VC.nSets(VC.wordsByLevel(WORDS, PF_ZH)[lv], VC.setSizeOf(PF_ZH));
@@ -873,7 +877,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     const cards = api.html("panel").split('<div class="charteach">').slice(1);
     let withEx = 0, bad = 0;
     cs.units.forEach((u, i) => {
-      const exPart = (cards[i] || "").split('<div class="sent"')[1];
+      const exPart = (cards[i] || "").split('<div class="sent')[1];
       if(!exPart) return; withEx++;
       const others = visHan(exPart.replace(new RegExp(`<ruby>${u.t}<rt>[^<]*</rt></ruby>`, "g"), ""));
       if(!exPart.includes(`<ruby>${u.t}<rt>${VC.unitReading(u, BY_ID)}</rt></ruby>`) || others) bad++;
@@ -901,7 +905,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     check("a mouse tap (button not focused) does not move focus", b2.by && focused === null);
     document.createElement = mk;
     check("keys on a show-written button never reach the drill shortcuts (Enter = Next)",
-      api.onShowWritten({ target: { closest: s => s === "[data-showw]" ? b : null } }) && !api.onShowWritten({ target: { closest: () => null } }) && /if\(drillKeyHandler && !onShowWritten\(e\)\) drillKeyHandler\(e\)/.test(appHtml));
+      api.onShowWritten({ target: { closest: s => s === "[data-showw]" ? b : null } }) && !api.onShowWritten({ target: { closest: () => null } }) && /if\(drillKeyHandler && !onShowWritten\(e\) && !\(onTok\(e\) && e\.key !== "Escape"\)\) drillKeyHandler\(e\)/.test(appHtml));
     check("announce() drops the show-written button label from the live-region text", /querySelectorAll\("\[data-showw\]"\)\.forEach\(x => x\.remove\(\)\)/.test(appHtml.match(/function announce[\s\S]*?\n}\n/)[0]));
     let other = false;
     cap({ target: { closest: () => null }, preventDefault(){ other = true; }, stopPropagation(){ other = true; } });
