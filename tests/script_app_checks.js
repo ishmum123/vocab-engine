@@ -141,7 +141,7 @@ return {
   getD: () => D, getCur: () => __cur, getState: () => todayStepState,
   goto: t => { tab = t; testSel = null; RD = null; render(); },
   hasScript: () => HAS_SCRIPT, scriptTab: () => SCRIPT_TAB, byId: () => SCRIPT_BYID,
-  scriptDrillItem, scriptCtx, kindCtx: () => scriptKindCtx(), scriptTeachHTML, scriptChartHTML, drill,
+  scriptDrillItem, scriptCtx, kindCtx: () => scriptKindCtx(), scriptTeachHTML, scriptChartHTML, scriptHL, drill,
   panelListeners: () => document.getElementById("panel")._listeners.click || [],
 };`;
   const names = ["document","window","SpeechSynthesisUtterance","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
@@ -380,6 +380,9 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     const kb = await boot(KO);
     const n = kb.api.scriptTeachHTML(KO.script.units.find(u => u.id === "ko-n"));
     check("ko: the jamo tints its whole block in the example (나)", /<span class="xhl">나<\/span>/.test(n));
+    check("ko batchim: final ㄱ (U+11A8) tints its block (책), initial too (국)", kb.api.scriptHL("책", "ㄱ") === '<span class="xhl">책</span>'
+      && kb.api.scriptHL("한국", "ㄱ") === '한<span class="xhl">국</span>' && kb.api.scriptHL("몸", "ㅁ") === '<span class="xhl">몸</span>');
+    check("fold also covers case and آ (Москва м, آب ا)", kb.api.scriptHL("Москва", "м") === '<span class="xhl">М</span>осква' && kb.api.scriptHL("آب", "ا") === '<span class="xhl">آ</span>ب');
     const esc = FX.ko(); esc.script.units[0].note = "<img src=x onerror=alert(1)>"; esc.script.units[0].name = "<b>"; esc.script.notes[0].body = "<script>x</script>";
     const eb = await boot(esc);
     const eh = eb.api.scriptTeachHTML(esc.script.units[0]);
@@ -402,6 +405,17 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     check("dismissed: gone, stored notice false", !/scriptNotice/.test(h) && JSON.parse(storage.getItem(key)).script.notice === false);
     b = await boot(KO, { storage });
     check("after a reload: still gone", !/scriptNotice/.test(b.api.html("panel")));
+    // Not dismissed, but the primer turned on from Progress and off again: the notice is
+    // cleared (stored false), so it does not come back.
+    const storage2 = memStore({ [key]: JSON.stringify(stored) });
+    b = await boot(KO, { storage: storage2 });
+    check("second learner: notice pending", /id="scriptNotice"/.test(b.api.html("panel")));
+    b.api.goto("progress"); b.api.el("xOn").click();
+    check("turned on from Progress: stored notice false", JSON.parse(storage2.getItem(key)).script.notice === false && b.api.getProg().script.skipped === false);
+    b.api.el("xOff").click(); b.api.today();
+    check("turned off again: the notice does not come back", b.api.getProg().script.skipped === true && !/scriptNotice/.test(b.api.html("panel")));
+    b = await boot(KO, { storage: storage2 });
+    check("after a reload: still no notice", !/scriptNotice/.test(b.api.html("panel")));
     const fresh = await boot(KO);
     check("fresh learner: never the notice", !/scriptNotice/.test(fresh.api.html("panel")));
   }

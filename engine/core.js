@@ -1778,11 +1778,14 @@ function scriptSkipped(prog, key){
   return key != null && isObj(sc.skip) && sc.skip[key] === true;
 }
 // The reversible on/off switch (Progress): flips one flag only, the primer's or (with key)
-// one stage's. The path is re-derived from it; no record, set counter or other flag is
-// touched. Turning a stage on while the whole primer is off leaves the primer off.
+// one stage's. The path is re-derived from it; no record or set counter is touched.
+// Turning a stage on while the whole primer is off leaves the primer off. Turning the
+// primer or a stage on also clears the pending notice (the learner has found the switch),
+// so turning it off again does not bring the notice back.
 function setScriptSkipped(prog, skipped, key){
   const sc = ensureScript(prog);
   if(key == null) sc.skipped = !!skipped; else sc.skip[String(key)] = !!skipped;
+  if(!skipped) sc.notice = false;
   return prog;
 }
 // The choice card's answer: learn (primer on) or skip (primer off).
@@ -1907,17 +1910,46 @@ function scriptFamily(text){
 // The glyph an item shows: the last space-separated form of `t` (a teach card may show
 // "upper lower"; items use the lower form).
 function scriptGlyph(unit){ const p = String((unit && unit.t) || "").trim().split(/\s+/); return p[p.length - 1]; }
+// "Does this symbol occur in that text", the same rule as tools/validate_pack.py glyph_in
+// (which checks every ex word): lower case, compatibility decomposition (presentation forms
+// and composed syllables split into letters, آ = ا + madda, dakuten split off), and a
+// positional Hangul letter (initial U+1100.., medial U+1161.., final U+11A8..) keyed as
+// its compatibility letter, so the batchim ㄱ of 책 is the letter ㄱ. A match is a
+// contiguous run of keys.
+const HANGUL_POS_KEY = (() => {
+  const m = {}, put = (base, letters) => [...letters].forEach((c, i) => { m[String.fromCharCode(base + i)] = c; });
+  put(0x1100, "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ");
+  put(0x1161, "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ");
+  put(0x11A8, "ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ");
+  m["\u111A"] = "ㅀ"; m["\u1121"] = "ㅄ"; // ㅀ and ㅄ decompose to these (archaic) initials
+  return m;
+})();
+function scriptGlyphKeys(s){ return [...String(s == null ? "" : s).toLowerCase().normalize("NFKD")].map(ch => HANGUL_POS_KEY[ch] || ch); }
+function scriptGlyphIn(glyph, text){
+  const g = scriptGlyphKeys(glyph), t = scriptGlyphKeys(text);
+  if(!g.length) return false;
+  for(let i = 0; i + g.length <= t.length; i++) if(g.every((k, j) => t[i + j] === k)) return true;
+  return false;
+}
+// True when a word (its w or pron) contains any of the unit's glyphs (upper and lower).
+function scriptWordHas(unit, word){
+  const gs = String((unit && unit.t) || "").trim().split(/\s+/).filter(Boolean);
+  const texts = [word && word.w, word && word.pron].filter(t => typeof t === "string" && t);
+  return gs.some(g => texts.some(t => scriptGlyphIn(g, t)));
+}
 const scriptRomans = u => [u.roman, ...(Array.isArray(u.alt) ? u.alt : [])].map(normKey).filter(Boolean);
-// True when `cand` would be a second right answer to `unit`'s item: the same glyph, the
-// same `say`, the same roman, or (symSound, options are romans) a roman the unit accepts,
-// or (glyph options) a candidate that accepts the unit's roman.
+// True when `cand` would be a second right answer to `unit`'s option item: the same glyph,
+// the same `say`, the same roman, or homophones by `alt` (each accepts the other's roman:
+// fa غ gh/q and ق q/gh). A one-way alt is a contrast to drill, not a second answer: ko ㄱ
+// accepts "k" (its final sound) yet ㄱ/ㅋ are offered against each other, likewise ru Е
+// (alt "e") and Э. Typed answers (symType) still accept roman + alt.
 function scriptSecondRight(unit, cand, kind){
   if(cand.id === unit.id) return true;
   if(normKey(scriptGlyph(cand)) === normKey(scriptGlyph(unit))) return true;
   if(unit.say && cand.say && normKey(unit.say) === normKey(cand.say)) return true;
   const ur = normKey(unit.roman), cr = normKey(cand.roman);
   if(ur && ur === cr) return true;
-  return kind === "symSound" ? scriptRomans(unit).includes(cr) : scriptRomans(cand).includes(ur);
+  return !!(ur && cr) && scriptRomans(unit).includes(cr) && scriptRomans(cand).includes(ur);
 }
 // Up to 3 distractor units for a symbol item. Candidates share the unit's stage (units of
 // two stages never mix), are never a second right answer (scriptSecondRight), and are
@@ -2052,9 +2084,8 @@ function scriptItem(kind, unit, ctx){
   }
   else if(k === "formFind"){
     const e = pickEx(); it.show = glyph; it.hint = reveal.name || null; it.answer = e.w; it.wordId = e.id; reveal.word = wordOf(e);
-    const has = w => [...glyph].every(ch => w.includes(ch));
     const used = new Set([normKey(e.w)]);
-    const gather = list => list.filter(u => isObj(u) && u.st === unit.st).flatMap(u => scriptExamples(u, byId)).filter(x => !has(x.w));
+    const gather = list => list.filter(u => isObj(u) && u.st === unit.st).flatMap(u => scriptExamples(u, byId)).filter(x => !scriptWordHas(unit, byId[x.id]));
     for(const list of [gather(pool), gather(all)]){
       for(const x of shuffle(list, r)){ if(others.length >= 3) break; if(!used.has(normKey(x.w))){ used.add(normKey(x.w)); others.push(x.w); } }
     }
@@ -2473,7 +2504,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   SCRIPT_PROG_VERSION, SCRIPT_MASTERED, SCRIPT_SETS_PER_SESSION, REVIEW_SIZE_SCRIPT, SCRIPT_KINDS, scriptConfig,
   defaultScriptProg, validateScriptShape, normalizeScriptProg, ensureScript, scriptRecs, scriptSkipped, setScriptSkipped, answerScriptChoice,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
-  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptSecondRight,
+  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
   tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };

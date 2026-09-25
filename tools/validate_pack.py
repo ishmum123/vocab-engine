@@ -882,6 +882,24 @@ def check_script_data(pack, script, stage_keys, words, rep):
                 x, y = us[a], us[b]
                 if y["id"] not in (x.get("confuse") or []) and x["id"] not in (y.get("confuse") or []):
                     rep.warn(f"script units {x['id']} and {y['id']} share group {g!r} and roman {r!r} with no confuse link")
+    # An alt equal to a same-stage sibling's roman makes typed answers (symType) accept the
+    # unit as that sibling (ru й alt "y" = ы). Mutual alts are homophones (fa غ gh/q, ق q/gh)
+    # and a sibling with the same glyph is the same letter (ko initial/final ㄱ): both skipped.
+    def romans(x):
+        return [str(r).strip().lower() for r in [x.get("roman")] + list(x.get("alt") or []) if is_str(r)]
+    for u in units:
+        if not (isinstance(u.get("alt"), list) and is_str(u.get("roman"))):
+            continue
+        ug = set(str(u.get("t") or "").lower().split())
+        for a in u["alt"]:
+            ak = str(a).strip().lower() if is_str(a) else ""
+            for v in units:
+                if (v is u or v.get("st") != u.get("st") or not is_str(v.get("roman"))
+                        or v["roman"].strip().lower() != ak or ug & set(str(v.get("t") or "").lower().split())
+                        or u["roman"].strip().lower() in romans(v)):
+                    continue
+                rep.warn(f"script unit {u['id']} alt {a!r} is the roman of {v['id']} ({v.get('t')!r}): "
+                         f"typed answers accept {u['id']} as that letter's sound")
     notes = script.get("notes", [])
     if not isinstance(notes, list):
         rep.err("script.json notes must be a list")

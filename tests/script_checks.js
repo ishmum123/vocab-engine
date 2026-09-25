@@ -53,6 +53,13 @@ section("[1] stagePath: script stages first; skipped equals the flag-off path; r
   const p2 = VC.stagePath(pack, words, [], prog, units);
   check("unskipped: the script stage is back first, recorded 1", p2[0].kind === "script" && p2[0].recorded === 1 && VC.nextStage(pack, words, [], prog, units).kind === "script");
   check("unskipped: w, sets and script.u still untouched", eq(before, clone({ w: prog.w, sets: prog.sets, u: prog.script.u })));
+  prog.script.notice = true; VC.setScriptSkipped(prog, true);
+  check("setScriptSkipped off keeps a pending notice", prog.script.notice === true);
+  VC.setScriptSkipped(prog, false);
+  check("setScriptSkipped on clears the notice (not only hides it)", prog.script.notice === false);
+  prog.script.notice = true; VC.setScriptSkipped(prog, false, "hangul"); VC.setScriptSkipped(prog, true);
+  check("turning a stage on clears the notice too", prog.script.notice === false);
+  VC.setScriptSkipped(prog, false); prog.script.skip = {};
   // derived done: every unit recorded (a later miss never un-does it)
   units.forEach(u => VC.markScript(prog, u.id, true)); VC.markScript(prog, "ko-a", false);
   const p3 = VC.stagePath(pack, words, [], prog, units);
@@ -127,15 +134,32 @@ section("[3] normalizeProg: existing learners default skipped with a notice", ()
 section("[4] scriptOpts never offers a same-roman or same-say unit", () => {
   const F = FX.fa(), J = FX.ja(), K = FX.ko();
   const fu = byUid(F.script.units), ju = byUid(J.script.units), ku = byUid(K.script.units);
-  const runs = (u, units, kind, bad) => { for(let s = 1; s <= 200; s++){ const o = VC.scriptOpts(u, units, units, kind, mulberry32(s)); if(o.some(v => bad.includes(v.id))) return false; } return true; };
+  // `bad` goes to the front of the unit's confuse list, so every bad unit sits in the first
+  // tier and would be offered if scriptSecondRight did not exclude it (the checks bite).
+  const runs = (u0, units, kind, bad) => {
+    const u = Object.assign({}, u0, { confuse: [...bad, ...(u0.confuse || [])] });
+    for(let s = 1; s <= 200; s++){ const o = VC.scriptOpts(u, units, units, kind, mulberry32(s)); if(o.some(v => bad.includes(v.id))) return false; }
+    return true;
+  };
+  const offered = (u, units, kind, want, seeds) => { for(let s = 1; s <= seeds; s++) if(VC.scriptOpts(u, units, units, kind, mulberry32(s)).some(v => v.id === want)) return true; return false; };
   check("fa soundSym ت: never ط", runs(fu["fa-te"], F.script.units, "soundSym", ["fa-ta"]));
   check("fa soundSym ط: never ت", runs(fu["fa-ta"], F.script.units, "soundSym", ["fa-te"]));
   check("fa soundSym س: never ص or ث", runs(fu["fa-sin"], F.script.units, "soundSym", ["fa-sad", "fa-se"]));
   check("fa soundSym ث: never س or ص", runs(fu["fa-se"], F.script.units, "soundSym", ["fa-sin", "fa-sad"]));
   check("fa formMatch ز: never ذ", runs(fu["fa-ze"], F.script.units, "formMatch", ["fa-zal"]));
   check("ja soundSym じ: never ぢ, and ぢ never じ", runs(ju["ja-ji"], J.script.units, "soundSym", ["ja-dji"]) && runs(ju["ja-dji"], J.script.units, "soundSym", ["ja-ji"]));
-  check("ko symSound ㄱ (accepts g, k): never ㅋ (k)", runs(ku["ko-g"], K.script.units, "symSound", ["ko-k"]));
-  check("ko soundSym ㅋ: never ㄱ (accepts k)", runs(ku["ko-k"], K.script.units, "soundSym", ["ko-g"]));
+  // A one-way alt is a contrast, not a second answer: ㄱ accepts "k" but ㅋ does not accept
+  // "g", so ㄱ/ㅋ are drilled against each other. Mutual alts are homophones (fa غ/ق).
+  check("ko symSound ㄱ (accepts g, k): ㅋ (k) among the distractors within 50 seeds", offered(ku["ko-g"], K.script.units, "symSound", "ko-k", 50));
+  check("ko soundSym ㅋ: ㄱ (accepts k) among the distractors within 50 seeds", offered(ku["ko-k"], K.script.units, "soundSym", "ko-g", 50));
+  check("scriptSecondRight: one-way alt is not a second answer (ru Е ye/e vs Э e)",
+    !VC.scriptSecondRight({ id: "ye", t: "е", roman: "ye", alt: ["e"] }, { id: "e", t: "э", roman: "e" }, "symSound")
+    && !VC.scriptSecondRight({ id: "e", t: "э", roman: "e" }, { id: "ye", t: "е", roman: "ye", alt: ["e"] }, "soundSym"));
+  const gh = { id: "fa-ghein", st: "abjad", set: 2, group: "gh", t: "غ", name: "ghein", roman: "gh", alt: ["q"], joins: "dual", confuse: ["fa-qaf"] };
+  const qf = { id: "fa-qaf", st: "abjad", set: 2, group: "gh", t: "ق", name: "qaf", roman: "q", alt: ["gh"], joins: "dual", confuse: ["fa-ghein"] };
+  const FQ = [...F.script.units, gh, qf];
+  check("fa mutual alts (غ gh/q, ق q/gh): never offered against each other", ["symSound", "soundSym", "formMatch"]
+    .every(k => runs(gh, FQ, k, ["fa-qaf"]) && runs(qf, FQ, k, ["fa-ghein"])));
   let dup = 0;
   [F, J, K].forEach(P => P.script.units.forEach(u => ["symSound", "soundSym", "formMatch"].forEach(kind => {
     const o = VC.scriptOpts(u, P.script.units, P.script.units, kind, mulberry32(7));
@@ -325,6 +349,32 @@ section("[items] scriptItem: every fitting kind, every fixture unit", () => {
   check("right joiner: final form only", right.length === 1 && right[0].form === "fina");
   const ff = VC.scriptItem("formFind", byUid(F.script.units)["fa-pe"], { units: F.script.units, byId: fById, tts: false, rng: mulberry32(1) });
   check("formFind: answer contains the letter, distractors do not", ff.answer.includes("پ") && ff.options.filter(o => o !== ff.answer).every(o => !o.includes("پ")) && ff.hint === "pe");
+  // "Contains" is the validator's glyph_in fold: آ contains ا, a batchim (final U+11A8)
+  // is the letter ㄱ, case folds. A word that holds the letter only in a folded form is
+  // never a formFind distractor.
+  check("scriptGlyphIn: آ has ا, 책 has ㄱ (final), Москва has м; ب not in آب's madda", VC.scriptGlyphIn("ا", "آب") && VC.scriptGlyphIn("ㄱ", "책")
+    && VC.scriptGlyphIn("ㄱ", "\u11A8") && VC.scriptGlyphIn("м", "Москва") && !VC.scriptGlyphIn("پ", "آب") && VC.scriptGlyphIn("きゃ", "きゃく") && !VC.scriptGlyphIn("きゃ", "きやく"));
+  {
+    const madde = { id: "fa-alef-madde", st: "abjad", set: 1, group: "alef", t: "آ", name: "alef madde", roman: "â", joins: "right", ex: [[F.words.find(w => w.w === "آب").id, "âb"]] };
+    const us = [...F.script.units, madde];
+    let leak = 0;
+    for(let sd = 1; sd <= 50; sd++){
+      const it = VC.scriptItem("formFind", byUid(us)["fa-alef"], { units: us, byId: fById, tts: false, rng: mulberry32(sd) });
+      if(it.options.some(o => o !== it.answer && o === "آب")) leak++;
+    }
+    check("formFind ا: آب (ا + madda) never a distractor (50 seeds)", leak === 0, leak);
+    const kw = [...K.words, { id: "kx_chaek", lv: "A1", w: "책", en: ["book"] }, { id: "kx_mom", lv: "A1", w: "몸", en: ["body"] }];
+    const kb = Object.fromEntries(kw.map(w => [w.id, w]));
+    const fin = { id: "ko-g-fin", st: K.script.units[0].st, set: 2, group: "final", t: "ㄱ", roman: "k", ex: [["kx_chaek", "chaek"]] };
+    const nx = { id: "ko-m-x", st: K.script.units[0].st, set: 2, group: "final", t: "ㅁ", roman: "m", ex: [["kx_mom", "mom"]] };
+    const kus = [...K.script.units, fin, nx];
+    let kleak = 0;
+    for(let sd = 1; sd <= 50; sd++){
+      const it = VC.scriptItem("formFind", byUid(kus)["ko-g"], { units: kus, byId: kb, tts: false, rng: mulberry32(sd) });
+      if(it.options.some(o => o !== it.answer && o === "책")) kleak++;
+    }
+    check("formFind ㄱ: 책 (batchim ㄱ) never a distractor (50 seeds)", kleak === 0, kleak);
+  }
   const wr = VC.scriptItem("wordRead", byUid(K.script.units)["ko-b"], { units: K.script.units, byId: kById, rng: mulberry32(1) });
   check("wordRead: no gloss in stimulus, gloss in reveal", wr.show === "바다" && wr.answer === "bada" && wr.reveal.word.en === "sea" && wr.audio === "after");
   let threw = false; try{ VC.scriptItem("nope", byUid(K.script.units)["ko-a"], { units: K.script.units }); }catch(e){ threw = true; }

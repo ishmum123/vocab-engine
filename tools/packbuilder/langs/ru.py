@@ -95,8 +95,9 @@ def n_vowels(s):
 
 # ---- script primer (docs/SCRIPT_PRIMER.md ss3) -------------------------------
 # Cyrillic: 33 letters in 6 sets (true friends, false friends, new shapes,
-# hushers, vowels, signs). Romanisation BGN-like; й is "i" (ICAO) so it never
-# shares a roman with ы. Example words are romanised letter by letter from
+# hushers, vowels, signs). Romanisation BGN-like; й is "j" (ISO 9) so it shares a
+# roman with neither и ("i") nor ы ("y"), and no alt: an alt equal to a sibling's
+# roman would teach й as that sibling in typed answers. Example words are romanised letter by letter from
 # this table (е is "ye" at the start and after a vowel or sign, else "e").
 # (set, group, slug, glyph pair, name, roman, alt, confuse slugs, italic, note)
 RU_SCRIPT = [
@@ -117,7 +118,7 @@ RU_SCRIPT = [
     (3, "new", "d", "Д д", "дэ", "d", [], ["l", "g"], "д", "d (italic д looks like g)"),
     (3, "new", "z", "З з", "зэ", "z", [], ["e", "zh"], None, "z"),
     (3, "new", "i", "И и", "и", "i", [], ["i-short", "n"], "и", "ee as in 'see' (italic и looks like u)"),
-    (3, "new", "i-short", "Й й", "и краткое", "i", ["y", "j"], ["i", "u"], None, "short y as in 'boy'"),
+    (3, "new", "i-short", "Й й", "и краткое", "j", [], ["i", "u"], None, "short y as in 'boy'"),
     (3, "new", "l", "Л л", "эль", "l", [], ["d", "p"], None, "l"),
     (3, "new", "p", "П п", "пэ", "p", [], ["l", "n"], "п", "p (italic п looks like n)"),
     (3, "new", "f", "Ф ф", "эф", "f", [], ["kh", "r"], None, "f"),

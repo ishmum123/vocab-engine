@@ -136,8 +136,43 @@ expectError("script.json unknown key", "ko", fx => { fx.script.extra = 1; }, /ER
   const r3 = runValidate(mkPack(ja));
   check("warning: same group and roman with no confuse link", r3.status === 0 && /WARN  script units ja-ji and ja-dji share group 'dakuten' and roman 'ji' with no confuse link/.test(r3.out), r3.out);
   check("warning: a unit with no ex", /WARN  script unit ko-ch has no ex example words/.test(r.out), r.out);
+  check("warning: one-way alt equal to a sibling's roman (ko ㄱ alt k = ㅋ)", /WARN  script unit ko-g alt 'k' is the roman of ko-k/.test(r.out), r.out);
+  const fq = FX.fa();
+  const gh = { id: "fa-ghein", st: "abjad", set: 2, group: "gh", t: "غ", name: "ghein", roman: "gh", alt: ["q"], joins: "dual", confuse: ["fa-qaf"] };
+  const qf = { id: "fa-qaf", st: "abjad", set: 2, group: "gh", t: "ق", name: "qaf", roman: "q", alt: ["gh"], joins: "dual", confuse: ["fa-ghein"] };
+  fq.script.units.push(gh, qf);
+  const r5 = runValidate(mkPack(fq));
+  check("no alt warning for mutual alts (homophones غ/ق)", !/alt '(q|gh)' is the roman/.test(r5.out), r5.out);
+  qf.alt = [];
+  const r6 = runValidate(mkPack(fq));
+  check("alt warning once the pair is one-way (غ alt q, ق no alt)", /WARN  script unit fa-ghein alt 'q' is the roman of fa-qaf/.test(r6.out) && !/fa-qaf alt/.test(r6.out), r6.out);
   const lv2 = /WARN  script unit ko-eu\.ex\[0\] word kA2_08 is from level 'A2', not the first level/.test(r.out);
   check("warning: ex word from the second level", lv2, r.out);
+}
+
+// ------------------------------------------------------------ glyph fold parity
+// core.js scriptGlyphKeys/scriptGlyphIn (formFind, the app's example tint) and
+// validate_pack.py glyph_keys/glyph_in (ex words) must agree: same equivalence classes over
+// every Hangul jamo block and sample letters, same glyph_in verdicts.
+{
+  const VC = require(path.join(ROOT, "engine", "core.js"));
+  const chars = [];
+  for(const [a, b] of [[0x1100, 0x1112], [0x1161, 0x1175], [0x11A8, 0x11C2], [0x3131, 0x3163]]) for(let c = a; c <= b; c++) chars.push(String.fromCharCode(c));
+  chars.push(..."آاأإبپﺏﺐがかぱはМмЁёЕеÉé");
+  const pairs = [["ا", "آب"], ["ㄱ", "책"], ["ㄱ", "가구"], ["ㄳ", "몫"], ["ㅘ", "과"], ["м", "Москва"], ["е", "ёж"], ["か", "が"], ["きゃ", "きゃく"], ["きゃ", "きやく"], ["پ", "آب"], ["ب", "ﺐ"]];
+  const py = cp.spawnSync(PY, ["-c", `import sys, json; sys.path.insert(0, ${JSON.stringify(path.join(ROOT, "tools"))}); import validate_pack as v
+d = json.load(sys.stdin); print(json.dumps({"keys": [v.glyph_keys(c) for c in d["chars"]], "in": [v.glyph_in(g, t) for g, t in d["pairs"]]}))`],
+    { input: JSON.stringify({ chars, pairs }), encoding: "utf8" });
+  let res = null; try{ res = JSON.parse(py.stdout); }catch(e){}
+  if(!res){ check("glyph fold parity: python ran", false, py.stderr); }
+  else {
+    const pk = res.keys.map(k => JSON.stringify(k)), jk = chars.map(c => JSON.stringify(VC.scriptGlyphKeys(c)));
+    const bad = [];
+    for(let i = 0; i < chars.length; i++) for(let j = i + 1; j < chars.length; j++) if((pk[i] === pk[j]) !== (jk[i] === jk[j])) bad.push(chars[i] + "/" + chars[j]);
+    check(`glyph fold parity: same classes over ${chars.length} letters (jamo blocks, forms, kana, case)`, bad.length === 0, bad.slice(0, 10).join(" "));
+    const badIn = pairs.filter(([g, t], i) => VC.scriptGlyphIn(g, t) !== res.in[i]).map(p => p.join(" in "));
+    check(`glyph fold parity: glyph_in agrees on ${pairs.length} cases`, badIn.length === 0, badIn.join("; "));
+  }
 }
 
 // ------------------------------------------------------------ jsonify --check and build.sh

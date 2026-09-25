@@ -1097,13 +1097,13 @@ function scriptDrillItem(kind, unit, ctx){
 const isScriptPlan = p => !!(p && p.unit && VC.SCRIPT_KINDS.includes(p.kind));
 // Glyph occurrences in an example word, tinted by a wrapping span (background only, so a
 // joined word keeps its shaping). A letter inside a composed block (a jamo in its
-// syllable) tints the block; comparison is by compatibility decomposition, lower case.
+// syllable, a batchim included) tints the block; comparison is core's scriptGlyphIn, the
+// validator's fold (compatibility decomposition, lower case, positional jamo as letters).
 function scriptHL(word, glyph){
   const w = String(word), g = String(glyph || "");
   if(!g) return escapeHtml(w);
   if(w.includes(g)) return w.split(g).map(escapeHtml).join(`<span class="xhl">${escapeHtml(g)}</span>`);
-  const fold = s => s.normalize("NFKD").toLowerCase(), fg = fold(g);
-  return [...w].map(ch => fold(ch).includes(fg) ? `<span class="xhl">${escapeHtml(ch)}</span>` : escapeHtml(ch)).join("");
+  return [...w].map(ch => VC.scriptGlyphIn(g, ch) ? `<span class="xhl">${escapeHtml(ch)}</span>` : escapeHtml(ch)).join("");
 }
 // One unit's teach card (Learn and the Script tab): glyph 64px on the start side, beside
 // it name, roman (bold) and note, a play button only when the unit has a sound. Row 2 by

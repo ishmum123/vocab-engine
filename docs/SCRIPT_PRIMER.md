@@ -76,6 +76,8 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 **Never a second right answer:**
 - `soundSym` and `formMatch` never offer a unit with the same `roman` or `say`. That covers fa ت/ط, س/ص/ث, ز/ذ/ض/ظ, ه/ح, ja じ/ぢ and ず/づ.
 - `symSound` never offers a duplicate roman.
+- `alt` is typed acceptance only (`symType`). An option item (`symSound`, `soundSym`, `formMatch`) excludes by glyph, `roman` and `say`, and by `alt` only when two units accept each other's roman (homophones: fa غ gh/q, ق q/gh). A one-way alt is a contrast to drill: ko ㄱ (alt `k`) is offered against ㅋ, ㄷ against ㅌ, ㅂ against ㅍ, ru Е (alt `e`) against Э (decision 2026-09-26, core.js `scriptSecondRight`).
+- `formFind` distractors never contain the letter, compared by the validator's fold (core.js `scriptGlyphIn` = validate_pack.py `glyph_in`): آب contains ا, a batchim contains its jamo (책 has ㄱ), case folds. The teach card's example tint uses the same fold.
 - `wordRead` and `wordHear` never offer two words with the same roman.
 - Hira and kata units never mix within one item.
 
@@ -228,7 +230,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
 - `script.js` declares the global `const SCRIPT` (the `{units, notes}` data). The app's display settings, formerly also `SCRIPT`, are now `DISP`; two top-level `const SCRIPT` in one page are a redeclaration error that stops the app script (`tests/script_app_checks.js` [11] runs a built page's scripts in one scope).
 - **Example words are shown in the script.** A word whose `w` has letters outside the primer's inventory (every unit glyph and `syll.t`, compared after compatibility decomposition and lower-casing) while its `pron` is fully inside it is shown, spoken and answered by its `pron`. A Latin `pron` (fa) never replaces the word. On the shipped data this switches 163 of 267 ja example words from kanji to kana, and no ko, ru or fa word; afterwards no example word in any pack shows an untaught letter. The rule is app-side (`SCRIPT_BYID`), so `scriptItem` receives it through `ctx.byId`.
 - No voice means `pack.script.tts` false or no browser voice for the pack's language (`ctx.tts = tts && hasSpeech`). A unit's recorded `audio` still plays.
-- The existing-learner notice shows while the primer is off and until dismissed (persisted through `dismissScriptNotice`). The Progress chips only call `setScriptSkipped`.
+- The existing-learner notice shows while the primer is off and until dismissed (persisted through `dismissScriptNotice`). The Progress chips only call `setScriptSkipped`; turning the primer or a stage on there also clears the notice, so turning it off again does not bring it back.
 - The Script tab button is labelled with the first stage's label and uses that stage's first symbol as its icon. The practice button reads "Practise weakest N", where N is the size of the plan (at most 20).
 - The drill runner's `drill(items, onDone, summary, onShown)` gained an optional hook that wires "One more set" on the end screen.
 
