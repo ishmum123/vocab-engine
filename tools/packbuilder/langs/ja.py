@@ -180,7 +180,10 @@ FIXED = {**{(p, "PART"): g for p, g in PARTICLES.items()},
          ("いくつ", "NOUN"): "how many; how old", ("どんな", "DET"): "what kind of",
          ("どちら", "PRON"): "which (of two); where (polite)", ("何時", "NOUN"): "what time",
          ("あちら", "PRON"): "over there; that way (polite)", ("ゼロ", "NUM"): "zero"}
-FIXED_READ = {"何時": "なんじ"}
+FIXED_READ = {"何時": "なんじ",
+              # Sudachi reads 種 しゅ everywhere, so corpus counts never show the
+              # たね the sentences use ("seed", 悩みの種)
+              "種": "たね"}
 MONTH_PRON = dict(zip(MONTHS, MONTH_READ))
 
 # fixed expressions Sudachi splits: (surface, lemma, standalone, UPOS).
@@ -396,6 +399,21 @@ def kana_sound_variant(a, b, a_has_own):
     return not a_has_own and 0 < len(ta) < len(tb) and tb.startswith(ta)
 
 
+# idioms whose noun is read and meant otherwise than the word it would link:
+# 実を結ぶ "bear fruit" (み, not 実 じつ "truth"), 主として "mainly" (not 主
+# ぬし "owner"), ある種 "a kind of" (しゅ, not 種 "seed"), おいとま(する) "take
+# one's leave" (not 暇 "free time"). (noun, previous token or None, next
+# tokens' prefix or None)
+IDIOM_UNLINK = (("実", None, "を結"), ("主", None, "として"), ("種", "ある", None), ("暇", "お", None))
+
+
+# compound particles Sudachi splits into に + a kana verb: において/における
+# (置く), につれて (連れる), にわたって/にわたる (渡る). Grammar, not the verb:
+# に置いて "put on" is written in kanji and stays the verb. None = any next token.
+COMPOUND_PARTICLE_VERBS = {"おい": ("て",), "おけ": ("る",), "つれ": None, "わたっ": None,
+                           "わたり": None, "わたる": None}
+
+
 def prev_tok(toks, i):
     return next((t for t in reversed(toks[:i]) if t[2] != "SPACE"), None)
 
@@ -448,7 +466,7 @@ class Japanese(LanguageSpec):
         TATOEBA_ENG[0]: TATOEBA_ENG[1],
         TATOEBA_AUDIO[0]: TATOEBA_AUDIO[1],
     }
-    versions = {"corpus": "c1", "tag": "t19", "lex": "l1"}
+    versions = {"corpus": "c1", "tag": "t21", "lex": "l1"}
 
     typing = None                # no typed drill (kana/kanji input is out of scope)
     show_pron = True             # kana reading toggle
@@ -537,6 +555,7 @@ class Japanese(LanguageSpec):
         self.sound_folded = []
         self.spelling_merges = []
         self.alt_sense_drops = []
+        self._foreign_spell = {}        # kana headword -> kanji spellings that are another word (note_words)
         self.gloss_flags = []
         self._idx = None
         self._trans = None
@@ -986,6 +1005,15 @@ class Japanese(LanguageSpec):
                 raw[w] = min(raw[w], med * max(f, 1))
                 n += 1
         self.stats["written frequency: surfaces discounted for suffix uses"] = n
+        # a content word spelled like a grammar form the pack never teaches
+        # (照る てる / ている's てる) gets only the count its content uses predict
+        n = 0
+        for w in list(raw):
+            g, c = self._surf_gram.get(w, 0), self._surf_content.get(w, 0)
+            if g >= 10 and g >= c:
+                raw[w] = min(raw[w], med * max(c, 1))
+                n += 1
+        self.stats["written frequency: surfaces discounted for grammar homographs (てる)"] = n
 
     def fix_sentence(self, toks, row, doc):
         toks = self._fix_sentence_idx(toks, row, doc)
@@ -1198,12 +1226,24 @@ class Japanese(LanguageSpec):
             info = defaultdict(lambda: {"spell": Counter(), "norm": Counter(), "read": Counter(), "upos": Counter(),
                                         "gspell": defaultdict(Counter), "n": 0})
             self._surf_bound, self._surf_free = Counter(), Counter()
+            self._surf_gram, self._surf_content = Counter(), Counter()
+            self._dict_reads = defaultdict(Counter)     # kanji dictionary spelling -> reading stems
             for sid, toks in iter_tagged(path):
                 for i, (surf, lemma, upos, ms) in enumerate(toks):
+                    if lemma and KANJI_RE.search(surf):
+                        f_ = feats_of(ms)
+                        st_ = self._reading_stem(hira(f_.get("DRead", "")), f_.get("Dict", ""))
+                        if st_:
+                            self._dict_reads[f_.get("Dict", "")][st_] += 1
                     if not lemma and "Pos=接尾辞" in ms and not DIGIT_RE.search(surf):
                         self._surf_bound[surf] += 1
                     elif lemma:
                         self._surf_free[surf] += 1
+                    if lemma and upos in ("AUX", "PART", "SCONJ") and lemma not in PARTICLES and \
+                            lemma not in AUX_SURFACES:
+                        self._surf_gram[surf] += 1      # てる (ている), grammar the pack never teaches
+                    elif lemma and upos in ("VERB", "NOUN", "ADJ", "ADV", "PRON"):
+                        self._surf_content[surf] += 1
                     if not lemma or upos not in UPOS_WORD:
                         continue
                     f = feats_of(ms)
@@ -1606,9 +1646,21 @@ class Japanese(LanguageSpec):
                 res.append((POTENTIAL_OF[lemma], "VERB"))   # 先生になれる: なる "can become"
                 continue
             lemma = self.redirect.get(lemma, lemma)
+            fs = self._foreign_spell.get(lemma)
+            if fs and feats_of(ms).get("Dict", surf) in fs:
+                # 時間があったら寄ります: 寄る, not よる "to depend on" (note_words;
+                # set for the sentence stage only, so frequencies are untouched)
+                self.stats["links through a kanji spelling of another word dropped (寄る/よる)"] += 1
+                res.append(None)
+                continue
             g = {"AUX": "VERB", "CCONJ": "CONJ", "SCONJ": "CONJ"}.get(upos, upos)
             prev = next((t for t in reversed(toks[:i]) if t[2] != "SPACE"), None)
             if upos == "AUX":
+                if lemma == "ない" and surf == "ない" and i + 1 < len(toks) and toks[i + 1][0] == "て":
+                    # no ない form is ないて: 聞いてないていました is 泣いて misparsed
+                    self.stats["impossible ない+て left unlinked (泣いて in kana)"] += 1
+                    res.append(None)
+                    continue
                 res.append((lemma, "VERB") if surf in AUX_SURFACES.get(lemma, ()) else None)
                 continue
             if upos == "PART":
@@ -1624,6 +1676,28 @@ class Japanese(LanguageSpec):
             if lemma == "行く" and surf.startswith("いけ") and prev is not None and \
                     prev[0] in ("は", "ちゃ", "じゃ", "ば", "と", "ては", "では", "なきゃ", "なくては", "なければ"):
                 res.append(None)            # 泳いではいけない "must not", ければいけない "must": grammar, not 行く
+                continue
+            if any(lemma == n_ and (p_ is None or (prev is not None and prev[0] == p_)) and
+                   (x_ is None or "".join(t[0] for t in toks[i + 1:i + 3]).startswith(x_))
+                   for n_, p_, x_ in IDIOM_UNLINK):
+                self.stats["idiom noun left unlinked (実を結ぶ, 主として)"] += 1
+                res.append(None)
+                continue
+            if lemma == "よる" and upos == "VERB" and HIRA_ONLY_RE.match(surf) and (prev is None or prev[0] != "に"):
+                # kana よる is 因る only after に (によって, によると): 来ないよりまし is
+                # the particle より, 思いもよらない is 寄る
+                self.stats["kana よる outside に... left unlinked"] += 1
+                res.append(None)
+                continue
+            if upos == "VERB" and prev is not None and prev[0] == "に" and surf in COMPOUND_PARTICLE_VERBS and \
+                    (COMPOUND_PARTICLE_VERBS[surf] is None or
+                     (i + 1 < len(toks) and toks[i + 1][0] in COMPOUND_PARTICLE_VERBS[surf])):
+                self.stats["compound particle verb left unlinked (において)"] += 1
+                res.append(None)            # 責任において "on (my) responsibility": grammar, not 置く
+                continue
+            if lemma == "知れる" and i >= 2 and toks[i - 1][0] == "も" and toks[i - 2][0] == "か":
+                self.stats["かもしれない left unlinked (grammar, not 知れる)"] += 1
+                res.append(None)            # 壊れるかもしれない "might break": grammar, not 知れる "to become known"
                 continue
             if upos == "VERB" and lemma == "なさる" and prev is not None and prev[2] == "VERB":
                 res.append(None)            # やめなさい: the imperative ending
@@ -1658,6 +1732,41 @@ class Japanese(LanguageSpec):
             g2 = next((x for x in alt if self._usable(lemma, x)), None)
             res.append((lemma, g2 or g))    # unresolved content: counts, never a word
         return res
+
+    FORM_NOTE_RE = re.compile(r"(?i)(alternative|obsolete|dated|rare|classical|synonym|kanji|archaic|"
+                              r"nonstandard)\b.*\b(form|spelling|of)\b")
+
+    def _foreign_sense(self, w, spelling, en=None):
+        """A kanji spelling of a kana headword whose Wiktionary first gloss (for
+        the word's POS) shares no word with the word's gloss is another word
+        (よる "to depend on" is not 寄る "to drop by"; なし "without" is not 梨)."""
+        fg = self._kaikki_alias().get("first", {}).get(spelling, {})
+        kp = self.group_kpos.get({"verb": "VERB", "adj": "ADJ", "adv": "ADV", "pron": "PRON"}.get(w["pos"], "NOUN"),
+                                 ["noun"])
+        gl = [v for k, v in fg.items() if k in kp]
+        en = en or w["en"]
+        return bool(gl) and not any(self.FORM_NOTE_RE.match(g) or gloss_words(g) & gloss_words(en) for g in gl)
+
+    def note_words(self, words):
+        """Kanji spellings that are another word, per kana headword (post_resolve):
+        Sudachi gives the spelling its own normal form (寄る), which is not the
+        word's main one (よる), and Wiktionary's sense disagrees. A spelling
+        Sudachi normalises the kana to (かわいい -> 可愛い) is the word itself."""
+        info = self._group_info()
+        self._foreign_spell = {}
+        for w in words:
+            lem = w["_key"][0]
+            # katakana is the usual spelling of plant and animal names (バラ 薔薇)
+            if not HIRA_ONLY_RE.match(w["w"]) or w["pos"] in ("counter", "aux", "part"):
+                continue
+            d = info.get(lem, {})
+            norms, top = d.get("norm") or {}, self._norm_top.get(lem)
+            en = self.gloss_overrides.get(f"{lem}|{w['pos']}") or self.gloss_overrides.get(lem) or w["en"]
+            bad = {sp_ for sp_ in (d.get("spell") or {})
+                   if KANJI_RE.search(sp_) and sp_ != top and sp_ in norms and self._foreign_sense(w, sp_, en)}
+            if bad:
+                self._foreign_spell[lem] = bad
+        self.foreign_spellings = sorted(f"{k}: {' '.join(sorted(v))}" for k, v in self._foreign_spell.items())
 
     def _lexical_negative(self, toks, i, en):
         """The verb + ない Wiktionary defines as an adjective whose sense is not
@@ -1753,6 +1862,7 @@ class Japanese(LanguageSpec):
                 at = m.end()
             if at < len(t):
                 pieces.append([t[at:], None])
+            self._kana_lemma_agree(sid, pieces)
         else:
             self.stats["sentence kana from Sudachi readings"] += 1
             pieces = []
@@ -1765,6 +1875,111 @@ class Japanese(LanguageSpec):
                     pieces.append([srf, None])
         self._kana_rules(pieces, text, en)
         return "".join(self._kana_digits(b, r) for b, r in pieces)
+
+    @staticmethod
+    def _reading_stem(reading, word):
+        """The reading of a word's kanji part: 行く いく -> い, 車 くるま -> くるま."""
+        ok = re.search(f"[{HIRA}]*$", word).group(0) if word else ""
+        if not ok:
+            return reading
+        return reading[:len(reading) - len(ok)] if reading.endswith(ok) else ""
+
+    def _idx_tok_records(self, row, toks):
+        """Index-confirmed kanji tokens of a sentence, for its kana line:
+        (offset, surface, dictionary spelling, reading, index reading stem)."""
+        text = row[1]
+        spans, cur = [], 0
+        for ilem, rd, sf in self._indices().get(row[0]) or []:
+            at = text.find(sf, cur)
+            if at >= 0:
+                spans.append((at, at + len(sf), ilem, rd))
+                cur = at + len(sf)
+        out, off = [], 0
+        for surf, lemma, upos, ms in toks:
+            here, off = off, off + len(surf)
+            if not lemma or "Src=idx" not in ms or not KANJI_RE.search(surf) or DIGIT_RE.search(surf) or \
+                    upos in ("NUM", "PROPN") or \
+                    (here and re.match(f"[0-9０-９一二三四五六七八九十百千万何{KATA}]", text[here - 1])):
+                continue                # ２５日, 八時: counters; トニー君: an honorific after a name
+            f = feats_of(ms)
+            d = f.get("Dict", "")
+            ird = ""
+            # the index reading is the dictionary form's: it names an uninflected
+            # token's reading only (来ます is not く-ます)
+            if surf == d:
+                item = next((x for x in spans if x[0] <= here < x[1]), None)
+                if item and item[3] and KANA_ONLY_RE.match(item[3]) and item[2] == d:
+                    ird = self._reading_stem(hira(item[3]), d)
+            out.append((here, surf, d, hira(f.get("Read", "")), ird))
+        return out
+
+    def _idx_toks_for(self, sid):
+        """Index-confirmed kanji tokens per sentence with a transcription (one lazy
+        pass over the tagged corpus; kana_line has only the sentence id)."""
+        if getattr(self, "_idx_toks", None) is None:
+            from ..core.sources import corpus_path
+            from ..core.tag import tagged_path, iter_tagged
+            from ..core.util import Env
+            env = Env(self)
+            path, _ = tagged_path(env, corpus_path(env))
+            tr = self._transcriptions()
+            idx = self._indices()
+            self._idx_toks = {}
+            for sid_, toks in iter_tagged(path):
+                if sid_ in tr and sid_ in idx:
+                    rec = self._idx_tok_records([sid_, "".join(t[0] for t in toks)], toks)
+                    if rec:
+                        self._idx_toks[sid_] = rec
+        return self._idx_toks.get(sid)
+
+    def _kana_lemma_agree(self, sid, pieces):
+        """A transcription reading that is no reading of an index-confirmed token's
+        word is a furigana error (車 しゃ, 行って おこなって, 食べ しょく, 少し
+        しょう): the index's reading, else Sudachi's, replaces it. A reading the
+        corpus or Wiktionary gives the spelling (値 ね, 描く かく, 開く あく), or
+        rendaku (箱 ばこ), is kept."""
+        toks = self._idx_toks_for(sid)
+        if not toks:
+            return
+        self._group_info()
+        if getattr(self, "_kaikki_reads", None) is None:
+            self._kaikki_reads = defaultdict(set)
+            for kana, ks in self._kaikki_alias().get("reading", {}).items():
+                for k in ks:
+                    self._kaikki_reads[k].add(kana)
+        starts, at = {}, 0
+        for pi, (b, r) in enumerate(pieces):
+            starts[at] = pi
+            at += len(b)
+        for here, surf, d, read, ird in toks:
+            m = re.match(f"^([^{HIRA}{KATA}]+)([{HIRA}]*)$", surf)
+            pi = starts.get(here)
+            if not m or pi is None or pieces[pi][1] is None:
+                continue
+            # the kanji run is one piece, or per-character pieces ([時|とき][期|き])
+            span, base = pi, ""
+            while span < len(pieces) and pieces[span][1] is not None and len(base) < len(m.group(1)):
+                base += pieces[span][0]
+                span += 1
+            if base != m.group(1):
+                continue
+            cur, tail = "".join("".join(pieces[j][1]) for j in range(pi, span)), m.group(2)
+
+            def fits(st):
+                return st and (cur == st or (cur[1:] == st[1:] and
+                                             cur[:1].translate(_VOICE) == st[:1].translate(_VOICE)))
+            if ird:                             # the index names the reading (車 くるま)
+                new = ird if not fits(ird) else None
+            else:
+                seen = {r for r, c in self._dict_reads.get(d, {}).items() if c >= 2}
+                seen |= {x for x in (self._reading_stem(r, d) for r in self._kaikki_reads.get(d, ())) if x}
+                stem = read[:len(read) - len(tail)] if tail and read.endswith(tail) else (read if not tail else "")
+                new = stem if seen and not any(fits(x) for x in seen) and stem in seen else None
+            if new:
+                pieces[pi] = [m.group(1), [new]]
+                for j in range(pi + 1, span):
+                    pieces[j] = ["", None]
+                self.stats["sentence kana: transcription reading not the word's, index/Sudachi used (車 しゃ)"] += 1
 
     # readings of a digit string a transcription may give (Sino-Japanese, with
     # the sound changes before a counter: いっ, ろっ, はっ, じゅっ, ひゃっ ...)
@@ -1849,6 +2064,8 @@ class Japanese(LanguageSpec):
                 new = "なん"
             elif b == "何時" and rd != "なんじ" and re.match(r"(?:です|でし|だ|に|から|まで|頃|ごろ|ころ|の|か。|か？)", after):
                 new = "なんじ"
+            elif b == "種" and rd == "たね" and i and pieces[i - 1][0].endswith("ある"):
+                new = "しゅ"                     # ある種 "a kind of"
             elif "日本" in b and "にっぽん" in rd:
                 new = rd.replace("にっぽん", "にほん")
             elif b in ("一", "二") and rd in ("いち", "に") and after.startswith("人") and \
@@ -2050,7 +2267,8 @@ class Japanese(LanguageSpec):
             if lem == "ありがとう":
                 alts += ["ありがとうございます", "ありがとうございました"]
             if alts:
-                w["alt"] = list(dict.fromkeys(a for a in alts if a != w["w"]))
+                # a homograph label never shows (分（ぶん） is 分)
+                w["alt"] = list(dict.fromkeys(f for f in (self.fold(a) for a in alts) if f != w["w"]))
             else:
                 w.pop("alt", None)
             hand = w["en"] in hand_glosses
@@ -2067,31 +2285,17 @@ class Japanese(LanguageSpec):
                 w["en"] = w["en"][0].lower() + w["en"][1:]
                 w["en"] = self._suru_noun_gloss(lem, w["en"])
         # a kanji spelling shown as an alt must mean what the word means (なし
-        # "without" is not 梨 "pear"; こと "thing" is 事 "thing")
-        first_gl = self._kaikki_alias().get("first", {})
+        # "without" is not 梨 "pear"; よる "to depend on" is not 寄る): the
+        # spellings note_words found to be another word
+        fs = getattr(self, "_foreign_spell", {})
         for w in words:
-            if not w.get("alt") or w["pos"] in ("counter", "aux", "part"):
+            bad = fs.get(w["_key"][0])
+            if not bad or not w.get("alt"):
                 continue
-            keep = []
-            for a in w["alt"]:
-                fg = first_gl.get(a, {})
-                spellings = info.get(w["lemma"], {}).get("spell") or {}
-                # only a kana word that took in a kanji spelling by sense (なし <- 無し)
-                # is checked: its other kanji spellings must share the taught sense
-                merged_in = any(v == w["lemma"] and KANJI_RE.search(k) for k, v in self.redirect.items())
-                if not merged_in or not KANA_ONLY_RE.match(w["w"]) or not fg or \
-                        not KANJI_RE.search(a) or a not in spellings:
-                    keep.append(a)
-                    continue
-                gl = [v for k, v in fg.items() if k in self.group_kpos.get(
-                    {"verb": "VERB", "adj": "ADJ", "adv": "ADV", "pron": "PRON"}.get(w["pos"], "NOUN"), ["noun"])]
-                mine = gloss_words(w["en"])
-                if not gl or any(re.match(r"(?i)(alternative|obsolete|dated|rare|classical|synonym|kanji|"
-                                          r"archaic|nonstandard)\b.*\b(form|spelling|of)\b", g) or
-                                 gloss_words(g) & mine for g in gl):
-                    keep.append(a)
-                else:
-                    self.alt_sense_drops.append(f"{w['w']}: {a} ({gl[0][:30]})")
+            # 寄る and its forms 寄って, 寄ります (the stem before the kana ending)
+            stems = tuple(re.sub(f"[{HIRA}]+$", "", b) or b for b in bad)
+            keep = [a for a in w["alt"] if not a.startswith(stems)]
+            self.alt_sense_drops += [f"{w['w']}: {a}" for a in w["alt"] if a.startswith(stems)]
             if keep:
                 w["alt"] = keep
             else:
@@ -2120,6 +2324,7 @@ class Japanese(LanguageSpec):
         stat("ja_spelling_merges", self.spelling_merges)
         stat("ja_redirects", dict(sorted(self.redirect.items())))
         stat("ja_alt_sense_drops", self.alt_sense_drops)
+        stat("ja_foreign_kanji_spellings", getattr(self, "foreign_spellings", []))
         stat("ja_gloss_flags_that_which", self.gloss_flags)
 
     def _same_word_spelling(self, s, w):

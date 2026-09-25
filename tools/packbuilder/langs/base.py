@@ -513,6 +513,11 @@ class LanguageSpec:
         glosses share a word with it (semua PRON -> semua DET)."""
         return None
 
+    def note_words(self, words):
+        """build_sentences calls this once with the ranked word list (glosses
+        chosen) before any sentence is linked. Default: nothing."""
+        return None
+
     def fix_links(self, row, toks, links, key_to_id):
         """Correct one sentence's word links (ids, in order) after sentence_links,
         for sentences.json and example choice only. The frequency pass, word

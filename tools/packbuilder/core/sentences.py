@@ -268,6 +268,7 @@ def build_sentences(env, ctx, words, top3000):
     rows = {**ctx["rows_by_sid"], **ctx.get("example_rows", {})}
     example_rows = ctx.get("example_rows", {})
     key_to_id = {w["_key"]: w["id"] for w in words}
+    sp.note_words(words)
     lv_of = {w["id"]: w["lv"] for w in words}
     allowed = {w["lemma"] for w in words} | top3000
     homs = homograph_table(words, sp) if sp.homograph_by_translation else None
