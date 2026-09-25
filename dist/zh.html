@@ -20,6 +20,11 @@
     /* pack.fontFamily, when set, is prepended at boot: --wfont = <pack font>, var(--wbase). */
     --wfont: var(--wbase);
     --safe-b: env(safe-area-inset-bottom, 0px);
+    /* The fixed tab bar's real height: 56px buttons (fixed, see .tabs) + 1px top border,
+       plus the safe area. Content clears it by --tabbar-gap: body padding sets the scroll
+       end, html scroll-padding keeps scrollIntoView (showNext) targets above the bar. */
+    --tabbar-h: calc(57px + var(--safe-b));
+    --tabbar-gap: 8px;
     --t1:#3B6E99;--t2:#35784F;--t3:#8E622A;--t4:#B33F3F;--t5:#706A61;
   }
   @media (prefers-color-scheme: dark){
@@ -36,8 +41,9 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--font)}
-  body{padding-bottom:calc(64px + var(--safe-b))}
-  .wrap{max-width:480px;margin:0 auto;padding:16px 16px 24px;min-height:calc(100dvh - 64px - var(--safe-b));display:flex;flex-direction:column}
+  html{scroll-padding-bottom:calc(var(--tabbar-h) + var(--tabbar-gap))}
+  body{padding-bottom:calc(var(--tabbar-h) + var(--tabbar-gap))}
+  .wrap{max-width:480px;margin:0 auto;padding:16px 16px 24px;min-height:calc(100dvh - var(--tabbar-h) - var(--tabbar-gap));display:flex;flex-direction:column}
   header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex:0 0 auto}
   h1{font-size:18px;font-weight:600;margin:0}
   .score{color:var(--mute);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -157,7 +163,9 @@
   .xfc{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;border:1px solid var(--line);border-radius:8px;padding:4px 2px}
   .xff{font-size:32px;line-height:1.5}
   .xfl{font-size:11px;color:var(--mute)}
-  .xhl{background:var(--ok-bg);border-radius:3px}
+  /* Spread shadow widens the tint past a thin joined letter (fa medial ا, ی) without
+     padding: padding/border on an inline breaks Arabic-script shaping across it. */
+  .xhl{background:var(--ok-bg);border-radius:3px;box-shadow:0 0 0 2px var(--ok-bg)}
   .xrword{margin-top:8px}
   .xset{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px}
   .xsn{color:var(--mute);font-size:12px;min-width:14px;padding-top:12px;text-align:right}
@@ -226,18 +234,25 @@
   .wk .gw{font-size:18px}
   textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:var(--card);color:var(--ink);font-family:var(--font)}
   .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--safe-b);z-index:5}
-  .tabs button{flex:1;background:transparent;border:none;padding:10px 4px 8px;font-size:12px;color:var(--mute);min-height:56px;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--font)}
-  .tabs button .ic{font-size:20px;line-height:1}
+  /* Fixed-height slots: the bar is 56px whatever script the icon or label is in (the
+     Script tab's icon and label are target-language text; fa's pack line height 1.9 made
+     the bar 82px). Icon and label each get a fixed line box; :root beats the
+     :root[data-tlh] [data-tl] pack line height. */
+  .tabs button{flex:1;min-width:0;background:transparent;border:none;padding:8px 4px 0;font-size:12px;color:var(--mute);height:56px;overflow:hidden;white-space:nowrap;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;font-family:var(--font);line-height:16px}
+  .tabs button .ic{display:block;flex:0 0 auto;height:24px;font-size:20px;overflow:hidden}
+  :root .tabs button [data-tl]{line-height:16px}
+  :root .tabs button .ic{line-height:24px}
   .tabs button.on{color:var(--ink);font-weight:600}
   .tabs button[hidden]{display:none}
   button{cursor:pointer}
   button:focus-visible, .opts button:focus-visible, [tabindex]:focus-visible{outline:3px solid #7AA7D9;outline-offset:2px}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  .swtoast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:20;background:var(--ink);color:var(--card);border:0;border-radius:999px;padding:10px 18px;font:inherit;font-size:14px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+  .swtoast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabbar-h) + var(--tabbar-gap) + 19px);z-index:20;background:var(--ink);color:var(--card);border:0;border-radius:999px;padding:10px 18px;font:inherit;font-size:14px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.2)}
   .reveal{transition:opacity 0.15s ease}
   @media (prefers-reduced-motion: reduce){ .reveal{transition:none} }
   @media (min-width: 900px){
     .wrap{max-width:640px;min-height:0}
+    html{scroll-padding-bottom:0}
     body{padding-bottom:24px}
     .tabs{position:static;left:auto;right:auto;bottom:auto;transform:none;width:640px;max-width:100vw;margin:12px auto 0;padding-bottom:0;border:1px solid var(--line);border-radius:16px}
   }
@@ -3118,6 +3133,13 @@ function announce(html){
   tmp.querySelectorAll("[data-showw]").forEach(x => x.remove()); // the show-written button's label is not content
   el.textContent = tmp.textContent || "";
 }
+// Show the Next button after an answer and scroll it into view when a long reveal pushed
+// it under the fixed tab bar (html scroll-padding-bottom = bar height + gap; "nearest"
+// leaves the page still when it is already clear). Every drill/Read reveal goes through here.
+function showNext(){
+  const nx = $("nx"); nx.style.display = "block";
+  if(typeof nx.scrollIntoView === "function") nx.scrollIntoView({ block: "nearest" });
+}
 function showReveal(html){
   const rv = $("rv"); if(!rv) return;
   rv.innerHTML = html;
@@ -3161,7 +3183,7 @@ function renderMcItem(it){
       if(it.onAnswer) it.onAnswer(ok);
       showReveal(it.reveal || "");
       if(it.onReveal) it.onReveal();
-      $("nx").style.display = "block"; setScore(D.seen, D.seen + D.q.length);
+      showNext(); setScore(D.seen, D.seen + D.q.length);
     };
     b.dataset.v = o;
     container.appendChild(b);
@@ -3191,7 +3213,7 @@ function renderTypeItem(it){
     if(it.onAnswer) it.onAnswer(ok);
     showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.feedback ? it.feedback(input.value) : "") + (it.reveal||""));
     if(it.onReveal) it.onReveal();
-    $("nx").style.display = "block"; setScore(D.seen, D.seen + D.q.length);
+    showNext(); setScore(D.seen, D.seen + D.q.length);
   }
   $("submit").onclick = submit;
   $("nx").onclick = dnext;
@@ -4383,7 +4405,7 @@ function readQuestionScreen(){
       const s = p.sentences[q.sentence];
       showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"${TOKBOX}><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${escapeHtml(s.en)}</div></div>`);
       const hs = $("pbox").querySelector(`[data-si="${q.sentence}"]`); if(hs) hs.classList.add("hi");
-      $("nx").style.display = "block"; setScore(qi+1, p.questions.length);
+      showNext(); setScore(qi+1, p.questions.length);
     };
     box.appendChild(b);
   });
@@ -4782,4 +4804,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:1018228164-1509631-->
+<!--ve-build:68826906-1511214-->
