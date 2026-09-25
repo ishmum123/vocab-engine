@@ -157,5 +157,141 @@ class PassageTaggingGuard(unittest.TestCase):
             self.assertFalse(lk.spec.passage_tagging)      # restored even when it fails
 
 
+def M(text, lemma=None, upos="NOUN", pos="", read="", conj="", dic=None, ctr=False):
+    """A token with Sudachi-style features (Dict, Read, Pos, Conj, Ctr)."""
+    f = [f"Dict={dic or lemma or text}", f"Read={read or text}", f"Pos={pos}"]
+    if conj:
+        f.append(f"Conj={conj}")
+    if ctr:
+        f.append("Ctr=1")
+    return [text, lemma or text, upos, "|".join(f)]
+
+
+def ja_spec(heads=None):
+    sp = spec()
+    from collections import defaultdict
+    sp._passage_heads = defaultdict(set, {k: set(v) for k, v in (heads or {}).items()})
+    return sp
+
+
+class Joins(unittest.TestCase):
+    """passage_retag: tokens Sudachi splits that are one pack word."""
+
+    def test_kanji_numeral_and_tsu_is_one_counter_token(self):
+        for num, rd in (("一", "ヒト"), ("三", "ミッ"), ("四", "ヨッ")):
+            out = ja_spec().passage_retag([M(num, upos="NUM", read=rd), M("つ", "〜つ", pos="接尾辞-名詞的-助数詞", read="ツ")])
+            self.assertEqual([t[:3] for t in out], [[num + "つ", "〜つ", "NOUN"]])
+            self.assertIn(f"Read={rd}ツ", out[0][3])
+
+    def test_determiner_or_numeral_plus_noun_joins_to_a_pack_headword(self):
+        sp = ja_spec({"その後": {"NOUN"}, "一番": {"ADV"}})
+        out = sp.passage_retag([M("その", upos="DET"), M("後", "後（ご）", read="ゴ"), M("、", upos="PUNCT")])
+        self.assertEqual(out[0][:3], ["その後", "その後", "NOUN"])
+        out = sp.passage_retag([M("一", upos="NUM"), M("番", "〜番"), M("人気")])
+        self.assertEqual([t[:3] for t in out], [["一番", "一番", "ADV"], ["人気", "人気", "NOUN"]])
+
+    def test_no_join_for_digits_non_headwords_or_other_pos(self):
+        sp = ja_spec({"一番": {"ADV"}, "体": {"NOUN"}, "一日": set()})
+        for toks in ([M("1", upos="NUM"), M("番", "〜番")],                 # 1番: the counter
+                     [M("２", upos="NUM"), M("つ", "〜つ")],                   # digits stay as they are
+                     [M("一", upos="NUM"), M("日", "〜日")],                   # 一日 is no headword here
+                     [M("から", upos="PART"), M("だ", upos="AUX")]):          # からだ is not 体
+            self.assertIs(sp.passage_retag(toks, frozenset()), toks)
+
+    def test_counter_heads_never_join(self):
+        sp = ja_spec({"一つ": set()})         # an alt, not a headword with a content group
+        out = sp.passage_retag([M("一", upos="NUM"), M("冊", "〜冊")])
+        self.assertEqual(len(out), 2)
+
+
+class PostResolve(unittest.TestCase):
+    """passage_post_resolve: passage-only readings."""
+
+    def pr(self, toks, out=None, heads=None):
+        sp = ja_spec(heads)
+        out = out or [(t[1], t[2]) for t in toks]
+        return sp, sp.passage_post_resolve(toks, out)
+
+    def test_te_hoshii_is_grammar(self):
+        toks = [M("見", "見る", "VERB"), M("て", upos="PART"), M("ほしい", "欲しい", "ADJ", "形容詞-非自立可能")]
+        sp, out = self.pr(toks)
+        self.assertEqual(out[2], ("てほしい", "GRAM"))
+        self.assertIn(2, sp.passage_uncounted(toks, out))
+        # the adjective itself (靴が欲しい) keeps its reading
+        toks = [M("靴"), M("が", upos="PART"), M("欲しい", "欲しい", "ADJ", "形容詞-非自立可能")]
+        self.assertEqual(self.pr(toks)[1][2], ("欲しい", "ADJ"))
+
+    def test_toiu_before_a_noun_is_grammar(self):
+        attr = [M("先生"), M("と", upos="PART"), M("いう", "言う", "VERB", "動詞-一般", conj="連体形-一般"), M("先生")]
+        self.assertEqual(self.pr(attr)[1][2], ("という", "GRAM"))
+        tte = [M("ハルカ"), M("って", upos="PART"), M("いう", "言う", "VERB", "動詞-一般", conj="連体形-一般"), M("映画")]
+        self.assertEqual(self.pr(tte)[1][2], ("という", "GRAM"))
+        final = [M("だ", upos="AUX"), M("と", upos="PART"), M("いう", "言う", "VERB", "動詞-一般", conj="終止形-一般"),
+                 M("。", upos="PUNCT")]
+        self.assertEqual(self.pr(final)[1][2], ("言う", "VERB"))        # hearsay: "they say"
+        kanji = [M("と", upos="PART"), M("言う", "言う", "VERB", "動詞-一般", conj="連体形-一般"), M("人")]
+        self.assertEqual(self.pr(kanji)[1][1], ("言う", "VERB"))        # と言う人 "people who say"
+
+    def test_mae_after_a_time_amount_is_the_noun(self):
+        for pre in ([M("3", upos="NUM"), M("年", "〜年", ctr=True)],
+                    [M("400", upos="NUM"), M("年", "〜年", ctr=True), M("以上")],
+                    [M("1", upos="NUM"), M("時間", "〜時間", ctr=True)],
+                    [M("三", upos="NUM"), M("日", "〜日（か）", ctr=True)],
+                    [M("どの", upos="DET"), M("くらい", upos="PART")]):
+            toks = pre + [M("前"), M("に", upos="PART"), M("来", "来る", "VERB")]
+            out = [(t[1], t[2]) for t in toks]
+            out[len(pre)], out[len(pre) + 1] = ("前に", "ADV"), None      # the build's Xに reading
+            _, res = self.pr(toks, out)
+            self.assertEqual(res[len(pre):len(pre) + 2], [("前", "NOUN"), ("に", "PART")], toks[0][0])
+
+    def test_mae_elsewhere_unchanged(self):
+        toks = [M("場所"), M("を", upos="PART"), M("前"), M("に", upos="PART"), M("決め", "決める", "VERB")]
+        out = [("場所", "NOUN"), ("を", "PART"), ("前に", "ADV"), None, ("決める", "VERB")]
+        sp, res = self.pr(toks, out)
+        self.assertEqual(res[2:4], [("前に", "ADV"), None])
+        self.assertEqual(sp.passage_phrase_ranges(toks), [(2, 3, 2)])    # one span over 前に
+
+    def test_ni_adverb_is_one_range(self):
+        toks = [M("一緒"), M("に", upos="PART"), M("行く", upos="VERB")]
+        sp, _ = self.pr(toks, [("一緒に", "ADV"), None, ("行く", "VERB")])
+        self.assertEqual(sp.passage_phrase_ranges(toks), [(0, 1, 0)])
+        toks2 = [M("駅"), M("の", upos="PART"), M("前"), M("に", upos="PART")]
+        sp2, _ = self.pr(toks2, [("駅", "NOUN"), ("の", "PART"), ("前", "NOUN"), ("に", "PART")])
+        self.assertEqual(sp2.passage_phrase_ranges(toks2), [])           # 駅の前に: the noun and に
+
+    def test_go_suffix_is_not_ato(self):
+        toks = [M("1", upos="NUM"), M("ヶ月", "〜ヶ月", ctr=True), M("後", "", "NUM", "接尾辞-名詞的-副詞可能", read="ゴ"),
+                M("に", upos="PART")]
+        sp, res = self.pr(toks, [None, ("〜ヶ月", "NOUN"), None, ("に", "PART")])
+        self.assertEqual(res[2], ("〜後", "GRAM"))
+        self.assertIn(2, sp.passage_uncounted(toks, res))
+        self.assertFalse(sp.passage_fallback_ok(None, res[2], {"w": "後"}))
+        toks = [M("映画"), M("の", upos="PART"), M("後", read="アト")]
+        self.assertEqual(self.pr(toks)[1][2], ("後", "NOUN"))             # 映画の後: あと
+
+    def test_kurai_spelled_i(self):
+        toks = [M("どれ", upos="PRON"), M("位", read="クライ")]
+        self.assertEqual(self.pr(toks)[1][1], ("くらい", "PART"))
+        toks = [M("三", upos="NUM"), M("日", "〜日（か）", ctr=True), M("位", "", "NUM", read="イ")]
+        self.assertEqual(self.pr(toks)[1][2], ("くらい", "PART"))
+        toks = [M("3", upos="NUM"), M("位", "〜位", read="イ")]
+        self.assertEqual(self.pr(toks)[1][1], ("〜位", "NOUN"))           # 3位 "third place"
+
+    def test_conjunction_links_the_pack_adverb(self):
+        toks = [M("ただ", upos="CCONJ", pos="接続詞"), M("、", upos="PUNCT")]
+        _, res = self.pr(toks, [("ただ", "CONJ"), None], heads={"ただ": {"ADV", "NOUN"}})
+        self.assertEqual(res[0], ("ただ", "ADV"))
+        _, res = self.pr(toks, [("ただ", "CONJ"), None], heads={"ただ": {"ADV", "CONJ"}})
+        self.assertEqual(res[0], ("ただ", "CONJ"))                        # the pack has the conjunction
+
+    def test_kana_word_folded_into_another_is_out_of_pack(self):
+        toks = [M("たった", "ただ", "ADV", "副詞", dic="たった")]
+        sp, res = self.pr(toks)
+        self.assertEqual(res[0], ("たった", "NOWORD"))
+        self.assertNotIn(0, sp.passage_uncounted(toks, res))            # counted: an oop word
+        self.assertFalse(sp.passage_fallback_ok(None, res[0], {"w": "ただ"}))
+        self.assertTrue(sp.passage_fallback_ok(None, ("ただ", "ADV"), {"w": "ただ"}))
+
+
 if __name__ == "__main__":
     unittest.main()

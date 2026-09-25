@@ -448,6 +448,13 @@ def prev_tok(toks, i):
 POTENTIAL_OF = {"なれる": "なる"}
 
 
+# passages: pack POS -> build group (passage_retag joins, the conjunction rule)
+PASSAGE_POS_GROUP = {"noun": "NOUN", "adv": "ADV", "pron": "PRON", "det": "DET", "adj": "ADJ", "verb": "VERB",
+                     "conj": "CONJ", "intj": "INTJ"}
+# passages: time units a 前 "ago" or a 位 "about" may follow (3年前, 三日位)
+TIME_UNITS = {"年", "ヶ月", "か月", "カ月", "ヵ月", "日", "時間", "週間", "分", "秒", "年間", "日間", "時", "月", "晩", "世紀"}
+
+
 def feats_of(ms):
     return dict(kv.split("=", 1) for kv in ms.split("|") if "=" in kv) if ms else {}
 
@@ -606,6 +613,7 @@ class Japanese(LanguageSpec):
         self._last_sid = None
         self._kana_pieces = {}       # sid -> [(written, its kana or None)] of its kana line (sentence_ruby)
         self.compounds = []
+        self._pp_ranges = {}         # passages: token key -> Xに ranges (passage_post_resolve)
         self.stats = Counter()
         self.function_lemmas = set(self.function_lemmas)
         self.function_verbs = set(self.function_verbs)
@@ -643,6 +651,12 @@ class Japanese(LanguageSpec):
                 for a in w.get("alt") or ():
                     owners[a].add(w["lemma"])
             self.passage_lemma_alias = {a: next(iter(o)) for a, o in owners.items() if len(o) == 1 and a not in heads}
+            # headword -> build groups (passage_retag joins, the conjunction rule)
+            self._passage_heads = defaultdict(set)
+            for w in words:
+                g = PASSAGE_POS_GROUP.get(w.get("pos"))
+                if g:
+                    self._passage_heads[w["w"]].add(g)
             # voiced after a time word (7時ごろ): the pack's 頃 "around (a time)", which the
             # corpus groups keep apart as ごろ
             if "頃" in heads and "ごろ" not in heads:
@@ -654,6 +668,7 @@ class Japanese(LanguageSpec):
     def passage_retag(self, toks, names=frozenset()):
         """Passages: a declared name is one PROPN token, never a pack word
         (あかり is not 明かり "light"; あおば町 split by Sudachi is joined)."""
+        toks = self._passage_join(toks)
         if not names:
             return toks
         out, i = [], 0
@@ -674,6 +689,122 @@ class Japanese(LanguageSpec):
                 i += 1
         return out
 
+    _passage_heads = {}             # pack headword -> build groups (passage_text)
+
+    def _passage_join(self, toks):
+        """Passages: two tokens Sudachi splits that are one pack word become one
+        token (one span, counted once):
+        - a kanji numeral + the counter つ: 一つ, 三つ, 四つ are 〜つ (ひとつ,
+          みっつ), not 一 "one" (いち) + つ;
+        - a determiner or kanji numeral + a noun whose joined spelling is a
+          pack headword that is no counter: その + 後 (read ご) is その後, 一 +
+          番 is 一番 "most". Digits never join (1番 is the counter)."""
+        out, i, joined = [], 0, False
+        while i < len(toks):
+            t = toks[i]
+            n = toks[i + 1] if i + 1 < len(toks) else None
+            if n is not None and not DIGIT_RE.search(t[0]) and t[2] in ("NUM", "DET") and n[2] in ("NOUN", "NUM"):
+                cat = t[0] + n[0]
+                ft, fn = feats_of(t[3]), feats_of(n[3])
+                rd = ft.get("Read", "") + fn.get("Read", "")
+                if t[2] == "NUM" and NUMERAL_RE.match(t[0]) and n[0] == "つ" and n[1] == "〜つ":
+                    lemma, upos = "〜つ", "NOUN"
+                else:
+                    gs = self._passage_heads.get(cat, ())
+                    upos = next((g for g in ("NOUN", "ADV", "PRON") if g in gs), None)
+                    lemma = cat
+                if upos:
+                    ms = f"Dict={cat}|Norm={cat}|Read={rd}|DRead={rd}|Pos={fn.get('Pos', '')}"
+                    self.stats[f"passage join {cat} -> {lemma}"] += 1
+                    out.append([cat, lemma, upos, ms])
+                    i += 2
+                    joined = True
+                    continue
+            out.append(t)
+            i += 1
+        return out if joined else toks
+
+    def _time_amount_before(self, toks, i):
+        """A time amount ends right before token i (3年, 1時間, 400年以上,
+        100年くらい, どのくらい): 前 after it is "ago/before"."""
+        j = i - 1
+        while j >= 0 and toks[j][0] in ("くらい", "ぐらい", "以上", "ほど"):
+            j -= 1
+        if j < 0:
+            return False
+        if toks[j][0] in ("どの", "どれ", "どのくらい", "どれくらい", "どのぐらい", "どれぐらい"):
+            return True
+        return re.sub(r"（.*）$", "", toks[j][1]).lstrip("〜") in TIME_UNITS and j > 0 and \
+            bool(NUMERAL_RE.match(toks[j - 1][0]))
+
+    def passage_post_resolve(self, toks, out):
+        """Passage-only resolve rules (the corpus build never runs them).
+        ("pattern", "GRAM") marks grammar that links nothing and is not
+        counted (passage_uncounted, passage_fallback_ok); (spelling,
+        "NOWORD") a counted word the pack does not have.
+        - てほしい: ほしい in auxiliary use after て/で is the pattern "want
+          (someone) to", not the adjective 欲しい "wanted".
+        - という / っていう before a noun (or の, こと) in kana: the quotative
+          "called, that", not 言う "to say". Sentence-final だという
+          (hearsay) and kanji と言う人 "people who say" keep 言う.
+        - 前 after a time amount (3年前に, 1時間前になる, どのくらい前に) is the
+          noun 前 "before, ago" and に the particle, not the adverb 前に
+          "previously".
+        - 後 read ご (1ヶ月後, 一時間後) is the suffix "after": not 後 (あと).
+          その後 is joined in passage_retag.
+        - 位 read くらい (どれ位), or after a time counter (三日位), is くらい
+          "about", not 位 "rank".
+        - a conjunction the pack has only as an adverb links the adverb
+          (ただ、"but, only": ただ "only, simply", not ただ "ordinary").
+        - a kana word Sudachi folds into another kana lemma (たった -> ただ)
+          is its own word, out of the pack.
+        - an adverb X + に the build reads as the word Xに (一緒に, 急に, 前に,
+          先に): one span over both tokens (passage_phrase_ranges)."""
+        out = list(out)
+        for i, (surf, lemma, upos, ms) in enumerate(toks):
+            f = feats_of(ms)
+            pos = f.get("Pos", "")
+            prev = toks[i - 1] if i else None
+            nxt = toks[i + 1] if i + 1 < len(toks) else None
+            if upos == "ADJ" and lemma == "欲しい" and "非自立可能" in pos and prev is not None and prev[0] in ("て", "で"):
+                out[i] = ("てほしい", "GRAM")
+            elif lemma == "言う" and HIRA_ONLY_RE.match(surf) and prev is not None and prev[0] in ("と", "って") and \
+                    f.get("Conj", "").startswith("連体形") and nxt is not None and \
+                    (nxt[2] in ("NOUN", "PRON", "PROPN") or nxt[0] in ("の", "こと")):
+                out[i] = ("という", "GRAM")
+            elif surf == "前" and self._time_amount_before(toks, i):
+                out[i] = ("前", "NOUN")
+                if nxt is not None and nxt[0] == "に" and out[i + 1] is None:
+                    out[i + 1] = ("に", "PART")
+            elif surf == "後" and hira(f.get("Read", "")) == "ご":
+                out[i] = ("〜後", "GRAM")
+            elif surf == "位" and (hira(f.get("Read", "")) in ("くらい", "ぐらい") or
+                                  (prev is not None and (prev[0] in ("どれ", "どの") or
+                                   re.sub(r"（.*）$", "", prev[1]).lstrip("〜") in TIME_UNITS))):
+                out[i] = ("くらい", "PART")
+            elif upos == "CCONJ" and out[i] is not None and out[i][1] == "CONJ" and \
+                    "ADV" in self._passage_heads.get(lemma, ()) and "CONJ" not in self._passage_heads.get(lemma, ()):
+                out[i] = (lemma, "ADV")
+            elif upos in ("ADV", "NOUN", "PRON", "DET") and HIRA_ONLY_RE.match(surf) and HIRA_ONLY_RE.match(lemma) and \
+                    HIRA_ONLY_RE.match(f.get("Dict", "")) and f["Dict"] != lemma:
+                out[i] = (f["Dict"], "NOWORD")
+        ranges = []
+        for i, (surf, lemma, upos, ms) in enumerate(toks[:-1]):
+            if out[i] == (lemma + "に", "ADV") and toks[i + 1][0] == "に" and out[i + 1] is None:
+                ranges.append((i, i + 1, i))
+        self._pp_ranges[tuple((t[0], t[1], t[2]) for t in toks)] = ranges
+        return out
+
+    def passage_phrase_ranges(self, toks):
+        """X + に read as the adverb Xに (passage_post_resolve): one span."""
+        return self._pp_ranges.get(tuple((t[0], t[1], t[2]) for t in toks), [])
+
+    def passage_fallback_ok(self, lexicon, reading, word, en=""):
+        """A GRAM or NOWORD reading (passage_post_resolve) never falls back to a
+        pack word by its surface or an alt spelling (後 read ご is not 後 あと,
+        たった is not ただ)."""
+        return reading[1] not in ("GRAM", "NOWORD")
+
     def passage_uncounted(self, toks, resolved):
         """Passages: token indices that are grammar, not words, and are not
         counted for coverage or length when they link nothing (passages.Linker
@@ -691,6 +822,8 @@ class Japanese(LanguageSpec):
                 out.add(i)
             elif upos in ("VERB", "ADJ") and "非自立可能" in pos and prev is not None and prev[0] in ("て", "で"):
                 out.add(i)
+            elif resolved[i] is not None and resolved[i][1] == "GRAM":
+                out.add(i)      # passage_post_resolve: てほしい, という, 〜後
             elif resolved[i] is None and upos == "VERB" and (
                     (lemma == "する" and prev is not None and prev[2] == "NOUN") or "非自立可能" in pos):
                 out.add(i)
