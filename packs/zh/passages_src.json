@@ -390,10 +390,10 @@
      "en": "What does the daughter do when she is coming home?",
      "type": "mc",
      "options": [
-      "给爸爸打电话",
+      "打电话给爸爸",
       "看电视",
       "去商店",
-      "给妈妈打电话"
+      "打电话给妈妈"
      ],
      "answer": 3,
      "words": [
@@ -425,8 +425,8 @@
      "Liu Fang saw a piece of clothing she liked very much."
     ],
     [
-     "她问：“小姐，这件衣服多少钱？”",
-     "She asked: \"Miss, how much is this?\""
+     "她问：“你好，这件衣服多少钱？”",
+     "She asked: \"Hello, how much is this?\""
     ],
     [
      "“三百八十块。”",
@@ -731,14 +731,14 @@
      "sentence": 8
     },
     {
-     "q": "他们怎么去饭馆？",
-     "en": "How are they getting to the restaurant?",
+     "q": "他们坐什么去饭馆？",
+     "en": "What do they take to the restaurant?",
      "type": "mc",
      "options": [
-      "坐飞机",
-      "坐公共汽车",
-      "坐船",
-      "坐出租车"
+      "飞机",
+      "公共汽车",
+      "船",
+      "出租车"
      ],
      "answer": 3,
      "words": [
@@ -784,7 +784,7 @@
     ],
     [
      "我的汉语不太好，周婷说话很慢。",
-     "My Chinese isn't very good, so Zhou Ting speaks slowly."
+     "My Chinese isn't very good. Zhou Ting speaks slowly."
     ],
     [
      "她在我的书上写了她的名字。",
@@ -843,10 +843,10 @@
      "en": "Where did they drink tea in the afternoon?",
      "type": "mc",
      "options": [
-      "学校前面的饭馆",
-      "学校后面的饭馆",
-      "周婷的家里",
-      "火车站的饭馆"
+      "在学校的前面",
+      "在学校的后面",
+      "在周婷的家里",
+      "在安娜的家里"
      ],
      "answer": 1,
      "words": [
@@ -859,10 +859,10 @@
      "en": "What did Zhou Ting write in Anna's book?",
      "type": "mc",
      "options": [
-      "她爸爸的名字",
-      "她的老师",
-      "她的名字",
-      "她家在哪儿"
+      "周婷爸爸的名字",
+      "周婷的老师",
+      "周婷的名字",
+      "周婷家在哪儿"
      ],
      "answer": 2,
      "words": [
@@ -888,8 +888,8 @@
      "The shop is open Monday to Sunday."
     ],
     [
-     "上午七点开，晚上十点不开了。",
-     "It opens at seven in the morning and closes at ten at night."
+     "从上午七点开到晚上十点。",
+     "It is open from seven in the morning until ten at night."
     ],
     [
      "我们这里有水果、茶、水和很多吃的东西。",
@@ -918,10 +918,10 @@
      "en": "Where is the shop?",
      "type": "mc",
      "options": [
-      "火车站后面",
-      "学校前面",
-      "医院后面",
-      "火车站前面"
+      "火车站的后面",
+      "学校的前面",
+      "医院的后面",
+      "火车站的前面"
      ],
      "answer": 3,
      "words": [
@@ -930,8 +930,8 @@
      "sentence": 0
     },
     {
-     "q": "这个商店星期日也开。",
-     "en": "This shop is open on Sundays too.",
+     "q": "这个商店星期日开。",
+     "en": "This shop is open on Sundays.",
      "type": "tf",
      "options": null,
      "answer": true,
@@ -1163,10 +1163,10 @@
      "en": "What do I do at Zhao Qiang's home at noon on Sunday?",
      "type": "mc",
      "options": [
-      "和他看电影",
-      "吃他做的菜",
-      "和他学习汉语",
-      "看他的小猫"
+      "和赵强看电影",
+      "吃赵强做的菜",
+      "和赵强学习汉语",
+      "看赵强的小猫"
      ],
      "answer": 1,
      "words": [
@@ -1411,10 +1411,10 @@
      "en": "What do I go and do at three in the afternoon?",
      "type": "mc",
      "options": [
-      "去同学家学习",
-      "去商店买水果",
-      "去医院看医生",
-      "去学校看老师"
+      "和同学学习",
+      "和妈妈买东西",
+      "在家里看电视",
+      "去医院看医生"
      ],
      "answer": 0,
      "words": [
@@ -1517,7 +1517,7 @@
      "options": [
       "在学校读书",
       "在家看电视",
-      "和朋友说话",
+      "和中国人说话",
       "去商店买东西"
      ],
      "answer": 2,
@@ -1528,7 +1528,7 @@
     },
     {
      "q": "现在安迪会读一点汉语书。",
-     "en": "Andy can now read a little in Chinese books.",
+     "en": "Andy can now read some Chinese books.",
      "type": "tf",
      "options": null,
      "answer": true,
@@ -1744,10 +1744,10 @@
      "en": "What is on the chair?",
      "type": "mc",
      "options": [
-      "我的书",
-      "我的电脑",
-      "我的杯子",
-      "我的衣服"
+      "书",
+      "电脑",
+      "杯子",
+      "衣服"
      ],
      "answer": 3,
      "words": [
@@ -2254,10 +2254,10 @@
      "en": "Where is the bus stop?",
      "type": "mc",
      "options": [
-      "商店左边",
-      "商店旁边",
-      "学校右边",
-      "商店右边"
+      "在商店的左边",
+      "在商店的旁边",
+      "在学校的右边",
+      "在商店的右边"
      ],
      "answer": 3,
      "words": [
@@ -2445,8 +2445,8 @@
      "I think I only got two questions wrong."
     ],
     [
-     "下午，老师告诉我，我的考试是第一！",
-     "In the afternoon the teacher tells me my exam result is first!"
+     "下午，老师告诉我，这次考试我是第一！",
+     "In the afternoon the teacher told me I came first in this exam!"
     ]
    ],
    "questions": [
@@ -2591,14 +2591,14 @@
      "sentence": 0
     },
     {
-     "q": "周婷怎么去机场？",
-     "en": "How did Zhou Ting get to the airport?",
+     "q": "周婷坐什么去机场？",
+     "en": "What did Zhou Ting take to the airport?",
      "type": "mc",
      "options": [
-      "坐公共汽车",
-      "坐船",
-      "走路",
-      "坐出租车"
+      "公共汽车",
+      "船",
+      "飞机",
+      "出租车"
      ],
      "answer": 3,
      "words": [
@@ -2701,7 +2701,7 @@
      "type": "mc",
      "options": [
       "因为身体不好",
-      "因为没有时间",
+      "因为太忙了",
       "因为不喜欢运动",
       "因为很累"
      ],
@@ -2884,10 +2884,10 @@
      "en": "What does the younger brother like best?",
      "type": "mc",
      "options": [
-      "跑步和游泳",
-      "打篮球和跑步",
-      "打篮球和游泳",
-      "唱歌和跳舞"
+      "游泳和跑步",
+      "跑步和打篮球",
+      "游泳和打篮球",
+      "跳舞和唱歌"
      ],
      "answer": 2,
      "words": [
@@ -2977,10 +2977,10 @@
      "en": "What should people do when they go out in the evening?",
      "type": "mc",
      "options": [
-      "多穿衣服",
-      "多喝水",
-      "慢慢走",
-      "在家里休息"
+      "穿多一些衣服",
+      "喝多一些热水",
+      "走得慢一些",
+      "在家里多休息"
      ],
      "answer": 0,
      "words": [
@@ -3808,10 +3808,10 @@
      "en": "How did they feel after an hour of climbing?",
      "type": "mc",
      "options": [
-      "又累又渴",
-      "又饿又冷",
-      "很舒服",
-      "非常高兴"
+      "很累，想喝水",
+      "很饿，想吃东西",
+      "很冷，想回家",
+      "很热，想游泳"
      ],
      "answer": 0,
      "words": [
@@ -3928,7 +3928,7 @@
       "我应该多学习",
       "唱歌的声音太大",
       "画画没有意思",
-      "游戏对眼睛不好"
+      "眼睛会不舒服"
      ],
      "answer": 3,
      "words": [
@@ -3941,9 +3941,9 @@
      "en": "What do I do every Saturday?",
      "type": "mc",
      "options": [
-      "去打篮球",
-      "去唱歌",
-      "在家画画",
+      "打篮球",
+      "唱歌",
+      "画画",
       "玩游戏"
      ],
      "answer": 0,
@@ -4263,10 +4263,10 @@
      "en": "What does the wife ask her husband to buy?",
      "type": "mc",
      "options": [
-      "面包、鸡蛋和咖啡",
-      "面条、鸡蛋和牛奶",
-      "面包、鱼和牛奶",
-      "面包、鸡蛋和牛奶"
+      "牛奶、鸡蛋和咖啡",
+      "牛奶、面条和鸡蛋",
+      "牛奶、面包和鱼",
+      "牛奶、面包和鸡蛋"
      ],
      "answer": 3,
      "words": [
@@ -4279,10 +4279,10 @@
      "en": "What kind of cake does the son like?",
      "type": "mc",
      "options": [
-      "巧克力蛋糕",
-      "水果蛋糕",
-      "很甜的蛋糕",
-      "大蛋糕"
+      "巧克力的",
+      "有水果的",
+      "特别甜的",
+      "特别大的"
      ],
      "answer": 0,
      "words": [
@@ -4436,10 +4436,10 @@
      "en": "What is this dish like?",
      "type": "mc",
      "options": [
-      "又简单又好吃",
-      "又难又不好吃",
-      "很简单但是不好吃",
-      "很好吃但是很难做"
+      "不难做，也很好吃",
+      "很难做，也不好吃",
+      "不难做，但是不好吃",
+      "很好吃，但是很难做"
      ],
      "answer": 0,
      "words": [
@@ -4563,10 +4563,10 @@
      "en": "What is wrong with Mr Li's room?",
      "type": "mc",
      "options": [
-      "冰箱坏了",
-      "电梯坏了",
-      "灯坏了",
-      "空调坏了"
+      "冰箱不能用了",
+      "电梯不能用了",
+      "灯不能用了",
+      "空调不能用了"
      ],
      "answer": 3,
      "words": [
@@ -4629,18 +4629,18 @@
      "sentence": 0
     },
     {
-     "q": "以前大家怎么出门？",
-     "en": "How did people get around before?",
+     "q": "以前城市里没有什么？",
+     "en": "What did the city not have before?",
      "type": "mc",
      "options": [
-      "骑自行车",
-      "坐地铁",
-      "坐出租车",
-      "坐飞机"
+      "地铁",
+      "公共汽车",
+      "自行车",
+      "公园"
      ],
      "answer": 0,
      "words": [
-      "骑"
+      "地铁"
      ],
      "sentence": 2
     },
@@ -4775,9 +4775,9 @@
      ],
      "answer": 0,
      "words": [
-      "坏"
+      "修"
      ],
-     "sentence": 4
+     "sentence": 5
     },
     {
      "q": "郑明修电脑修得很快。",
@@ -4795,10 +4795,10 @@
      "en": "What does the manager think of Zheng Ming?",
      "type": "mc",
      "options": [
-      "年轻、漂亮",
-      "聪明、努力",
-      "热情、可爱",
-      "认真、安静"
+      "很年轻，也很漂亮",
+      "很聪明，也很努力",
+      "很热情，也很可爱",
+      "很认真，也很安静"
      ],
      "answer": 1,
      "words": [
@@ -4832,8 +4832,8 @@
      "Some pandas were sleeping in the trees, and some were playing on the grass."
     ],
     [
-     "有一只小熊猫从树上下来，走得很慢，非常可爱。",
-     "A little panda climbed down from a tree. It walked very slowly and was very cute."
+     "有一只熊猫从树上下来，走得很慢，非常可爱。",
+     "One panda climbed down from a tree. It walked very slowly and was very cute."
     ],
     [
      "女儿问我：“熊猫最喜欢吃什么？”",
@@ -4885,8 +4885,8 @@
      "sentence": 1
     },
     {
-     "q": "小熊猫是从哪儿下来的？",
-     "en": "Where did the little panda climb down from?",
+     "q": "那只走得很慢的熊猫是从哪儿下来的？",
+     "en": "Where did the slow-walking panda climb down from?",
      "type": "mc",
      "options": [
       "草地上",
@@ -4916,9 +4916,9 @@
      "en": "What does the daughter want to do when she grows up?",
      "type": "mc",
      "options": [
-      "照顾熊猫",
-      "去成都工作",
-      "画熊猫",
+      "跟熊猫工作",
+      "在成都开商店",
+      "画很多熊猫",
       "写熊猫的故事"
      ],
      "answer": 0,
@@ -5100,10 +5100,10 @@
      "en": "Where did I buy the shoes?",
      "type": "mc",
      "options": [
-      "学校附近",
-      "银行旁边",
-      "地铁站里",
-      "超市旁边"
+      "离学校不远",
+      "离银行不远",
+      "离超市不远",
+      "离医院不远"
      ],
      "answer": 0,
      "words": [
@@ -5143,10 +5143,10 @@
      "en": "What problem did I find when I got home?",
      "type": "mc",
      "options": [
-      "鞋有点大",
-      "鞋太贵了",
-      "鞋有点小",
-      "鞋坏了"
+      "鞋大了一点",
+      "鞋贵了一点",
+      "鞋小了一点",
+      "鞋旧了一点"
      ],
      "answer": 2,
      "words": [
@@ -5295,8 +5295,8 @@
    "names": [],
    "sentences": [
     [
-     "中国有很多节日，每个节日都有自己的文化和历史。",
-     "China has many festivals, and each has its own culture and history."
+     "中国有很多节日。",
+     "China has many festivals."
     ],
     [
      "春节是最重要的节日，一般在一月或者二月。",
@@ -5311,8 +5311,8 @@
      "So for those few weeks, railway stations and airports are especially crowded."
     ],
     [
-     "一家人在一起吃饺子、看电视节目。",
-     "Families eat dumplings together and watch TV programmes."
+     "我们家每年这个时候都去奶奶家，一家人在一起吃饺子、看电视节目。",
+     "Every year at this time our family goes to Grandma's, and we eat dumplings and watch TV programmes together."
     ],
     [
      "爷爷奶奶会给孩子红包，红包里有钱，所以孩子都很喜欢这个节日。",
@@ -5349,29 +5349,29 @@
      "sentence": 2
     },
     {
-     "q": "春节的时候，火车站的人很少。",
-     "en": "At the Spring Festival there are few people at railway stations.",
+     "q": "我们家春节的时候在饭馆吃饺子。",
+     "en": "At the Spring Festival our family eats dumplings at a restaurant.",
      "type": "tf",
      "options": null,
      "answer": false,
      "words": [
-      "特别"
+      "饺子"
      ],
-     "sentence": 3
+     "sentence": 4
     },
     {
-     "q": "春节的时候，一家人在一起吃什么？",
-     "en": "What do families eat together at the Spring Festival?",
+     "q": "春节的时候，我们家去谁家？",
+     "en": "Whose home does our family go to at the Spring Festival?",
      "type": "mc",
      "options": [
-      "面条",
-      "蛋糕",
-      "面包",
-      "饺子"
+      "姐姐家",
+      "朋友家",
+      "老师家",
+      "奶奶家"
      ],
      "answer": 3,
      "words": [
-      "饺子"
+      "奶奶"
      ],
      "sentence": 4
     },
@@ -5391,10 +5391,10 @@
      "en": "On the night of the Mid-Autumn Festival, what do people do while looking at the moon?",
      "type": "mc",
      "options": [
-      "吃水果、喝茶",
-      "唱歌、跳舞",
-      "看书、写字",
-      "吃饺子、喝茶"
+      "吃一些水果、喝点茶",
+      "吃一些饺子、喝点水",
+      "看一些书、写点字",
+      "听一些音乐、看电视"
      ],
      "answer": 0,
      "words": [
@@ -5512,10 +5512,10 @@
      "en": "How do you apply for this job?",
      "type": "mc",
      "options": [
-      "到公司里申请",
-      "给公司写信",
-      "给公司发传真",
-      "在网站上申请"
+      "去公司申请",
+      "写信申请",
+      "发传真申请",
+      "上网申请"
      ],
      "answer": 3,
      "words": [
@@ -5582,10 +5582,10 @@
      "en": "What did Wu Lei study?",
      "type": "mc",
      "options": [
-      "经济管理",
+      "经济和管理",
       "国际关系",
-      "语言",
-      "法律"
+      "语言和文化",
+      "法律和经济"
      ],
      "answer": 0,
      "words": [
@@ -5714,10 +5714,10 @@
      "en": "What should you remember to do when leaving a room?",
      "type": "mc",
      "options": [
-      "关门和窗户",
-      "关电视和电脑",
+      "关上门和窗户",
+      "打扫一下房间",
       "开一下窗户",
-      "关灯和空调"
+      "关上空调和灯"
      ],
      "answer": 3,
      "words": [
@@ -5730,10 +5730,10 @@
      "en": "What is best to do when shopping at the supermarket?",
      "type": "mc",
      "options": [
-      "少用塑料袋",
-      "多买一些东西",
-      "骑自行车去",
-      "带很多钱去"
+      "不用太多塑料袋",
+      "多买一些便宜的东西",
+      "骑自行车去超市",
+      "带很多钱去超市"
      ],
      "answer": 0,
      "words": [
@@ -5878,10 +5878,10 @@
      "en": "What does the writer think is best to do before buying big furniture?",
      "type": "mc",
      "options": [
-      "去商店看看",
-      "问问朋友",
-      "多看看照片",
-      "等等打折"
+      "在商店里先看一下",
+      "先上网看一下照片",
+      "先问一下家里的人",
+      "先等一下打折的时候"
      ],
      "answer": 0,
      "words": [
@@ -6117,7 +6117,7 @@
     },
     {
      "q": "学生最感谢谁？",
-     "en": "Who does the student thank?",
+     "en": "Who does the student thank the most?",
      "type": "mc",
      "options": [
       "他的母亲",
@@ -6241,10 +6241,10 @@
      "en": "How is Marie's Chinese now?",
      "type": "mc",
      "options": [
-      "没有变化",
-      "流利多了",
-      "还是很差",
-      "不太流利"
+      "和以前差不多",
+      "比以前好多了",
+      "比以前差多了",
+      "还是不太好"
      ],
      "answer": 1,
      "words": [
@@ -6314,10 +6314,10 @@
      "en": "What is in the kitchen?",
      "type": "mc",
      "options": [
-      "冰箱和空调",
-      "沙发和桌子",
-      "冰箱和洗衣机",
-      "洗衣机和空调"
+      "空调和冰箱",
+      "桌子和沙发",
+      "洗衣机和冰箱",
+      "空调和洗衣机"
      ],
      "answer": 2,
      "words": [
@@ -6348,9 +6348,9 @@
      ],
      "answer": 3,
      "words": [
-      "租"
+      "元"
      ],
-     "sentence": 6
+     "sentence": 7
     },
     {
      "q": "如果租一年，每个月可以便宜两百元。",
@@ -6368,10 +6368,10 @@
      "en": "When will Chen Jie decide?",
      "type": "mc",
      "options": [
-      "今天晚上",
-      "明天早上",
-      "下个星期",
-      "一年以后"
+      "今天睡觉以前",
+      "明天起床以后",
+      "下个星期以前",
+      "租一年以后"
      ],
      "answer": 0,
      "words": [
@@ -6433,10 +6433,10 @@
      "en": "When are the roads often jammed?",
      "type": "mc",
      "options": [
-      "中午",
-      "上下班的时间",
-      "周末",
-      "晚上十点以后"
+      "中午休息的那几个小时",
+      "上班、下班那几个小时",
+      "星期六和星期日的上午",
+      "晚上十点以后那几个小时"
      ],
      "answer": 1,
      "words": [
@@ -6473,7 +6473,7 @@
      "options": [
       "价格便宜",
       "比较安全",
-      "节约时间",
+      "能省时间",
       "地铁太贵"
      ],
      "answer": 2,
@@ -6689,22 +6689,6 @@
      "sentence": 2
     },
     {
-     "q": "京剧有多长的历史？",
-     "en": "How long is the history of Peking opera?",
-     "type": "mc",
-     "options": [
-      "一百多年",
-      "三百多年",
-      "五十多年",
-      "两百多年"
-     ],
-     "answer": 3,
-     "words": [
-      "历史"
-     ],
-     "sentence": 3
-    },
-    {
      "q": "作者能听懂演员表演的所有内容。",
      "en": "The writer could understand everything the actors performed.",
      "type": "tf",
@@ -6716,11 +6700,27 @@
      "sentence": 6
     },
     {
+     "q": "作者的朋友在旁边做什么？",
+     "en": "What did the writer's friend do beside the writer?",
+     "type": "mc",
+     "options": [
+      "告诉我演员的名字",
+      "给我买一些饮料",
+      "给我找一个好座位",
+      "告诉我故事的意思"
+     ],
+     "answer": 3,
+     "words": [
+      "解释"
+     ],
+     "sentence": 7
+    },
+    {
      "q": "作者觉得这次演出怎么样？",
      "en": "What did the writer think of the performance?",
      "type": "mc",
      "options": [
-      "非常精彩",
+      "很好看",
       "没有意思",
       "太长了",
       "太贵了"
@@ -6808,7 +6808,7 @@
      "options": [
       "非常好走",
       "人非常少",
-      "比较难走",
+      "不太好走",
       "没有风景"
      ],
      "answer": 2,
@@ -6833,10 +6833,10 @@
      "en": "What did the trip teach the writer more about?",
      "type": "mc",
      "options": [
-      "中国的森林",
-      "中国的导游",
-      "中国的语言",
-      "中国的历史"
+      "中国现在的城市",
+      "中国有名的森林",
+      "中国人用的语言",
+      "中国过去的事情"
      ],
      "answer": 3,
      "words": [
@@ -6927,10 +6927,10 @@
      "en": "Why should you review promptly after class?",
      "type": "mc",
      "options": [
-      "老师会检查",
-      "人很容易忘记",
-      "考试快到了",
-      "下课以后很无聊"
+      "老师下课以后会检查",
+      "新知识很快不记得",
+      "考试马上就要到了",
+      "下课以后没有事情做"
      ],
      "answer": 1,
      "words": [
@@ -7027,10 +7027,10 @@
      "en": "Why is the flight delayed?",
      "type": "mc",
      "options": [
-      "飞机有问题",
-      "机场人太多",
-      "司机迟到了",
-      "北京下大雪"
+      "飞机出了一些问题",
+      "机场里的人太多了",
+      "服务员都迟到了",
+      "北京的天气不好"
      ],
      "answer": 3,
      "words": [
@@ -7054,10 +7054,10 @@
      "en": "What will the airport provide for free?",
      "type": "mc",
      "options": [
-      "饮料和饼干",
-      "饮料和面包",
-      "咖啡和饼干",
-      "果汁和蛋糕"
+      "饼干和饮料",
+      "面包和饮料",
+      "饼干和咖啡",
+      "蛋糕和果汁"
      ],
      "answer": 0,
      "words": [
