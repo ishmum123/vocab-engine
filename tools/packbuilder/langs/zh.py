@@ -51,6 +51,36 @@ proper noun jieba finds (nr/ns/nt/nz) that the pack segmentation split into
 linked pack words (小红 -> 小 + 红) is listed in the report notes, so the author
 can declare it. Without jieba the check is skipped with one line on stderr.
 Segmentation and passages.json never depend on jieba.
+
+Readings (`ruby`, docs/PACK_SCHEMA.md passages.json): with pack.characters,
+ZhLinker.passage_ruby gives every segmenter token holding a hanzi a reading
+tuple, in every passage sentence (`sentences[].ruby`), title (`titleRuby`),
+question (`questions[].ruby`) and option (`questions[].optionsRuby`), so the
+pronunciation-first display never shows a hanzi or drops a syllable (这个 is
+zhège, not the linked 这's zhè). Sources, in order (token_reading):
+  1. whole-surface overrides (SURFACE_READINGS: 长大, 草地, 便宜), the aspect
+     particle 过 (guo);
+  2. the pack: a token spelled as its linked word reads that word's `pron`;
+     a surface sentences.json `ruby` reads differently from its word (这个
+     zhège, 他们 tāmen, harvested); otherwise the surface is cut into pack
+     words (words.json `pron`, characters.json `reading`) and harvested
+     surfaces, fewest uncovered characters first, then fewest pieces, then the
+     linked word kept whole; a suffix 儿 after a pack piece is the erhua r
+     (哪儿 nǎr). In an unlinked token (a name, an oop word) a single pack
+     character is used only when pypinyin knows one reading for it, so a
+     heteronym in a name follows pypinyin's phrase reading (成都 chéngdū,
+     not the pack's 都 dōu);
+  3. every other character: CHAR_READINGS for a one-character token (HSK-context
+     readings of common heteronyms; a lone 地 after a pack word is de, else dì), else
+     pypinyin (Style.TONE, heteronym off) over the whole token, so its phrase
+     dictionary gives the context reading. These characters are counted in the
+     report.
+Syllables join without spaces, with an apostrophe before a/o/e (as words.json
+writes nǚ'ér); a name's reading is capitalised, a surname in SURNAMES split
+from the given name (Zhōu Tíng, Shànghǎi, Xiǎo Wáng). A token with a linked
+word carries its id; a token without one (a name, an oop word, 过, 第)
+carries null. Tone sandhi (一, 不) and neutral tones in reduplication (看看
+kànkàn) are not applied: each piece keeps its dictionary reading.
 """
 import re
 
@@ -96,6 +126,24 @@ MEIYOU_GLOSS = "did not; have not (没有+V)"     # 没有 before a verb, 在 or
 JIEBA_NAME_FLAGS = ("nr", "ns", "nt", "nz")
 JIEBA_MIN_FREQ = 100      # jieba dictionary entries tagged nr below this are phrases (太贵 17, 张老师 3)
 
+# ---- readings (passage_ruby): HSK-context overrides for what the pack does not cover
+# Whole surfaces whose reading is not their pieces' (a phrase whose head word's pack
+# pron is the other reading: 长 cháng, 地 de) or a fixed neutral tone.
+SURFACE_READINGS = {"长大": "zhǎngdà", "草地": "cǎodì", "便宜": "piányi"}
+# A one-character token outside the pack's coverage (not a name): its HSK-context
+# reading instead of pypinyin's, which has no context for a lone character. Inside a
+# longer token pypinyin's phrase reading is used. 地 is handled in _char_reading
+# (a lone 地 after a pack word is de, else dì: POS is out of reach).
+CHAR_READINGS = {"了": "le", "的": "de", "得": "de", "着": "zhe", "行": "xíng", "都": "dōu", "还": "hái",
+                 "觉": "jué", "切": "qiē"}
+# Common surnames: a name token starting with one is written "Surname Given"
+# (Zhōu Tíng). Left out on purpose: characters that start the pack's place names
+# or transliterations (上 广 成 美 法 安 玛).
+SURNAMES = frozenset("王李张刘陈杨黄赵吴周徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹彭曾肖田董袁潘于蒋蔡余杜叶"
+                     "程苏魏吕丁任沈姚卢姜崔钟谭陆汪范金石廖贾夏韦付方白邹孟熊秦邱江尹薛闫段雷侯龙史陶黎贺顾毛"
+                     "郝龚邵万钱严覃武戴莫孔向汤")
+_VOWEL_START = re.compile(r"^[aoeāáǎàōóǒòēéěè]", re.I)
+
 
 class Spec(LanguageSpec):
     code = "zh"
@@ -123,7 +171,26 @@ class Spec(LanguageSpec):
         if unused:
             print(f"zh passages: {self.gloss_display_file}: {len(unused)} keys match no pack word: {unused[:10]}",
                   file=sys.stderr)
-        return ZhLinker(shipped, pack.get("compounds", []), display)
+        # readings (passage_ruby) only for a pack with a characters stage: sentences.json
+        # ruby surfaces that read otherwise than their word (这个 zhège) and characters.json
+        # unit readings
+        readings = None
+        if pack.get("characters"):
+            readings = {}
+            byid = {w["id"]: w for w in shipped.values()}
+            sp = pack_dir / "sentences.json"
+            for s in (json.loads(sp.read_text()) if sp.exists() else []):
+                for a, b, r, wid in s.get("ruby") or ():
+                    surf = s["t"][a:b]     # zh sentences are BMP text: UTF-16 offsets are indices
+                    if r and wid in byid and surf != byid[wid]["w"]:
+                        readings.setdefault(surf, {}).setdefault(r, 0)
+                        readings[surf][r] += 1
+            readings = {k: max(v, key=lambda r: (v[r], r)) for k, v in readings.items()}
+            cp = pack_dir / "characters.json"
+            for u in (json.loads(cp.read_text()) if cp.exists() else []):
+                if u.get("reading") and u.get("t"):
+                    readings.setdefault(("unit", u["t"]), u["reading"])
+        return ZhLinker(shipped, pack.get("compounds", []), display, readings)
 
 
 SPEC = Spec
@@ -139,8 +206,15 @@ class ZhLinker:
     lemma_of, lemma_ids, num_ids, lowered) over the pack's own dictionary,
     plus declared (per-passage units), n_words and passage_notes."""
 
-    def __init__(self, shipped, compounds=(), display=None):
+    def __init__(self, shipped, compounds=(), display=None, readings=None):
         self.shipped = shipped
+        # passage_ruby: None = no characters stage, no ruby written. Else the reading
+        # lexicon (_reading_lexicon): surface -> reading from words.json pron, then
+        # characters.json unit readings ("unit", t) and sentences.json ruby surfaces
+        self.readings = readings
+        self._lex = None
+        self.ruby_fallback = {}     # char -> count read by pypinyin with no override (report)
+        self.ruby_override = {}     # char or surface -> count read from an override table
         # display-only glosses by headword (gloss_display.json): written on every
         # span of the word (spans[i][3]); links, counts and words.json never see them
         self.display = dict(display or {})
@@ -456,6 +530,171 @@ class ZhLinker:
                                  f"{' + '.join(tk[0] for tk in inner)}; declare it in names if it is one")
         return notes
 
+    # ---- readings (ruby, docs/PACK_SCHEMA.md passages.json) ---------------------
+    def passage_ruby(self, passages, names_of):
+        """passages.run hook, before writing: with a characters stage (self.readings
+        not None) adds `ruby` to every sentence that has a hanzi, `titleRuby`, and
+        per question `ruby` and (mc) `optionsRuby`, one list per option. Every token
+        holding a hanzi gets [start, end, reading, wordId or None] in UTF-16 offsets
+        (token_reading). names_of: each passage's declared units, as run's `names`.
+        Returns the report lines (counts and the pypinyin fallback characters)."""
+        if self.readings is None:
+            return []
+        self.ruby_fallback, self.ruby_override = {}, {}
+        n = {"sent": 0, "sent_tok": 0, "linked": 0, "other": 0}
+
+        def ruby(text, en, names, where):
+            toks = self.tag(text, en, names)
+            out = self.text_ruby(text, toks)
+            if where:
+                n[where] += len(out)
+                if where == "sent_tok":
+                    n["linked"] += sum(1 for r in out if r[3])
+            return out
+
+        for p, names in zip(passages, names_of):
+            for s in p["sentences"]:
+                r = ruby(s["t"], s["en"], names, "sent_tok")
+                n["sent"] += 1
+                if r:
+                    s["ruby"] = r
+            p["titleRuby"] = ruby(p["title"], "", names, "other")
+            for q in p["questions"]:
+                q["ruby"] = ruby(q["q"], "", names, "other")
+                if q.get("options"):
+                    q["optionsRuby"] = [ruby(o, "", names, "other") for o in q["options"]]
+        fb = sorted(self.ruby_fallback.items(), key=lambda x: (-x[1], x[0]))
+        ov = sorted(self.ruby_override.items(), key=lambda x: (-x[1], x[0]))
+        return ["Readings (`ruby`, langs/zh.py passage_ruby): "
+                f"{n['sent_tok']} reading tokens over {n['sent']} sentences ({n['linked']} on a linked word, "
+                f"{n['sent_tok'] - n['linked']} without one: names, oop words, 过, 第), "
+                f"{n['other']} in titles, questions and options.",
+                f"pypinyin readings with no override: {sum(v for _k, v in fb)} characters, {len(fb)} distinct"
+                + (": " + ", ".join(f"{k} x{v}" for k, v in fb[:30]) if fb else "") + (" ..." if len(fb) > 30 else "") + ".",
+                "Override readings used (SURFACE_READINGS, CHAR_READINGS, 地 rule, aspect 过): "
+                + (", ".join(f"{k} x{v}" for k, v in ov) if ov else "none") + "."]
+
+    def text_ruby(self, text, toks):
+        """[[start, end, reading, wordId or None]] (UTF-16) for every token of
+        `text` (its segment() tokens) that holds a hanzi."""
+        from ..passages import utf16_index
+        out = []
+        for i, t in enumerate(toks):
+            if not HAN_RE.search(t[0]):
+                continue
+            out.append([utf16_index(text, t[3]["s"]), utf16_index(text, t[3]["e"]),
+                        self.token_reading(t, toks[i - 1] if i else None), t[3].get("wid") or None])
+        return out
+
+    def _reading_lexicon(self):
+        """surface -> reading: words.json pron, then characters.json unit readings,
+        then sentences.json ruby surfaces (self.readings)."""
+        if self._lex is None:
+            lex = {}
+            for wid in sorted(self.shipped):
+                w = self.shipped[wid]
+                if w.get("pron"):
+                    lex.setdefault(w["w"], w["pron"])
+            rd = self.readings or {}
+            for k in sorted((k for k in rd if isinstance(k, tuple)), key=lambda k: k[1]):
+                lex.setdefault(k[1], rd[k])
+            for k in sorted(k for k in rd if isinstance(k, str)):
+                lex.setdefault(k, rd[k])
+            self._lex = (lex, max([len(k) for k in lex] + [1]))
+        return self._lex
+
+    _hetero = {}
+
+    @classmethod
+    def _heteronym(cls, ch):
+        """pypinyin knows more than one reading for this character."""
+        if ch not in cls._hetero:
+            from pypinyin import Style
+            cls._hetero[ch] = len(set(_pypinyin()(ch, style=Style.TONE, heteronym=True)[0])) > 1
+        return cls._hetero[ch]
+
+    def token_reading(self, tok, prev=None):
+        """The reading of one token holding a hanzi (module docstring, "Readings")."""
+        surf, info = tok[0], tok[3]
+        kind, wid = info["kind"], info.get("wid")
+        if kind == "particle" and surf == "过":
+            self._bump(self.ruby_override, "过 (aspect)")
+            return "guo"
+        if surf in SURFACE_READINGS:
+            self._bump(self.ruby_override, surf)
+            return SURFACE_READINGS[surf]
+        word = self.shipped.get(wid) if wid else None
+        if word and surf == word["w"] and word.get("pron"):
+            return word["pron"]
+        lex, maxlen = self._reading_lexicon()
+        linked = bool(word)
+        n = len(surf)
+        # best[j]: (cost, pieces) for surf[:j]; cost = (uncovered chars, pieces, -head pieces)
+        best = [None] * (n + 1)
+        best[0] = ((0, 0, 0), ())
+        head = word["w"] if word else None
+        for i in range(n):
+            if best[i] is None:
+                continue
+            cost, path = best[i]
+            cands = []
+            for L in range(min(maxlen, n - i), 0, -1):
+                u = surf[i:i + L]
+                if u in lex and (linked or L > 1 or not self._heteronym(u)):
+                    cands.append((i + L, ("lex", u)))
+            if surf[i] == "儿" and i and path and path[-1][0] == "lex":
+                cands.append((i + 1, ("er", "儿")))
+            cands.append((i + 1, ("fb", surf[i])))
+            for e, pc in cands:
+                c = (cost[0] + (pc[0] == "fb"), cost[1] + 1, cost[2] - (pc[0] == "lex" and pc[1] == head))
+                if best[e] is None or c < best[e][0]:
+                    best[e] = (c, path + (pc,))
+        pieces = best[n][1]
+        py = None
+        out = []
+        at = 0
+        for k, u in pieces:
+            if k == "lex":
+                r = lex[u]
+            elif k == "er":
+                out.append("r")
+                at += 1
+                continue
+            else:
+                r = self._char_reading(surf, at, u, prev, kind)
+                if r is None:
+                    if py is None:
+                        from pypinyin import Style
+                        py = [x[0] for x in _pypinyin()(surf, style=Style.TONE, heteronym=False)]
+                        if len(py) != n:        # not one entry per character: read the character alone
+                            py = [_pypinyin()(c, style=Style.TONE, heteronym=False)[0][0] for c in surf]
+                    r = py[at]
+                    self._bump(self.ruby_fallback, u)
+            out.append(("'" if out and _VOWEL_START.match(r) else "") + r)
+            at += len(u)
+        if kind == "name":
+            return _name_case(surf, pieces, out)
+        return "".join(out)
+
+    def _char_reading(self, surf, at, ch, prev, kind):
+        """An override reading for a character outside the pack's coverage, or None."""
+        if ch == "地":
+            # a lone 地 right after a pack word is the adverbial de (高兴地); inside a
+            # longer token (草地, 地铁) or after anything else, the noun dì
+            r = "de" if len(surf) == 1 and prev is not None and prev[3].get("wid") else "dì"
+            self._bump(self.ruby_override, f"地 ({r})")
+            return r
+        # a lone character only: inside a longer token (a name: 成都, an oop word: 着急)
+        # pypinyin's phrase dictionary knows the reading better than a fixed table
+        if ch in CHAR_READINGS and len(surf) == 1 and kind != "name":
+            self._bump(self.ruby_override, ch)
+            return CHAR_READINGS[ch]
+        return None
+
+    @staticmethod
+    def _bump(d, k):
+        d[k] = d.get(k, 0) + 1
+
     def _jieba_pseg(self):
         if self._jieba is None:
             try:
@@ -471,3 +710,30 @@ class ZhLinker:
                       "(pip install -r tools/packbuilder/requirements-zh.txt)", file=sys.stderr)
                 self._jieba = False
         return self._jieba or None
+
+
+def _pypinyin():
+    """pypinyin.pinyin (tools/packbuilder/requirements-zh.txt); required for zh
+    passage readings with a characters stage."""
+    try:
+        from pypinyin import pinyin
+    except ImportError:
+        raise SystemExit("zh passages: pypinyin is required for passage readings "
+                         "(pip install -r tools/packbuilder/requirements-zh.txt)")
+    return pinyin
+
+
+def _cap(r):
+    return r[:1].upper() + r[1:]
+
+
+def _name_case(surf, pieces, out):
+    """A name's reading: capitalised; a surname in SURNAMES (or 小/老 + surname)
+    written apart from what follows (Zhōu Tíng, Xiǎo Wáng)."""
+    out = [x.lstrip("'") for x in out]
+    if len(pieces) > 1 and len(surf) <= 3 and (
+            (len(pieces[0][1]) == 1 and surf[0] in SURNAMES) or
+            (len(surf) == 2 and surf[0] in "小老" and surf[1] in SURNAMES)):
+        return _cap(out[0]) + " " + _cap("".join(("'" if i and _VOWEL_START.match(x) else "") + x
+                                                for i, x in enumerate(out[1:])))
+    return _cap("".join(("'" if i and _VOWEL_START.match(x) else "") + x for i, x in enumerate(out)))

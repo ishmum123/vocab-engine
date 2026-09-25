@@ -187,9 +187,10 @@ Optional. The shape is unchanged from hsk's `LESSONS`.
 Optional. When present and non-empty, the app shows a **Read** tab. Without it nothing changes.
 
 ```
-[{ id, lv, title, text, src?,
-   sentences: [{ t, en, words: [wordId], spans?: [[start, end, wordId]] }],
-   questions: [{ q, en?, type: "mc"|"tf", options: [4 strings] | null, answer, words: [wordId], sentence }] }]
+[{ id, lv, title, titleRuby?, text, src?,
+   sentences: [{ t, en, words: [wordId], spans?: [[start, end, wordId]], ruby?: [[start, end, reading, wordId|null]] }],
+   questions: [{ q, en?, type: "mc"|"tf", options: [4 strings] | null, answer, words: [wordId], sentence,
+                 ruby?, optionsRuby?: [ruby per option] }] }]
 ```
 
 | field | type | meaning |
@@ -202,7 +203,10 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 | `sentences[].t` | string | One sentence of the passage, rendered in order. |
 | `sentences[].en` | string | English translation, shown in question feedback and results. |
 | `sentences[].words` | `[wordId]` | Linked pack words. Each is tappable for its gloss: at its `spans` when it has any, otherwise wherever its `w`, an `alt` or its bare form is visible in `t` (core.js `passageSegments`, longest match wins, so 为什么 beats 为, and a surface hit never covers a span). A linked word with neither is shown as a chip under the sentence, so every linked word stays tappable. |
-| `sentences[].ruby` | `[[start, end, reading, wordId]]` | Optional, only meaningful with `pack.characters`. Same format, rules and rendering as `sentences.json` `ruby`, per passage sentence; a token crossing a tap-span edge renders plain. |
+| `sentences[].ruby` | `[[start, end, reading, wordId]]` | Optional, only meaningful with `pack.characters`. Same format, rules and rendering as `sentences.json` `ruby`, per passage sentence; a token crossing a tap-span edge renders plain. Unlike `sentences.json`, `wordId` may be `null`: a token of no pack word (a name, an out-of-pack word, zh aspect 过) with no unit, so it follows streak 0 (its reading under `pronFirst`, the ruby tier otherwise). zh writes a token for every hanzi (`packbuilder passages`, langs/zh.py `passage_ruby`), so a pronFirst passage never shows a hanzi below mastered. |
+| `titleRuby` | ruby list | Optional, same tuple format for `title` (wordId `null` or a characters.json unit's `words[0]`; no words list applies). Validated; **not rendered yet**: the title shows as written. |
+| `questions[].ruby` | ruby list | Optional, same format for `q`. Validated; **not rendered yet**. |
+| `questions[].optionsRuby` | `[ruby list]` | Optional, mc only: one ruby list per `options` entry, same index (a list may be empty). Validated; **not rendered yet**. |
 | `sentences[].spans` | `[[start, end, wordId, gloss?]]` | Optional. Where each linked word sits in `t`, as written by the builder from its tagger tokens (`packbuilder passages`), so inflected forms (mele, compra, va) are tappable in place. Offsets are UTF-16 code units (JavaScript string indices; equal to character indices for text without characters above U+FFFF), `end` exclusive. Spans are sorted and do not overlap, each `wordId` is in `words`, and a word may have several spans (one per occurrence). A multi-token unit the builder links as one word (per favore) is one span. `words` stays the full list: a word without a span falls back to surface matching, and packs without `spans` render exactly as before. Invalid spans are ignored by the app. Optional 4th element `gloss`: a non-empty display-only string shown in the tap-to-gloss popover instead of the word's `en` (fallback: span gloss, then the word's gloss). zh uses it for phrase units linked to a head word (越来越 -> 越 "more and more", 开车 -> 开 "to drive") and for the pack's display glosses (`packs/zh/gloss_display.json`, a sense list per headword). It never changes `words`, drills, weak words or progress; a span without it, and a pack without it, render exactly as before. |
 | `questions[].q` | string | Target-language question. |
 | `questions[].en` | string | Optional English translation of `q`, shown under it. |
@@ -258,7 +262,8 @@ An object with up to three optional keys, each a map from an old-app string key 
 - `passages.json`, when present: unique ids, `lv` is a pack level, `title`/`text` non-empty, non-empty `sentences` with `t`, `en` and known `words` ids, optional `spans` (a list of `[start, end, wordId]`, or `[start, end, wordId, gloss]` with a non-empty gloss string, with integer UTF-16 offsets, `0 <= start < end <= len(t)`, sorted, non-overlapping, not splitting a surrogate pair, `wordId` in that sentence's `words`, covering non-blank text), non-empty `questions` with `q`, `type` mc or tf, mc `options` of 4 distinct strings with `answer` 0–3, tf `answer` a bool and no options, known `words` ids, and `sentence` a valid index. A sentence `t` missing from `text` and a question with empty `words` are warnings.
 - `pack.characters`, when present: `stages` is a non-empty list of `{after, levels}` with existing level ids, `after` non-decreasing in `pack.levels` order, and every level id covered by exactly one stage; `mastered`/`setSize` positive ints and `bare > mastered`; `learnKinds`/`reviewKinds` non-empty lists of known kinds; `testKinds`, when present, a non-empty object of known kinds to positive weights; every `stages[].levels` id at or before that stage's `after` in `pack.levels` order. `characters.json` must exist exactly when `pack.characters` does, each error naming which side is missing.
 - `characters.json`, when present: unique ids, non-empty `t`, non-empty `words` with known word ids, and `lv` a pack level, equal to the level of `words[0]`, and covered by a `pack.characters.stages[].levels`.
-- `sentences[].ruby` (and `passages.json` `sentences[].ruby`), when present: same offset rules as `passages.json` `spans` (sorted, non-overlapping, in-bounds, no split surrogate pairs, non-blank), plus a non-empty `reading` and a `wordId` that is both in the sentence's `words` and some `characters.json` unit's `words[0]`.
+- `sentences[].ruby` (and `passages.json` `sentences[].ruby`), when present: same offset rules as `passages.json` `spans` (sorted, non-overlapping, in-bounds, no split surrogate pairs, non-blank), plus a non-empty `reading` and a `wordId` that is both in the sentence's `words` and some `characters.json` unit's `words[0]`. In `passages.json` a `wordId` may also be `null`.
+- `passages.json` `titleRuby`, `questions[].ruby` and `questions[].optionsRuby` (one ruby list per option, same length as `options`), when present: the same offset and reading rules against `title`, `q` and each option, with `wordId` `null` or some `characters.json` unit's `words[0]`. Without `pack.characters` they are a warning.
 - `pack.legacy` and `legacy.json` must exist together, and every value in `legacy.json`'s `w`/`s`/`c` maps is a real `words.json`/`sentences.json`/`characters.json` id (duplicate values across one map are a warning).
 - The generated `.js` files are in sync.
 
