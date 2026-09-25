@@ -107,6 +107,19 @@ languages (unspaced linking as in `langs/ja.py`; rules in any repo's
 reach learners only when hsk switches onto the engine (last task), so they
 ship with that switch.
 
+### 1c. Script primer stage (user 2026-09-25, after 1b, before ar/hi/ur)
+A pack-gated "Script" tab for non-Latin packs, distinct from hsk's
+characters stage: letter/jamo → sound, recognition, syllable and word
+reading, using the pack's own words as examples, TTS for the sound; unlocked
+before A1 with a "skip, I can read" option; placement untouched. Data: a
+small per-pack table (`pack/script.json`: symbol, name, romanisation, sound
+note, example word id, joining forms where the script has them). Consumers:
+ko (Hangul, 40 jamo), ru (Cyrillic, 33), fa (32, joining forms), ja (kana,
+92; kanji come from item 1's characters stage), ar/hi/ur (built with it from
+the start). zh keeps pinyin via the Sounds tab. Reverses the 2026-09-23
+"script is not drilled" decision on purpose: an A1 learner cannot use a
+Hangul or Devanagari pack without it.
+
 ### 2. Expand every pack from B1 to B2 (user is considering it)
 Roughly 2000 → 4000 words per language (B2 ≈ ranks 2001–4000), a fourth
 level in `placement`, `levels` and the Read tab (20 more passages at
