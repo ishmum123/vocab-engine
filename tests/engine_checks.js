@@ -342,13 +342,26 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   // Allowed: the HTML charset declaration only. "char" is not banned: the characters
   // stage (pack.characters, prog.chars) is a pack-generic feature used by zh and ja
   // (docs/HSK_MERGE.md §2); language-specific terms below still are.
+  // One exemption: core.js's delimited legacy-migration section (merge plan §4) reads the
+  // predecessor hsk app's record, whose field names are fixed by that app. Only lines
+  // strictly between its header and the export header are skipped, and the section is
+  // capped in size so it cannot quietly absorb other logic.
   const ALLOW = [/<meta charset="utf-8">/];
+  const LEGACY_START = "// ------------------------------------------------------------------ legacy migration";
+  const LEGACY_END = "// ------------------------------------------------------------------ export";
+  const LEGACY_MAX_LINES = 150;
   const hits = [];
+  let legacyLines = -1;
   ["core.js", "app.html"].forEach(f=>{
-    fs.readFileSync(path.join(ROOT, "engine", f), "utf8").split("\n").forEach((line, i)=>{
+    const lines = fs.readFileSync(path.join(ROOT, "engine", f), "utf8").split("\n");
+    let lo = -1, hi = -1;
+    if(f === "core.js"){ lo = lines.indexOf(LEGACY_START); hi = lo >= 0 ? lines.indexOf(LEGACY_END, lo) : -1; if(lo >= 0 && hi > lo) legacyLines = hi - lo - 1; else lo = hi = -1; }
+    lines.forEach((line, i)=>{
+      if(i > lo && i < hi) return;
       if(/tone|pinyin|cjk|hsk|hanzi|kanji/i.test(line) && !ALLOW.some(re=>re.test(line))) hits.push(`${f}:${i+1}: ${line.trim().slice(0,100)}`);
     });
   });
+  check(`core.js legacy-migration section is delimited and at most ${LEGACY_MAX_LINES} lines (${legacyLines})`, legacyLines > 0 && legacyLines <= LEGACY_MAX_LINES);
   hits.forEach(h=>console.log("    " + h));
   check("engine/ has no tone/pinyin/CJK/hsk/hanzi/kanji references (besides <meta charset>)", hits.length === 0);
 })();
