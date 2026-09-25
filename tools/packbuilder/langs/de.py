@@ -126,7 +126,8 @@ COMPARATIVES = {"mehr", "weniger", "lieber", "eher", "besser", "anders", "schlec
                 "jünger", "früher", "später", "schneller", "länger", "höher", "weiter", "öfter", "schöner"}
 SAY_VERBS = {"sagen", "antworten", "nicken", "stimmen"}
 MODAL_INF = {"sollen", "müssen", "können", "dürfen", "wollen", "mögen"}
-PLURAL_FIX = {"zeug": "-"}          # Wiktionary lists Zeuge (= witness) as its plural
+PLURAL_FIX = {"zeug": "-",          # Wiktionary lists Zeuge (= witness) as its plural
+              "reis": "~"}          # Reise (sorts of rice) reads as die Reise, trip
 RARE_PLURAL_ZIPF = 2.4
 IHR_PRON_NEXT = {"zwei", "drei", "vier", "beide", "beiden"}   # "ihr zwei": you two
 CLAUSE_PUNCT = {",", ";", ".", "!", "?", ":", "—", "–", '"'}
@@ -289,6 +290,27 @@ class German(LanguageSpec):
     # residuals no rule reaches: "weißen" (whiten; inflected weiß in the lists),
     # die Aue (from the interjection "Au!")
     drop_keys = {("weißen", "VERB"): None, ("aue", "NOUN"): None}
+    # everyday written-register words the subtitle-frequency ranking leaves past
+    # the cut (weather, clothing, shopping, transport, housing, admin, food);
+    # they displace the lowest-ranked chosen words and keep their own rank order.
+    # Not reachable this way: schneien (ranked past the candidate pool),
+    # Internet and Taxi (tagged as proper nouns), Butter (read as buttern),
+    # Gehalt (the der-Gehalt "content" entry wins; Lohn is kept instead).
+    keep_keys = frozenset({(w.lower(), "NOUN") for w in (
+        "Supermarkt", "Gemüse", "Schnee", "Jacke", "Miete", "Fahrkarte", "Ausland", "Bewerbung", "Umwelt",
+        "Führerschein", "Wolke", "Hemd", "Pullover", "Haltestelle", "Verspätung", "Parkplatz", "Schlafzimmer",
+        "Vermieter", "Heizung", "Möbel", "Schrank", "Treppe", "Lohn", "Formular", "Ausweis", "Versicherung",
+        "Hausaufgabe", "Zucker", "Salz", "Kartoffel", "Reis", "Mittagessen", "Getränk", "Kühlschrank")} |
+        {(w, "VERB") for w in ("regnen", "parken", "umsteigen", "umziehen", "mieten")})
+    # film/TV-subtitle register (crime, war, fantasy, slang) near the cut gives
+    # its slots to the everyday words above, so the kept words displace these
+    # rather than everyday tail words (Toilette, Einladung, lächeln, mitkommen)
+    drop_keys = {**drop_keys, **{(w.lower(), "NOUN"): None for w in (
+        "Weib", "Führer", "Ermittlung", "Flucht", "Schwert", "Monster", "Riese", "Kaiser", "Prinzessin", "Bombe",
+        "Kugel", "Täter", "Agent", "Truppe", "Gefangener", "Maul", "Bulle", "Menschheit", "Kapitän", "Engel",
+        "Motiv", "Grab", "Kreuz", "Minister", "Nation", "Wolf", "Akt", "Wesen", "Zelle", "Wahnsinn", "Klappe",
+        "Mädel")}, **{(w, "VERB"): None for w in (
+        "besiegen", "begehen", "vernichten", "herrschen", "beschützen", "bestrafen", "abhauen")}}
     profane_stems = ("fick", "scheiß", "scheiss", "arschl", "wichs", "fotz", "hurens")
     profanity = {"scheiße", "scheisse", "arsch", "hure", "huren", "schlampe", "kacke", "pisse", "pissen",
                  "verdammt", "verdammte", "wichser", "fotze", "schwuchtel", "nutte", "titten", "bumsen",
