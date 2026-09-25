@@ -1192,6 +1192,20 @@ VULGAR_KO = r"씨발|시발|씨팔|좆|존나|졸라|개새끼|새끼|병신|지
 POLITE_END_RE = re.compile(r"(요|니다|니까|십시오|ㅂ시다|시오)$")
 
 
+class _PassageAlias(dict):
+    """passage_lemma_alias for Korean: the hand entries, then an X하다 or X되다
+    verb or adjective the pack lacks falls back to its noun X (운동하다 ->
+    운동, 요리하다 -> 요리, 중독되다 -> 중독) when X is a pack word (classify
+    checks that): one tap on the eojeol, as a compound the pack lacks links
+    its first word."""
+    def get(self, k, d=None):
+        if k in self:
+            return self[k]
+        if isinstance(k, str) and len(k) > 2 and k.endswith(("하다", "되다")) and HANGUL_RE.match(k):
+            return k[:-2]
+        return d
+
+
 class Korean(LanguageSpec):
     code = "ko"
     name_en = "Korean"
@@ -2181,5 +2195,240 @@ class Korean(LanguageSpec):
             return f"word {w['id']} {w['w']!r}: verb/adjective not in its -다 form"
         return None
 
+
+    # ---- reading passages only (passages.Linker; the corpus build never calls these) ----
+    passage_retag_names = True      # passage_retag also gets the declared names
+    # suppletive honorific verbs link the plain verb, as 드시다 -> 먹다 does in the build
+    passage_lemma_alias = _PassageAlias({"주무시다": "자다", "잡수시다": "먹다"})
+    SINO_NUM_RE = re.compile(r"^[일이삼사오육칠팔구십백천만]{2,}$")
+    NATIVE_TENS = frozenset("열 스물 스무 서른 마흔 쉰 예순 일흔 여든 아흔".split())
+    NATIVE_UNITS = frozenset("한 하나 두 둘 세 셋 네 넷 다섯 여섯 일곱 여덟 아홉".split())
+    NATIVE_NUM_RE = re.compile(r"^(?:열|스물|스무|서른|마흔|쉰|예순|일흔|여든|아흔)(?:한|하나|두|둘|세|셋|네|넷|다섯|여섯|일곱|여덟|아홉)$")
+
+    def _passage_name_pieces(self, n, tail, morph):
+        """A declared name n and the rest of its eojeol -> tokens, or None:
+        the name (PROPN) plus a particle chain (민수는, 지영에게), the copula
+        (민수예요, 지영이에요), or, after a final consonant, the familiar
+        suffix -이 (no word) plus particles (지영이는, 지영이가)."""
+        name = [n, n, "PROPN", f"Ko=name|G=PROPN|{morph}"]
+        if not tail:
+            return [name]
+        if tail in (COP_CONS if has_batchim(n) else COP_VOW):
+            return [name, [tail, "-이다", "X", f"Ko=name|G=PART|{morph}"]]
+        ch = particle_chains(n, tail)
+        if ch:
+            return [name] + [[s, key, "X", f"Ko=name|G=PART|{morph}"] for s, key in ch[0]]
+        if has_batchim(n) and tail.startswith("이") and len(tail) > 1:
+            ch = particle_chains(n + "이", tail[1:])
+            if ch:
+                return [name, ["이", "이", "X", "Ko=gram"]] + \
+                    [[s, key, "X", f"Ko=name|G=PART|{morph}"] for s, key in ch[0]]
+        return None
+
+    def _passage_pack(self):
+        """(pack lemmas, pack nouns/pronouns) from pack/words.json, homograph
+        suffixes dropped (눈:snow -> 눈): the passage repairs below only fire
+        when they land on a pack word."""
+        if getattr(self, "_ppack", None) is None:
+            import json
+            ws = json.loads((self.repo / "pack" / "words.json").read_text(encoding="utf-8"))
+            self._ppack = ({w["lemma"].split(":")[0] for w in ws},
+                           {w["lemma"].split(":")[0] for w in ws if w["pos"] in ("noun", "pron")})
+        return self._ppack
+
+    def _passage_numerals(self, toks):
+        """Numeral compounds link every part (one span per part): a Sino-Korean
+        compound before a counter splits per syllable (이천 원 -> 이 + 천, 오십만
+        -> 오 + 십 + 만), a native tens + unit compound anywhere splits in two
+        (열여섯 -> 열 + 여섯, 스물여섯, 열두 -> 열 + 둘), and a Sino digit the
+        tagger cut from 만/백/천 (삼 + -만 in 삼만 원) takes that part as a numeral
+        too. Numerals are not counted, as digits are not."""
+        num = lambda s, k: [s, NUM_KEY[k][0], "NUM", "Ko=num|G=NUM|X="]      # noqa: E731
+        out = []
+        for j, t in enumerate(toks):
+            nxt = toks[j + 1] if j + 1 < len(toks) else None
+            m = self.NATIVE_NUM_RE.match(t[0])
+            if m and t[1] not in ("열:num",):
+                for tens in sorted(self.NATIVE_TENS, key=len, reverse=True):
+                    if t[0].startswith(tens) and t[0][len(tens):] in self.NATIVE_UNITS:
+                        out += [num(tens, tens), num(t[0][len(tens):], t[0][len(tens):])]
+                        break
+                continue
+            # the counter must be a word (도 "degree" is also the particle -도: 사이도)
+            # and the compound no word the analyser knows (이천, 오십만 come out
+            # unknown or as a numeral; 사이 "between" is a noun)
+            ctr = nxt is not None and nxt[0] in COUNTERS and nxt[2] != "X"
+            if self.SINO_NUM_RE.match(t[0]) and (t[2] == "NUM" or "Ko=unk" in (t[3] or "")) and ctr:
+                out += [num(c, c) for c in t[0]]
+                continue
+            if out and t[0] in ("만", "천", "백", "십") and t[2] == "X" and out[-1][2] == "NUM" and \
+                    out[-1][0] in SINO_DIGITS | {"십", "백", "천"} and ctr:
+                out.append(num(t[0], t[0]))
+                continue
+            out.append(t)
+        return out
+
+    def passage_retag(self, toks, names=frozenset()):
+        """Passage-only token repairs (the corpus build never calls this):
+        - numeral compounds link every part (_passage_numerals): 이천 원 ->
+          이 + 천, 삼만 -> 삼 + 만, 열여섯 -> 열 + 여섯; not counted, as digits
+          are not;
+        - a declared Hangul name is PROPN wherever it stands, and its eojeol
+          splits into the name plus particles or the copula, also where the
+          tagger read it as one unknown word (민수는), cut it wrongly (김민수예
+          + 요) or split the name itself (유 + 나). Hangul has no capitals, so
+          the core rule for declared names never fires; the passage also
+          declares the name in oop as "name", so it is neither counted nor
+          reported;
+        - a noun + particle split whose eojeol is a pack verb form is that
+          verb (같이 자요, 책을 사요, 못 자는: not 자 "ruler" / 사 + -요, -는),
+          when the noun is no pack noun;
+        - a whole-eojeol dictionary word the pack lacks is read as a pack
+          verb form when it is one (사면, 사신: 사다, not the nouns), else as
+          a pack noun plus particles (앞에서: 앞 + -에서, not the adverb),
+          also with the honorific suffix -님 (교수님이: 교수 + -님 + -이;
+          -님 links nothing);
+        - context: a native tens + unit numeral written as two tokens (열 + 한)
+          is two numerals; the counter after a numeral is the counter noun
+          (열네 살: not 살다); 저 before a declared name is the pronoun (저
+          수아예요), not "that", and before a bare noun that is no copula
+          predicate is "that" (저 빵도 주세요); 자기 before 전 "before" or after 잠 is 자다
+          (자기 전에, 잠을 자기가), not the noun 자기 "oneself"; 날 read as the
+          fused 나 + 를 is the noun "day"; 알려/알렸/알린 are 알리다, not 알다
+          (알려고/알려면 excepted); 번 before a noun, with no numeral before
+          it, is 벌다 "earned" (번 돈); X + -하고 is the pack verb X하다 when
+          no noun follows (시작하고 여섯 시에); an eojeol the analyser cannot
+          read that is a pack X하다/X되다 verb form links it (발견되었거나)."""
+        self._patch_wordfreq()      # a cached link context never ran bind_lexicon: route zipf lookups
+        toks = self._passage_numerals(toks)
+        ns = sorted({n for n in names if HANGUL_RE.match(n)}, key=len, reverse=True)
+        out, i = [], 0
+        while i < len(toks):
+            hit = None
+            for n in ns if toks[i][2] != "PUNCT" else ():
+                cat = ""
+                for k in range(1, 5):
+                    if i + k > len(toks) or toks[i + k - 1][2] == "PUNCT":
+                        break
+                    cat += toks[i + k - 1][0]
+                    if len(cat) < len(n):
+                        if not n.startswith(cat):
+                            break
+                        continue
+                    if not cat.startswith(n):
+                        break
+                    t3 = toks[i][3] or ""
+                    pieces = self._passage_name_pieces(n, cat[len(n):], t3.split("|")[-1] if "X=" in t3 else "X=")
+                    if pieces:
+                        hit = (k, pieces)
+                        break
+                if hit:
+                    break
+            if hit:
+                out += hit[1]
+                i += hit[0]
+            else:
+                out.append(toks[i])
+                i += 1
+        toks = out
+        mo = self.morph()
+        pack, nouns = self._passage_pack()
+        out, i = [], 0
+        while i < len(toks):
+            t = toks[i]
+            nxt = toks[i + 1] if i + 1 < len(toks) else None
+            if t[2] == "NOUN" and nxt is not None and nxt[2] == "X" and nxt[1].startswith("-") and t[1].split(":")[0] not in nouns:
+                a = mo.analyse(t[0] + nxt[0], "pv")
+                if a and len(a[1]) == 1 and a[1][0][2] in ("VERB", "ADJ") and a[1][0][1] in pack:
+                    g = a[1][0][2]
+                    out.append([t[0] + nxt[0], a[1][0][1], g, f"Ko=verb|G={g}|X="])
+                    i += 2
+                    continue
+            if t[2] not in ("PUNCT", "PROPN", "X", "NUM") and t[1] == t[0] and t[0] not in pack and len(t[0]) > 1:
+                # a pack verb form first (물건을 사면, 표를 사신: not the nouns 사면, 사신)
+                vs = sorted((c, pc[0][1], pc[0][2]) for c, kind, pc in mo.candidates(t[0])
+                            if len(pc) == 1 and pc[0][2] in ("VERB", "ADJ") and pc[0][1] in pack)
+                if vs:
+                    out.append([t[0], vs[0][1], vs[0][2], f"Ko=verb|G={vs[0][2]}|X="])
+                    i += 1
+                    continue
+                split = None
+                for k in range(len(t[0]) - 1, 0, -1):
+                    host, rest = t[0][:k], t[0][k:]
+                    hon = host.endswith("님") and host[:-1] in nouns      # 교수님이: 교수 + -님 + -이
+                    ch = particle_chains(host, rest) if (host in nouns or hon) and rest else []
+                    if ch or (hon and not rest):
+                        split = ([[host[:-1], host[:-1], "NOUN", "Ko=noun|G=NOUN|X="], ["님", "님", "X", "Ko=gram"]]
+                                 if hon else [[host, host, "NOUN", "Ko=noun|G=NOUN|X="]]) + \
+                            [[s2, key, "X", "Ko=noun|G=PART|X="] for s2, key in (ch[0] if ch else [])]
+                        break
+                if split:
+                    out += split
+                    i += 1
+                    continue
+            out.append(t)
+            i += 1
+        # context repairs over the rebuilt tokens
+        for j, t in enumerate(out):
+            if t is None:
+                continue
+            prv = out[j - 1] if j else None
+            nxt = next((x for x in out[j + 1:] if x is not None and x[2] != "X"), None)
+            if t[0] == "날" and t[1] == "나":
+                # 날 read as the fused 나 + 를: the noun "day" (어느 날, 다음 날); a 나다
+                # reading (사고가 날 위험) stays
+                out[j] = [t[0], "날", "NOUN", "Ko=closed|G=NOUN|X="]
+            elif t[1] == "알다" and t[0].startswith(("알려", "알렸", "알립", "알린", "알리")) and \
+                    not t[0].startswith(("알려고", "알려면")) and "알리다" in pack:
+                # 알려 드립니다, 알려 준대요: 알리다 "to inform", not 알다
+                out[j] = [t[0], "알리다", "VERB", "Ko=verb|G=VERB|X="]
+            elif t[0] == "번" and t[1] == "번" and (prv is None or prv[2] not in ("NUM", "DET")) and \
+                    j + 1 < len(out) and out[j + 1][2] == "NOUN" and "벌다" in pack:
+                # 번 돈: the modifier of 벌다 "earned" before a noun; the counter 번
+                # follows a numeral (한 번, 몇 번)
+                out[j] = [t[0], "벌다", "VERB", "Ko=verb|G=VERB|X="]
+            elif t[2] == "NOUN" and j + 1 < len(out) and out[j + 1][1] == "-하고" and t[1] + "하다" in pack and \
+                    (nxt is None or nxt[2] not in ("NOUN", "PRON", "PROPN")):
+                # 시작하고 여섯 시에: the X하다 verb + -고 when the pack has it, not X + the
+                # particle -하고 "and" (공부하고 운동을 좋아해요 keeps the particle)
+                out[j] = [t[0] + out[j + 1][0], t[1] + "하다", "VERB", "Ko=verb|G=VERB|X="]
+                out[j + 1] = None
+            elif "Ko=unk" in (t[3] or ""):
+                # 발견되었거나: an X하다/X되다 pack verb the analyser cannot read
+                for k in range(len(t[0]) - 1, 0, -1):
+                    host, rest = t[0][:k], t[0][k:]
+                    for lv, heads in (("하다", ("하", "해", "했", "합", "한", "할")), ("되다", ("되", "돼", "됐", "됩", "된", "될"))):
+                        if host + lv in pack and rest.startswith(heads):
+                            out[j] = [t[0], host + lv, "VERB", "Ko=verb|G=VERB|X="]
+                            break
+                    else:
+                        continue
+                    break
+        out = [t for t in out if t is not None]
+        for j in range(len(out) - 1):
+            t, nxt = out[j], out[j + 1]
+            if t[0] in self.NATIVE_TENS and nxt[0] in self.NATIVE_UNITS:
+                # 열 + 한 (열한 시): a native tens + unit numeral is one number, both numerals
+                out[j] = [t[0], NUM_KEY[t[0]][0], "NUM", "Ko=num|G=NUM|X="]
+                out[j + 1] = [nxt[0], NUM_KEY[nxt[0]][0], "NUM", "Ko=num|G=NUM|X="]
+        for j in range(len(out) - 1):
+            t, nxt = out[j], out[j + 1]
+            if t[2] == "NUM" and nxt[0] in COUNTERS and nxt[0] in nouns and nxt[1] != nxt[0]:
+                # the counter after a numeral is the counter noun (열네 살: not 살다)
+                out[j + 1] = [nxt[0], nxt[0], "NOUN", "Ko=closed|G=NOUN|X="]
+            if t[0] == "저" and t[1] == "저:det" and nxt[2] == "PROPN" and nxt[0] in ns:
+                # 저 before a declared name is the pronoun (저 수아예요: it's me, Sua), not "that"
+                out[j] = [t[0], "저", "PRON", "Ko=closed|G=PRON|X="]
+            elif t[0] == "저" and t[1] == "저" and nxt[2] == "NOUN" and \
+                    (j + 2 >= len(out) or out[j + 2][1] != "-이다"):
+                # 저 before a bare noun that is no copula predicate is "that" (저 빵도
+                #주세요); 저 학생이에요 keeps the pronoun
+                out[j] = [t[0], "저:det", "DET", "Ko=closed|G=DET|X="]
+            if t[0] == "자기" and (any(x[0] == "전" for x in out[j + 1:j + 4]) or
+                                   any(x[0] == "잠" for x in out[max(0, j - 2):j])):
+                # 자기 (한 시간) 전, 잠을 자기: the -기 form of 자다 before 전 "before"
+                # or after its object 잠, not the noun 자기
+                out[j] = [t[0], "자다", "VERB", "Ko=verb|G=VERB|X="]
+        return out
 
 SPEC = Korean

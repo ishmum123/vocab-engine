@@ -293,7 +293,9 @@ class Linker:
             if t[0] in names and t[0][:1].isupper():
                 t[2] = "PROPN"      # a declared name (Pierre, not la pierre)
         if hasattr(sp, "passage_retag"):
-            toks = sp.passage_retag(toks)
+            # spec.passage_retag_names (ko, opt-in): the hook also gets the
+            # declared names (Hangul has no capitals to mark them)
+            toks = sp.passage_retag(toks, names) if getattr(sp, "passage_retag_names", False) else sp.passage_retag(toks)
         for t in toks if self.adverbs else ():
             lem = self.adverbs.get(sp.fold(t[0].lower()))
             if lem and t[2] in sp.passage_adverb_from:
