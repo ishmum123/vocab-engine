@@ -60,7 +60,7 @@ def load(packdir, stem, rep, required=True):
 def check_pack(pack, rep):
     if not isinstance(pack, dict):
         rep.err("pack.json must be an object")
-        return set()
+        return set(), None
     if not (is_str(pack.get("key")) and re.fullmatch(r"[a-z0-9_-]+", pack["key"])):
         rep.err("pack.key must be a lowercase slug [a-z0-9_-]+")
     for f in ("name", "tts"):
@@ -119,7 +119,73 @@ def check_pack(pack, rep):
     if "compounds" in pack and not (isinstance(pack["compounds"], list) and all(is_str(c) for c in pack["compounds"])):
         rep.err("pack.compounds must be a list of non-empty strings")
     check_script_display(pack, rep)
-    return idset
+    if "legacy" in pack:
+        lg = pack["legacy"]
+        if not (isinstance(lg, dict) and is_str(lg.get("key")) and is_str(lg.get("format"))):
+            rep.err("pack.legacy must be {key: non-empty string, format: non-empty string}")
+    char_levels = check_characters_pack(pack, ids, rep)
+    return idset, char_levels
+
+
+CHAR_KINDS = ("charRead", "charSound", "charPick", "charRecall")
+
+
+def check_characters_pack(pack, level_ids, rep):
+    """pack.characters (optional): docs/PACK_SCHEMA.md "characters". `level_ids` is
+    pack.levels[].id in order. Returns the set of character-level ids covered by some
+    stage, or None if pack.characters is absent."""
+    ch = pack.get("characters")
+    if ch is None:
+        return None
+    idset = set(level_ids)
+    if not isinstance(ch, dict):
+        rep.err("pack.characters must be an object")
+        return set()
+    if not is_str(ch.get("label")):
+        rep.err("pack.characters.label must be a non-empty string")
+    stages = ch.get("stages")
+    covered = set()
+    if not isinstance(stages, list) or not stages:
+        rep.err("pack.characters.stages must be a non-empty list of {after, levels}")
+    else:
+        last_idx = -1
+        for i, st in enumerate(stages):
+            where = f"pack.characters.stages[{i}]"
+            if not isinstance(st, dict):
+                rep.err(f"{where} must be an object")
+                continue
+            after = st.get("after")
+            if after not in idset:
+                rep.err(f"{where}.after {after!r} is not a pack level id")
+            elif level_ids.index(after) < last_idx:
+                rep.err(f"{where}.after {after!r} is out of pack.levels order (stages must be non-decreasing)")
+            else:
+                last_idx = level_ids.index(after)
+            levels = st.get("levels")
+            if not isinstance(levels, list) or not levels:
+                rep.err(f"{where}.levels must be a non-empty list of pack level ids")
+                continue
+            for lv in levels:
+                if lv not in idset:
+                    rep.err(f"{where}.levels has {lv!r}, not a pack level id")
+                elif lv in covered:
+                    rep.err(f"{where}.levels: level {lv!r} is covered by more than one stage")
+                else:
+                    covered.add(lv)
+    if not (isinstance(ch.get("mastered", 3), int) and not is_bool(ch.get("mastered", 3)) and ch.get("mastered", 3) > 0):
+        rep.err("pack.characters.mastered must be a positive integer")
+    if not (isinstance(ch.get("bare", 6), int) and not is_bool(ch.get("bare", 6)) and ch.get("bare", 6) > 0):
+        rep.err("pack.characters.bare must be a positive integer")
+    mastered, bare = ch.get("mastered", 3), ch.get("bare", 6)
+    if is_num(mastered) and is_num(bare) and bare <= mastered:
+        rep.err(f"pack.characters.bare ({bare}) must be greater than pack.characters.mastered ({mastered})")
+    if "setSize" in ch and not (isinstance(ch["setSize"], int) and not is_bool(ch["setSize"]) and ch["setSize"] > 0):
+        rep.err("pack.characters.setSize must be a positive integer")
+    for f in ("learnKinds", "reviewKinds"):
+        v = ch.get(f)
+        if not (isinstance(v, list) and v and all(k in CHAR_KINDS for k in v)):
+            rep.err(f"pack.characters.{f} must be a non-empty list drawn from {CHAR_KINDS}")
+    return covered
 
 
 # Script-display fields (docs/PACK_SCHEMA.md "Script display"). Patterns mirror
@@ -240,7 +306,44 @@ def check_placement(pack, words, rep):
             rep.err(f"placement bucket {i} (level {b['lv']}, sets {b['s0'] + 1}-{b['s1']}) has {b['n']} words; needs >= {MIN_BUCKET_WORDS}")
 
 
-def check_sentences(sents, levels, by_id, rep):
+def check_ruby(ruby, t, ws, char_word0, where, rep):
+    """sentences[].ruby (optional): [[start, end, reading, wordId], ...] in UTF-16 code
+    units of t, sorted, non-overlapping, wordId in the sentence's words and some
+    characters.json unit's words[0] (docs/PACK_SCHEMA.md sentences.json "ruby")."""
+    if not isinstance(ruby, list):
+        rep.err(f"{where}.ruby must be a list of [start, end, reading, wordId]")
+        return
+    u = t.encode("utf-16-le") if isinstance(t, str) else b""
+    n = len(u) // 2
+    ws = set(ws) if isinstance(ws, list) else set()
+    prev = 0
+    for k, x in enumerate(ruby):
+        rw = f"{where}.ruby[{k}]"
+        if not (isinstance(x, list) and len(x) == 4 and all(isinstance(v, int) and not is_bool(v) for v in x[:2])
+                and is_str(x[2]) and isinstance(x[3], str) and x[3]):
+            rep.err(f"{rw} must be [start, end, reading, wordId] with integer offsets and non-empty strings")
+            continue
+        a, b, reading, wid = x
+        if not 0 <= a < b <= n:
+            rep.err(f"{rw} [{a}, {b}] out of bounds for a {n}-unit sentence (need 0 <= start < end <= length)")
+            continue
+        if a < prev:
+            rep.err(f"{rw} starts at {a}, before the previous ruby's end {prev} (ruby must be sorted and not overlap)")
+        prev = max(prev, b)
+        if wid not in ws:
+            rep.err(f"{rw} word {wid!r} is not in the sentence's words")
+        elif char_word0 is not None and wid not in char_word0:
+            rep.err(f"{rw} word {wid!r} is not words[0] of any characters.json unit")
+        try:
+            piece = u[2 * a:2 * b].decode("utf-16-le")
+        except UnicodeDecodeError:
+            rep.err(f"{rw} [{a}, {b}] splits a surrogate pair")
+            continue
+        if not piece.strip():
+            rep.err(f"{rw} [{a}, {b}] covers only whitespace")
+
+
+def check_sentences(sents, levels, by_id, rep, char_word0=None):
     if not isinstance(sents, list):
         rep.err("sentences.json must be a list")
         return
@@ -271,6 +374,10 @@ def check_sentences(sents, levels, by_id, rep):
         for f in ("pron", "audio"):
             if f in s and not is_str(s[f]):
                 rep.err(f"{where}.{f} must be a non-empty string when present")
+        if "ruby" in s:
+            if char_word0 is None:
+                rep.warn(f"{where}.ruby present but pack.characters is absent: ruby is never rendered")
+            check_ruby(s["ruby"], s.get("t"), ws, char_word0, where, rep)
 
 
 def check_lessons(pack, lessons, rep):
@@ -443,6 +550,77 @@ def check_passages(passages, levels, by_id, rep):
                 rep.err(f"{qw}.sentence must be an index into {where}.sentences (0..{nsent - 1})")
 
 
+def check_characters_data(chars, char_levels, by_id, rep):
+    """pack/characters.json (required exactly when pack.characters is present):
+    docs/PACK_SCHEMA.md "pack/characters.json". `char_levels` is the set of level ids
+    covered by pack.characters.stages, or None if pack.characters is absent.
+    Returns (unit ids, {words[0] ids}) for cross-checks (legacy.json, sentences[].ruby)."""
+    if chars is None:
+        return set(), set()
+    if not isinstance(chars, list) or not chars:
+        rep.err("characters.json must be a non-empty list")
+        return set(), set()
+    ids, word0 = set(), set()
+    for i, c in enumerate(chars):
+        where = f"characters[{i}]"
+        if not isinstance(c, dict) or not is_str(c.get("id")):
+            rep.err(f"{where} must be an object with a non-empty id")
+            continue
+        if c["id"] in ids:
+            rep.err(f"{where}.id {c['id']} duplicated")
+        ids.add(c["id"])
+        where = f"character unit {c['id']}"
+        if not is_str(c.get("t")):
+            rep.err(f"{where}.t must be a non-empty string")
+        ws = c.get("words")
+        if not isinstance(ws, list) or not ws:
+            rep.err(f"{where}.words must be a non-empty list of word ids")
+        else:
+            missing = [w for w in ws if w not in by_id]
+            if missing:
+                rep.err(f"{where}.words has unknown ids {missing}")
+            elif is_str(ws[0]):
+                word0.add(ws[0])
+        if char_levels is not None:
+            if c.get("lv") not in char_levels:
+                rep.err(f"{where}.lv {c.get('lv')!r} is not covered by any pack.characters.stages[].levels")
+        if "reading" in c and not is_str(c["reading"]):
+            rep.err(f"{where}.reading must be a non-empty string when present")
+    return ids, word0
+
+
+def check_legacy(pack, legacy, by_id, sent_ids, char_ids, rep):
+    """legacy.json (optional, requires pack.legacy and vice versa): docs/PACK_SCHEMA.md
+    "legacy.json". `by_id`/`sent_ids`/`char_ids` are this pack's known ids."""
+    has_pack, has_file = "legacy" in pack, legacy is not None
+    if has_pack and not has_file:
+        rep.err("pack.legacy is set but legacy.json is missing")
+    if has_file and not has_pack:
+        rep.err("legacy.json is present but pack.legacy is not set")
+    if legacy is None:
+        return
+    if not isinstance(legacy, dict):
+        rep.err("legacy.json must be an object with optional keys w, s, c")
+        return
+    targets = {"w": by_id, "s": sent_ids, "c": char_ids}
+    for key, target in targets.items():
+        if key not in legacy:
+            continue
+        m = legacy[key]
+        if not isinstance(m, dict) or not all(is_str(k) for k in m):
+            rep.err(f"legacy.json.{key} must be an object of string -> id")
+            continue
+        missing = [v for v in m.values() if v not in target]
+        if missing:
+            rep.err(f"legacy.json.{key} has values with no matching id: {missing[:10]}")
+        vals = list(m.values())
+        if len(set(vals)) != len(vals):
+            rep.warn(f"legacy.json.{key} maps more than one key to the same id")
+    extra = set(legacy) - {"w", "s", "c"}
+    if extra:
+        rep.err(f"legacy.json has unknown keys {sorted(extra)} (only w, s, c are used)")
+
+
 def validate(packdir):
     rep = Report()
     pack = load(packdir, "pack", rep)
@@ -450,25 +628,35 @@ def validate(packdir):
     sents = load(packdir, "sentences", rep)
     lessons = load(packdir, "lessons", rep, required=False)
     passages = load(packdir, "passages", rep, required=False)
+    chars = load(packdir, "characters", rep, required=False)
+    legacy = load(packdir, "legacy", rep, required=False)
     if pack is None or words is None or sents is None:
         return rep, {}
-    levels = check_pack(pack, rep)
+    levels, char_levels = check_pack(pack, rep)
     by_id = check_words(words, levels, rep)
     for fw in pack.get("functionWords") or []:
         if fw not in by_id:
             rep.err(f"pack.functionWords id {fw!r} is not a word id")
     check_levels_populated(pack, words, rep)
     check_placement(pack, words, rep)
-    check_sentences(sents, levels, by_id, rep)
+    has_pack_chars, has_chars_file = "characters" in pack, chars is not None
+    if has_pack_chars and not has_chars_file:
+        rep.err("pack.characters is set but characters.json is missing")
+    if has_chars_file and not has_pack_chars:
+        rep.err("characters.json is present but pack.characters is not set")
+    char_ids, char_word0 = check_characters_data(chars, char_levels, by_id, rep)
+    check_sentences(sents, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
     check_lessons(pack, lessons, rep)
     check_passages(passages, levels, by_id, rep)
+    check_legacy(pack, legacy, by_id, {s.get("id") for s in sents if isinstance(s, dict)}, char_ids, rep)
     r = subprocess.run([sys.executable, os.path.join(HERE, "jsonify_pack.py"), packdir, "--check"],
                        capture_output=True, text=True)
     if r.returncode != 0:
         rep.err("generated .js out of sync with .json: " + r.stdout.strip().replace("\n", "; "))
     counts = {"words": len(words), "sentences": len(sents) if isinstance(sents, list) else 0,
               "lessons": len(lessons) if isinstance(lessons, list) else 0,
-              "passages": len(passages) if isinstance(passages, list) else 0}
+              "passages": len(passages) if isinstance(passages, list) else 0,
+              "characters": len(chars) if isinstance(chars, list) else 0}
     return rep, counts
 
 
@@ -476,6 +664,12 @@ def passages_note(counts):
     # Only packs with passages mention them, so existing packs' output is unchanged.
     n = counts.get("passages", 0)
     return f", {n} passages" if n else ""
+
+
+def characters_note(counts):
+    # Only packs with a characters stage mention it, so existing packs' output is unchanged.
+    n = counts.get("characters", 0)
+    return f", {n} character units" if n else ""
 
 
 def main(argv):
@@ -497,7 +691,8 @@ def main(argv):
         print(f"ERROR ... and {len(rep.errors) - 50} more")
     status = "FAIL" if rep.errors else "OK"
     print(f"{status} {packdir}: {counts.get('words', 0)} words, {counts.get('sentences', 0)} sentences, "
-          f"{counts.get('lessons', 0)} lessons{passages_note(counts)}; {len(rep.errors)} errors, {len(rep.warnings)} warnings")
+          f"{counts.get('lessons', 0)} lessons{passages_note(counts)}{characters_note(counts)}; "
+          f"{len(rep.errors)} errors, {len(rep.warnings)} warnings")
     return 1 if rep.errors else 0
 
 

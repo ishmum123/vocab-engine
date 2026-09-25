@@ -35,18 +35,30 @@ if [ ! -f "$LESSONS" ]; then
     echo "build.sh: warning: $PACKDIR/pack.js has hasLessons=true but $PACKDIR/lessons.js is missing (Sounds tab will be hidden)" >&2
   fi
 fi
+CHARS="$PACKDIR/characters.js"
+if [ ! -f "$CHARS" ]; then
+  CHARS=""
+  if grep -q '"characters":' "$PACKDIR/pack.js"; then
+    echo "build.sh: warning: $PACKDIR/pack.js has a characters block but $PACKDIR/characters.js is missing (character stage will be off)" >&2
+  fi
+fi
+LEGACY="$PACKDIR/legacy.js"
+if [ ! -f "$LEGACY" ]; then LEGACY=""; fi
 
 mkdir -p "$(dirname "$OUT")"
 TMP="$OUT.tmp.$$"
 # Paths go to awk via ENVIRON, not -v: -v expands backslash escapes in values.
 VE_PACK="$PACKDIR/pack.js" VE_WORDS="$PACKDIR/words.js" VE_SENTS="$PACKDIR/sentences.js" \
-VE_LESSONS="$LESSONS" VE_CORE="$CORE" awk '
+VE_LESSONS="$LESSONS" VE_CHARS="$CHARS" VE_LEGACY="$LEGACY" VE_CORE="$CORE" awk '
   BEGIN { pack = ENVIRON["VE_PACK"]; words = ENVIRON["VE_WORDS"]; sents = ENVIRON["VE_SENTS"]
-          lessons = ENVIRON["VE_LESSONS"]; core = ENVIRON["VE_CORE"] }
+          lessons = ENVIRON["VE_LESSONS"]; chars = ENVIRON["VE_CHARS"]; legacy = ENVIRON["VE_LEGACY"]
+          core = ENVIRON["VE_CORE"] }
   function inline(f,   line){ print "<script>"; while ((getline line < f) > 0) print line; close(f); print "</script>" }
   /<!-- PACK-BEGIN/ { skipping = 1; seen_begin = 1
                       inline(pack); inline(words); inline(sents)
                       if (lessons != "") inline(lessons); else print "<script>const LESSONS=[];</script>"
+                      if (chars != "") inline(chars)
+                      if (legacy != "") inline(legacy)
                       next }
   skipping && /<!-- PACK-END -->/ { skipping = 0; seen_end = 1; next }
   skipping { next }

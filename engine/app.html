@@ -196,14 +196,15 @@
 </nav>
 
 <!-- PACK-BEGIN: dev-mode pack loader. build.sh replaces everything up to PACK-END with
-     the pack's inlined pack.js/words.js/sentences.js/lessons.js. Dev usage from file://:
+     the pack's inlined pack.js/words.js/sentences.js/lessons.js/characters.js/legacy.js
+     (the last three are optional; a 404 for a missing one is harmless, see below). Dev usage from file://:
      engine/app.html?pack=zh  (loads ../packs/zh/)  or  ?packdir=../../pack -->
 <script>
 (function(){
   var q = location.search;
   var dm = /[?&]packdir=([A-Za-z0-9_.\/-]+)/.exec(q), pm = /[?&]pack=([A-Za-z0-9_-]+)/.exec(q);
   var dir = dm ? dm[1] : "../packs/" + (pm ? pm[1] : "zh");
-  ["pack","words","sentences","lessons"].forEach(function(f){ document.write('<script src="' + dir + '/' + f + '.js"><\/script>'); });
+  ["pack","words","sentences","lessons","characters","legacy"].forEach(function(f){ document.write('<script src="' + dir + '/' + f + '.js"><\/script>'); });
 })();
 </script>
 <!-- PACK-END -->
@@ -222,6 +223,11 @@ const HAS_LESSONS = !!PACK.hasLessons && LESSON_LIST.length > 0;
 // with passages.json. Without it the Read tab and every reading hint stay hidden.
 const PASSAGE_LIST = (typeof PASSAGES !== "undefined" && Array.isArray(PASSAGES)) ? PASSAGES : [];
 const HAS_PASSAGES = PASSAGE_LIST.length > 0;
+// CHARACTERS is optional too, like LESSONS: a pack without pack.characters leaves it
+// undeclared in dev mode (or the pack simply has no characters.json). No UI reads these
+// yet; this just exposes the data for the character-stage logic added in a later brief.
+const CHAR_LIST = (typeof CHARACTERS !== "undefined" && Array.isArray(CHARACTERS)) ? CHARACTERS : [];
+const HAS_CHARACTERS = !!PACK.characters && CHAR_LIST.length > 0;
 const LEVELS = VC.levelIds(PACK);
 const SIZE = VC.setSizeOf(PACK);
 const BY_LV = VC.wordsByLevel(WORDS, PACK);

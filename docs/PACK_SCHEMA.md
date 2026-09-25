@@ -9,10 +9,12 @@ A pack is one directory of JSON files that holds all the language-specific data.
   sentences.json   required  example sentences (may be [])
   lessons.json     optional  "Sounds" tab lessons; required when pack.hasLessons is true
   passages.json    optional  "Read" tab graded passages with questions
-  pack.js words.js sentences.js lessons.js   generated, never edit by hand
+  characters.json  optional  character-stage units; required when pack.characters is set
+  legacy.json      optional  old-app id maps for one-time progress migration
+  pack.js words.js sentences.js lessons.js characters.js legacy.js   generated, never edit by hand
 ```
 
-The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. They hold the same data as `const PACK=`, `WORDS=`, `SENTENCES=` and `LESSONS=`, so the app can load them from `file://` and `build.sh` can inline them. `passages.json` has no file of its own: its `const PASSAGES=` is appended to `sentences.js`, so `build.sh` and the dev loader need nothing new, and a pack without passages gets exactly the `sentences.js` it had before. `tools/validate_pack.py` fails when they are stale.
+The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. They hold the same data as `const PACK=`, `WORDS=`, `SENTENCES=`, `LESSONS=`, `CHARACTERS=` and `LEGACY=`, so the app can load them from `file://` and `build.sh` can inline them. `passages.json` has no file of its own: its `const PASSAGES=` is appended to `sentences.js`, so `build.sh` and the dev loader need nothing new, and a pack without passages gets exactly the `sentences.js` it had before. `characters.json` and `legacy.json` follow `lessons.json`'s pattern instead: their own optional generated file, present only when the source `.json` is. `tools/validate_pack.py` fails when they are stale.
 
 ## pack.json
 
@@ -40,6 +42,8 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `fontFamily` | string | no | CSS font-family list for target-language text, e.g. `"\"Noto Nastaliq Urdu\", serif"`. It is placed before the engine's default stack. A value containing `;`, `{`, `}`, `<`, `>`, `\`, `/*` or `url(` is ignored. |
 | `fonts` | `[string]` | no | Google Fonts families the page loads, e.g. `["Noto Nastaliq Urdu"]`, `["Noto Naskh Arabic:wght@400;700"]`, `["Noto Sans Devanagari"]`. Each entry is a family name (letters, digits, spaces), optionally followed by a css2 axis spec. Invalid entries are skipped with a console warning. |
 | `lineHeight` | number 1–4 | no | Line height for target-language text. Use it for tall scripts, e.g. `2.2` for Nastaliq. When absent, the stylesheet's own line heights apply. |
+| `characters` | object | no | Turns on the character stage; see "characters" below. Absent, no character code path runs and `characters.json` must not exist. |
+| `legacy` | `{key, format}` | no | Marks this pack as the successor to an old standalone app's saved progress, for a one-time migration. `key` is the old app's localStorage key (e.g. `"hsk_pinyin"`); `format` is a migration-function tag (e.g. `"hsk-v2"`). Requires `legacy.json`. |
 
 ### Script display
 
@@ -57,6 +61,50 @@ Every element that shows target-language text carries `lang` (from `langTag`) an
 **Example-sentence highlighting.** In teach cards and reveals, the taught word is bolded in each example sentence wherever it is visible. The word is found the same way as for cloze: `w` and every `alt`, whole-word when `spaced`, overlapping hits merged into the widest one. A hit inside a longer pack word or compound is not bolded, so 本 inside 日本 is left plain. When the word is not visible, as when it appears only inflected and no `alt` matches, nothing is bolded. This is core.js `highlightParts`.
 
 **Words search** matches the query against `w`, every `alt`, `pron` and the gloss. Both sides are lowercased and accent-folded as in lenient typing. Whitespace is also ignored, so `nihao` finds `nǐ hǎo`. This is core.js `searchWords`.
+
+## characters
+
+Optional. A **character stage** teaches written units (hanzi, kanji-words, …) alongside the word levels, reusing the one daily new-material slot. Absent, no character code path runs, and `pack/characters.json` must not exist.
+
+```json
+"characters": {
+  "label": "字",
+  "stages": [ {"after":"3","levels":["1","2","3"]}, {"after":"4","levels":["4"]} ],
+  "setSize": 10,
+  "mastered": 3,
+  "bare": 6,
+  "learnKinds": ["charPick","charRead"],
+  "reviewKinds": ["charRead","charSound"]
+}
+```
+
+| field | type | required | meaning |
+|---|---|---|---|
+| `label` | string | yes | Short name for the stage strip and Progress (`字`, `漢字`). A stage after the config's last level appends that level id (`字4`). |
+| `stages` | `[{after, levels}]`, non-empty | yes | Each stage sits after word level `after` (a `pack.levels[].id`) and covers `levels` (a non-empty list of `pack.levels[].id`, in the same namespace `characters.json`'s `lv` uses). `after` values must be non-decreasing in `pack.levels` order, and every `levels` id may appear in exactly one stage. |
+| `setSize` | positive int | no (`pack.setSize`) | Units per learn set, chunked in level order then file order within a stage. |
+| `mastered` | positive int | no (3) | Streak at which a unit's tier becomes "mastered" (bare-form drilling). |
+| `bare` | positive int, `> mastered` | no (6) | Streak at which a unit's tier becomes "bare" (plain text, no ruby). |
+| `learnKinds` | `[string]`, non-empty | yes | Item kinds taught for each new unit, drawn from `charRead`, `charSound`, `charPick`, `charRecall` (see "Drill items" in `docs/HSK_MERGE.md` §2.5). |
+| `reviewKinds` | `[string]`, non-empty | yes | Item kinds used once a unit is in Review/Recall, from the same set. |
+
+`tools/validate_pack.py` checks `stages` (existing level ids, `after` order, one stage per level), the thresholds (`bare > mastered`), and that `learnKinds`/`reviewKinds` are known kinds.
+
+## pack/characters.json
+
+Required when `pack.characters` is set (and must be absent otherwise). Holds the units, in teaching order within each level: sets are consecutive runs of `setSize` units of one level, in file order.
+
+`[{ id, t, words, lv, reading? }]`
+
+| field | type | meaning |
+|---|---|---|
+| `id` | `c0001`…, unique | Progress key. Never renumber. |
+| `t` | non-empty string | Written form, shown large. |
+| `words` | `[wordId]`, non-empty | Linked words, ids from this pack's `words.json`. `words[0]` supplies the gloss and the audio. |
+| `lv` | levelId | Must be one of `pack.levels[].id`, and covered by one of `pack.characters.stages[].levels` — decides which stage the unit belongs to. |
+| `reading` | string | Optional. Answer for `charSound` and the ruby text. Defaults to the `pron` of `words[0]`. |
+
+`tools/validate_pack.py` checks unique ids, that every `words` id exists, and that `lv` is both a pack level and covered by a stage.
 
 ## words.json
 
@@ -86,6 +134,7 @@ Every element that shows target-language text carries `lang` (from `langTag`) an
 | `words` | `[wordId]` | Word ids used in the sentence, resolved at pack-build time with no runtime lookup. A cloze candidate must pass four rules. It is at the sentence's own level. It is not a function word. It is not repeated in `words`. Its forms (`w` plus every `alt`) appear exactly once in `t` overall, where overlapping hits count as one. That occurrence must also not sit inside a longer pack word or compound, such as 为 inside 为什么. |
 | `pron` | string | Optional display-only pronunciation of the whole sentence. |
 | `audio` | URL string | Optional recorded audio. When present it plays instead of TTS. Relative URLs resolve against the built HTML file's location, not the pack directory, so ship audio beside the built page or use absolute URLs. |
+| `ruby` | `[[start, end, reading, wordId]]` | Optional, only meaningful with `pack.characters`. Per-token readings for characters tiering: each tuple is a UTF-16 offset range into `t` (`end` exclusive, same convention as `passages.json` `spans`), the reading text for that range, and the `characters.json` unit's `words[0]` id that range belongs to (so 这个 maps to its base word). Tuples are sorted, non-overlapping, and each covers non-blank text without splitting a surrogate pair. A sentence with `ruby` renders `<ruby>t<rt>reading</rt></ruby>` per token below the `bare` tier and plain `t` at or above it. |
 
 ## lessons.json
 
@@ -142,6 +191,24 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 
 **Script display.** Titles, passage sentences, questions, mc options and gloss words carry `lang`, `dir="rtl"` and the pack fonts, as everywhere else. English translations and True/False labels do not. In RTL packs the tap-to-gloss popover itself is `dir="rtl"` with `text-align:start`, so the tapped word sits at the right edge and its `pron` and English gloss follow in reading order. Those two stay isolated left-to-right runs (`dir="ltr"`).
 
+## legacy.json
+
+Optional, required when `pack.legacy` is set (and must be absent otherwise). Maps an old standalone app's own ids to this pack's ids, for a one-time progress migration (`docs/HSK_MERGE.md` §4) that this schema and its tooling only carry the data for; the migration function itself lives in `engine/core.js`.
+
+```json
+{ "w": {"你好": "w0028"}, "s": {"你好，我是学生。": "s0001"}, "c": {"你": "c0001"} }
+```
+
+An object with up to three optional keys, each a map from an old-app string key to an id in this pack:
+
+| key | maps to | meaning |
+|---|---|---|
+| `w` | `wordId` | Old word key (e.g. the hanzi surface) to this pack's `words.json` id. |
+| `s` | `sentId` | Old sentence key (e.g. the sentence text) to this pack's `sentences.json` id. |
+| `c` | `unitId` | Old character key to this pack's `characters.json` id. Only meaningful with `pack.characters`. |
+
+`tools/validate_pack.py` checks that every mapped id exists (in `words.json`, `sentences.json`, or `characters.json` respectively) and warns if a map's values are not unique.
+
 ## Validation
 
 `python3 tools/validate_pack.py <packdir>` checks the following. Exit status 1 means at least one error.
@@ -157,6 +224,10 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 - Script fields: `rtl` is a bool, `langTag` is a BCP-47 tag, `fontFamily` has no `;`, `{`, `}`, `<`, `>`, `\`, `/*` or `url(`, every `fonts` entry is a Google Fonts family name, and `lineHeight` is 1–4. A pack with `rtl` true and neither `fontFamily` nor `fonts` gets a warning.
 - Lesson answers are among their options.
 - `passages.json`, when present: unique ids, `lv` is a pack level, `title`/`text` non-empty, non-empty `sentences` with `t`, `en` and known `words` ids, optional `spans` (a list of `[start, end, wordId]` with integer UTF-16 offsets, `0 <= start < end <= len(t)`, sorted, non-overlapping, not splitting a surrogate pair, `wordId` in that sentence's `words`, covering non-blank text), non-empty `questions` with `q`, `type` mc or tf, mc `options` of 4 distinct strings with `answer` 0–3, tf `answer` a bool and no options, known `words` ids, and `sentence` a valid index. A sentence `t` missing from `text` and a question with empty `words` are warnings.
+- `pack.characters`, when present: `stages` is a non-empty list of `{after, levels}` with existing level ids, `after` non-decreasing in `pack.levels` order, and every level id covered by exactly one stage; `mastered`/`setSize` positive ints and `bare > mastered`; `learnKinds`/`reviewKinds` non-empty lists of known kinds. `characters.json` must exist exactly when `pack.characters` does, each error naming which side is missing.
+- `characters.json`, when present: unique ids, non-empty `t`, non-empty `words` with known word ids, and `lv` both a pack level and covered by a `pack.characters.stages[].levels`.
+- `sentences[].ruby`, when present: same offset rules as `passages.json` `spans` (sorted, non-overlapping, in-bounds, no split surrogate pairs, non-blank), plus a non-empty `reading` and a `wordId` that is both in the sentence's `words` and some `characters.json` unit's `words[0]`.
+- `pack.legacy` and `legacy.json` must exist together, and every value in `legacy.json`'s `w`/`s`/`c` maps is a real `words.json`/`sentences.json`/`characters.json` id (duplicate values across one map are a warning).
 - The generated `.js` files are in sync.
 
 A word that shares its surface form with another word at the same level produces a warning.
