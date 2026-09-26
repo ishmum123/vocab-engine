@@ -30,7 +30,7 @@ text (docs/HSK_MERGE.md §2.3): reading is the SENTENCE_EXTRA compound's own
 glyphs: docs/HSK_MERGE.md §2.1), and `legacy.json`/`pack.legacy` carry the
 hsk_pinyin -> vocab_zh progress-migration id maps (docs/HSK_MERGE.md §4).
 
-Usage: python3 tools/pack_from_hsk.py [HSK_REPO_DIR]   (default: ../hsk beside this repo)
+Usage: python3 tools/pack_from_hsk.py [HSK_REPO_DIR]   (default: ../chinese beside this repo, formerly ../hsk)
 """
 import json
 import os
@@ -80,7 +80,7 @@ def dump(path, data):
 
 
 def main(argv):
-    hsk = os.path.abspath(argv[0]) if argv else os.path.join(os.path.dirname(ROOT), "hsk")
+    hsk = os.path.abspath(argv[0]) if argv else os.path.join(os.path.dirname(ROOT), "chinese")
     vocab = json.load(open(os.path.join(hsk, "data", "hsk_vocab.json"), encoding="utf-8"))
     sent_path = os.path.join(hsk, "data", "hsk_sentences.js")
     extra = js_const_json(sent_path, "SENTENCE_EXTRA")

@@ -388,6 +388,22 @@ function walk(api, stopAt){
     check("affixAlts: ko slash word -> bare slash form plus each alternative on its own, entry.w itself not repeated",
       JSON.stringify(VC.affixAlts("-이/가")) === JSON.stringify(["이/가", "이", "가"])
       && JSON.stringify(VC.affixAlts("-은/는")) === JSON.stringify(["은/는", "은", "는"]));
+    check("affixAlts: ko real parenthetical-optional words -> bare, with-syllable and without-syllable forms",
+      JSON.stringify(VC.affixAlts("-(으)로")) === JSON.stringify(["(으)로", "으로", "로"])
+      && JSON.stringify(VC.affixAlts("-(이)나")) === JSON.stringify(["(이)나", "이나", "나"])
+      && JSON.stringify(VC.affixAlts("-(이)랑")) === JSON.stringify(["(이)랑", "이랑", "랑"]));
+    check("affixAlts: a hypothetical word combining a slash and a parenthetical group per alternative still yields both bare alternatives, so a learner can type either without its optional syllable",
+      (() => { const a = VC.affixAlts("-(으)로/(이)나"); return a.includes("(으)로") && a.includes("(이)나") && a.includes("으로") && a.includes("로") && a.includes("이나") && a.includes("나"); })());
+    {
+      const KO_WORDS = path.join(ROOT, "..", "korean", "pack", "words.json");
+      if(fs.existsSync(KO_WORDS)){
+        const koWords = JSON.parse(fs.readFileSync(KO_WORDS, "utf8"));
+        const withParens = koWords.filter(x => typeof x.w === "string" && (x.w.includes("(") || x.w.includes(")"))).map(x => x.w).sort();
+        const expected = ["-(으)로", "-(이)나", "-(이)랑"].sort();
+        check(`no korean pack word other than the 3 parenthetical-optional ones carries a parenthesis in w (${withParens.length} found)`,
+          JSON.stringify(withParens) === JSON.stringify(expected));
+      } else console.log("NOTE  ../korean/pack missing: korean parenthesis-guard check skipped");
+    }
     check("acceptTyped: a Korean-shaped word ('typing' object, no 'pron') accepts w, the affix-bare form and each slash alternative, but not an unrelated string",
       (() => {
         const koPack = { typing: { caseSensitive: false, accents: "lenient" } };

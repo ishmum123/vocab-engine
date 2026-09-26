@@ -26,7 +26,7 @@ engine/app.html           UI shell; loads a pack in dev mode, and build.sh inlin
 engine/sw.template.js     service worker; build.sh fills in the build id and writes sw.js
 engine/sw.disable.js      kill switch: copy over sw.js to turn the offline cache off
 build.sh                  ./build.sh <packdir> <out.html>   (awk only, no Node or Python; also writes sw.js next to out.html)
-packs/zh/                 Mandarin HSK 1–4 pack, ported from ../hsk (1193 words, 882 sentences, 12 lessons)
+packs/zh/                 Mandarin HSK 1–4 pack, ported from the hsk app, now ../chinese (1193 words, 882 sentences, 12 lessons)
 tools/jsonify_pack.py     packs/X/*.json -> *.js consts
 tools/validate_pack.py    schema and referential-integrity check
 tools/check_site.sh       stale-build guard for a language repo's index.html + sw.js
@@ -53,7 +53,7 @@ python3 tools/validate_pack.py packs/zh
 /opt/homebrew/bin/node tests/flagoff_snapshot.js --check  # flag-off golden check (--capture to update goldens)
 /opt/homebrew/bin/node tests/audio_checks.js   # recorded audio (needs ../persian for the app section)
 python3 -m packbuilder audio --lang fa --repo ../persian --check   # from tools/: recorded-audio status of a repo
-python3 tools/pack_from_hsk.py [../hsk]        # regenerate packs/zh from hsk (idempotent)
+python3 tools/pack_from_hsk.py [../chinese]    # regenerate packs/zh from the hsk app (repo now ../chinese) (idempotent)
 python3 -m unittest discover -s tools/packbuilder/tests -t tools   # packbuilder smoke tests
 ```
 

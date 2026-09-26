@@ -1,7 +1,7 @@
 // Node checks for migrateLegacy in engine/core.js (hsk_pinyin -> vocab_zh, docs/HSK_MERGE.md §4)
 // and tools/diff_hsk_migration.js. Synthetic hsk records: seeds A-E plus every hsk record
 // version shape (v1, v2, v2.1, v2.2, HEAD), idempotence, the unmapped list, rejections.
-// Where the hsk checkout sits beside this repo (../hsk), each seed is also checked against
+// Where the hsk checkout sits beside this repo (../chinese, formerly ../hsk), each seed is also checked against
 // hsk's own validateProgShape and the tool's derived-view diff; otherwise those are skipped.
 // Run: node tests/migration_checks.js     (no dependencies)
 "use strict";
@@ -13,7 +13,7 @@ const ROOT = path.join(__dirname, "..");
 const VC = require(path.join(ROOT, "engine", "core.js"));
 const { diffMigration } = require(path.join(ROOT, "tools", "diff_hsk_migration.js"));
 const ZH = path.join(ROOT, "packs", "zh");
-const HSK = process.env.HSK_DIR || path.join(ROOT, "..", "hsk");
+const HSK = process.env.HSK_DIR || path.join(ROOT, "..", "chinese");
 const readJSON = f => JSON.parse(fs.readFileSync(path.join(ZH, f), "utf8"));
 const PACK = readJSON("pack.json"), WORDS = readJSON("words.json"), LEGACY = readJSON("legacy.json");
 const HSK_CORE = path.join(HSK, "src", "pinyin_core.js");

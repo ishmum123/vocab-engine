@@ -13,7 +13,7 @@
 // Exit 0 only when nothing is unmapped and the roundtrip and derived diffs are empty.
 //
 // Usage: node tools/diff_hsk_migration.js <hsk_pinyin_progress.json> [packdir] [--hsk <hsk repo>] [--json]
-//   packdir defaults to packs/zh; --hsk defaults to ../hsk beside this repo (skipped if absent).
+//   packdir defaults to packs/zh; --hsk defaults to ../chinese (formerly ../hsk) beside this repo (skipped if absent).
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -186,7 +186,7 @@ if(require.main === module){
   const hskArg = flag("--hsk");
   if(!args.length || args.length > 2){ console.error(USAGE); process.exit(2); }
   const packDir = path.resolve(args[1] || path.join(ROOT, "packs", "zh"));
-  const hskDir = hskArg ? path.resolve(hskArg) : path.join(ROOT, "..", "hsk");
+  const hskDir = hskArg ? path.resolve(hskArg) : path.join(ROOT, "..", "chinese");
   let raw; try { raw = fs.readFileSync(args[0], "utf8"); } catch(e){ console.error(`cannot read ${args[0]}: ${e.message}`); process.exit(2); }
   let rep; try { rep = diffMigration(raw, packDir, hskDir); } catch(e){ console.error(`failed: ${e.message}`); process.exit(2); }
   if(!rep.ok){ console.error(`migrateLegacy refused the file: ${rep.reason}`); process.exit(1); }
