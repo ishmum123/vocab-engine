@@ -44,7 +44,8 @@ class SpecFields(unittest.TestCase):
         self.assertEqual([p[0] for p in sp.placement], sp.level_ids)
         for table in (sp.target_len, sp.min_len):
             self.assertEqual(set(table), set(sp.level_ids))
-        if sp.typing is not None:       # null turns typed production off (fa)
+        self.assertTrue(sp.typing is None or sp.typing == "pron" or isinstance(sp.typing, dict), sp.typing)
+        if isinstance(sp.typing, dict):  # null turns typed production off; "pron" types the reading (ja)
             self.assertIn(sp.typing.get("strictFromLevel"), sp.level_ids + [None])
         for w, g in sp.forced_closed:
             self.assertTrue(w and g.isupper(), (w, g))

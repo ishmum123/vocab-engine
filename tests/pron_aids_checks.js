@@ -122,7 +122,7 @@ async function boot(opts){
   appHtml = o.html || CUR_HTML;
   const document = makeFakeDom();
   const spoken = [];
-  const ss = { getVoices: () => [{ lang:"zh-CN", name:"x" }], onvoiceschanged: null, cancel(){}, speak(u){ spoken.push(u.text); } };
+  const ss = { getVoices: () => o.voices || [{ lang:"zh-CN", name:"x" }], onvoiceschanged: null, cancel(){}, speak(u){ spoken.push(u.text); } };
   const window = { VocabCore: o.core || VC, speechSynthesis: ss, SpeechSynthesisUtterance: function(t){ this.text = t; }, addEventListener(){} };
   const localStorage = { getItem(){ return null; }, setItem(){} };
   const hook = n => `typeof ${n} === "function" ? ${n} : null`;
@@ -345,6 +345,75 @@ function walk(api, stopAt){
     a2.setProg(atTier());
     check("no pron: both type slots give the characters item", [0, 1].every(i => a2.itemFromPlan({ kind: "type", word: np }, i, [{ kind: "type" }, { kind: "type" }]).label === "Type the characters"));
 
+  } catch(e){ check(`section threw: ${e.message}`, false); }
+
+  // ---------------------------------------------------------------- [3j] typed items, ja-like (no tones, kana prons)
+  // pronFirst, no pack.tones, kana prons: the reading item is silent and checks kana by
+  // plainPronKey (katakana = hiragana, ー and small kana exact); the written item is spoken
+  // and takes w, alts and the form without its affix mark 〜; the below-tier gate holds.
+  console.log("\n[3j] typed items without tones (ja-like: kana readings)");
+  try {
+    const { jaLike } = require(path.join(__dirname, "fixtures", "chars_packs.js"));
+    const J = jaLike();
+    const jp = Object.assign({}, J.pack, { pronFirst: true, tts: "ja-JP", typing: "pron" });
+    const g = J.words.find(w => J.units.some(u => u.words[0] === w.id) && w.lv === "A1" && w.id !== "w0001" && w.id !== "w0003");
+    g.alt = [g.pron]; // the kana spelling as an alt (分かる / わかる)
+    const kata = { id: "w9001", w: "コーヒー", pron: "コーヒー", en: "coffee", lv: "A1" };
+    const affix = { id: "w9002", w: "〜濿", pron: "〜ねん", en: "year (counter)", lv: "A1" };
+    const words = [...J.words, kata, affix];
+    const units = [...J.units, { id: "c9002", t: affix.w, words: [affix.id], lv: "A1" }];
+    const P = { typing: "pron" };
+    const T = [
+      ["exact hiragana", "たべる", "たべる", "ok"], ["katakana typed for a hiragana pron", "タベル", "たべる", "ok"],
+      ["hiragana typed for a katakana pron", "こーひー", "コーヒー", "ok"], ["exact katakana", "コーヒー", "コーヒー", "ok"],
+      ["half-width katakana", "ｺｰﾋｰ", "コーヒー", "ok"], ["spaces around/inside", " たべ る ", "たべる", "ok"],
+      ["affix mark omitted", "ねん", "〜ねん", "ok"], ["affix mark typed", "〜ねん", "〜ねん", "ok"],
+      ["ー missing (long vowel spelled out)", "こうひい", "コーヒー", "wrong"], ["ー missing", "コヒー", "コーヒー", "wrong"],
+      ["extra ー", "たべるー", "たべる", "wrong"], ["small kana as full size", "きやく", "きゃく", "wrong"], ["full size as small", "きゃく", "きやく", "wrong"],
+      ["voicing mark missing", "はす", "バス", "wrong"], ["other kana", "たべた", "たべる", "wrong"], ["prefix only", "たべ", "たべる", "wrong"],
+      ["tone digit (pinyin path would accept)", "たべる1", "たべる", "wrong"], ["romaji", "taberu", "たべる", "wrong"], ["empty", "", "たべる", "wrong"],
+    ];
+    const badK = T.filter(([, i, p, e]) => VC.checkPronTyped(i, p, P) !== e);
+    check(`checkPronTyped without tones (kana table, ${T.length} rows): katakana = hiragana, half-width folded, spaces/〜 ignored; ー, small kana, voicing exact; digits and romaji wrong (${badK.length} bad${badK[0] ? ": " + JSON.stringify(badK[0]) : ""})`, badK.length === 0);
+    check("checkPronTyped with a tones pack (zh) or no pack: the pinyin path, unchanged",
+      VC.checkPronTyped("xue2sheng", "xuésheng", PACK) === "ok" && VC.checkPronTyped("xuesheng", "xuésheng", PACK) === "tones" && VC.checkPronTyped("xue4sheng", "xuésheng") === "tonesDiff" && VC.checkPronTyped("たべる1", "たべる") === "tonesDiff");
+    check("affixBare: 〜/～ stripped at either end only; no mark: unchanged", VC.affixBare("〜年") === "年" && VC.affixBare("～さん") === "さん" && VC.affixBare("お〜") === "お" && VC.affixBare("年〜年") === "年〜年" && VC.affixBare("学生") === "学生");
+    const { api: aj, spoken } = await boot({ pack: jp, words, sentences: [], units, passages: [], voices: [{ lang: "ja-JP", name: "j" }] });
+    const base = () => VC.normalizeProg({ sets: { A1: 3 }, placedOnce: true, sessions: 5 }, jp);
+    const atTier = ids => { const pm = base(); ids.forEach(id => { const u = units.find(x => x.words[0] === id); VC.ensureChars(pm).c[u.id] = { r: 5, w: 0, s: 5 }; }); return pm; };
+    // Below tier: a glyph word is shown by its kana, so both slots give the reading item.
+    aj.setProg(base());
+    const two = [{ kind: "type" }, { kind: "type" }];
+    check("below tier (glyph word shown by its kana): both type slots give Type the reading",
+      VC.displayForm(g, units, aj.getProg(), jp).isPron && [0, 1].every(i => aj.itemFromPlan({ kind: "type", word: g }, i, two).label === "Type the reading"));
+    const rb = runTyped(aj, g, g.pron, 1, spoken);
+    check("below tier, written slot rendered: the reading item, nothing spoken, the kana counted right", /Type the reading/.test(rb.html) && rb.spokenBefore === 0 && !rb.wrong);
+    check("a kana-only word (no unit, shown as written): slots alternate reading / characters",
+      !VC.displayForm(kata, units, aj.getProg(), jp).isPron && [0, 1].map(i => aj.itemFromPlan({ kind: "type", word: kata }, i, two).label).join("|") === "Type the reading|Type the characters");
+    // At tier: the written form is on display; slots alternate.
+    aj.setProg(atTier([g.id, affix.id]));
+    const ri = aj.itemFromPlan({ kind: "type", word: g }, 0, two), wi = aj.itemFromPlan({ kind: "type", word: g }, 1, two);
+    check("at tier: slots alternate Type the reading / Type the characters", !VC.displayForm(g, units, aj.getProg(), jp).isPron && ri.label === "Type the reading" && wi.label === "Type the characters");
+    check("reading item: gloss stimulus, tag 'reading' (no tones note), placeholder 'reading…', target-language input (not lang=en), no audio markup, no mount",
+      ri.html.includes(VC.escapeHtml(VC.gloss(g))) && /class="ktag"><b>reading<\/b><\/div>/.test(ri.html) && ri.placeholder === "reading…" && ri.inputTA === undefined
+      && !/id="rp2"|id="sp"|class="replay|class="speaker|data-wid/.test(ri.html) && !ri.mount && !stripTags(ri.html).includes(g.w) && !stripTags(ri.html).includes(g.pron));
+    const kataPron = [...g.pron].map(c => String.fromCharCode(c.charCodeAt(0) + 0x60)).join("");
+    check("reading item check: hiragana and its katakana right, the written form and other kana wrong; no feedback note",
+      ri.check(g.pron) && ri.check(kataPron) && !ri.check(g.w) && !ri.check(g.pron + "ー") && !ri.check(g.pron.slice(1)) && [g.pron, kataPron, "x"].every(v => ri.feedback(v) === ""));
+    const r1 = runTyped(aj, g, kataPron, 0, spoken);
+    check("renderer, reading: nothing spoken before the answer; katakana counted right; kana input (data-tl lang=ja), no replay",
+      r1.spokenBefore === 0 && !r1.wrong && /id="tin"[^>]*data-tl lang="ja[^"]*"/.test(r1.html) && !/id="tin"[^>]*lang="en"/.test(r1.html) && /placeholder="reading…"/.test(r1.html) && !/id="rp2"/.test(r1.html));
+    const r2 = runTyped(aj, g, g.pron + "ー", 0, spoken);
+    check("renderer, reading: wrong kana counted wrong, 'you typed' shown", r2.wrong && /you typed/.test(r2.rv));
+    const r3 = runTyped(aj, g, g.w, 1, spoken);
+    check(`renderer, characters: the word spoken once on mount, replay button, ja input; the written form right (spoken before answer: ${r3.spokenBefore})`,
+      r3.spokenBefore === 1 && !r3.wrong && /id="rp2"/.test(r3.html) && /id="tin"[^>]*data-tl lang="ja[^"]*"/.test(r3.html) && /placeholder="characters…"/.test(r3.html));
+    check("characters check: w and its kana alt right (分かる / わかる), another word's form wrong", wi.check(g.w) && wi.check(g.pron) && !wi.check(J.words.find(w => w.id !== g.id && w.w !== g.w && w.w !== g.pron).w));
+    const ka = aj.itemFromPlan({ kind: "type", word: kata }, 1, two), kr = aj.itemFromPlan({ kind: "type", word: kata }, 0, two);
+    check("katakana word: reading accepts こーひー and コーヒー, rejects こうひい; characters takes the spelling コーヒー only (not こーひー)",
+      kr.check("こーひー") && kr.check("コーヒー") && !kr.check("こうひい") && ka.check("コーヒー") && !ka.check("こーひー"));
+    const aw = aj.itemFromPlan({ kind: "type", word: affix }, 1, two), ar = aj.itemFromPlan({ kind: "type", word: affix }, 0, two);
+    check("affix word 〜X: characters accepts X and 〜X, reading accepts ねん and 〜ねん", aw.label === "Type the characters" && aw.check("濿") && aw.check(affix.w) && !aw.check("〜") && ar.check("ねん") && ar.check("〜ねん"));
   } catch(e){ check(`section threw: ${e.message}`, false); }
 
   // ---------------------------------------------------------------- [3b] word taps
