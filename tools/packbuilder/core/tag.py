@@ -156,14 +156,21 @@ def stage_tag(env, corpus):
     texts = [truecase(r[1], low, cap, sp.word_re) for r in rows]
     n_lowered = sum(1 for r, t in zip(rows, texts) if r[1] != t)
     texts = [sp.tag_text(t) for t in texts]
-    docs, fields = tag_docs(sp, texts)
     tmp = out.with_suffix(".part")
     n_tok = 0
-    with gzip.GzipFile(tmp, "wb", mtime=0) as g:
-        for r, doc in zip(rows, docs):
-            toks = doc_tokens(sp, doc, fields, r)
-            n_tok += len(toks)
-            g.write((json.dumps([r[0], toks], ensure_ascii=False) + "\n").encode("utf-8"))
+    # corpus_tagging: the only time a corpus-keyed aggregate over the tagger
+    # input (ja word groups) may be written (core.util.corpus_write_ok)
+    prior = getattr(sp, "corpus_tagging", False)
+    sp.corpus_tagging = True
+    try:
+        docs, fields = tag_docs(sp, texts)
+        with gzip.GzipFile(tmp, "wb", mtime=0) as g:
+            for r, doc in zip(rows, docs):
+                toks = doc_tokens(sp, doc, fields, r)
+                n_tok += len(toks)
+                g.write((json.dumps([r[0], toks], ensure_ascii=False) + "\n").encode("utf-8"))
+    finally:
+        sp.corpus_tagging = prior
     tmp.replace(out)
     meta = {"sentences": len(rows), "tokens": n_tok, "seconds": round(time.time() - t0, 1),
             "truecased_initials": n_lowered}

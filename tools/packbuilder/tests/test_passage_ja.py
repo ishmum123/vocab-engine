@@ -7,6 +7,7 @@ write while passage texts are tagged. Sudachi is not needed. Stdlib only.
 
     python3 -m pytest -q tools/packbuilder/tests/test_passage_ja.py     (from vocab-engine/)
 """
+import gzip
 import json
 import pickle
 import sys
@@ -217,7 +218,92 @@ class PassageTaggingGuard(unittest.TestCase):
                 self.assertFalse(path.exists())
                 sp.passage_tagging = False
                 sp._build_groups({})
+                self.assertFalse(path.exists())          # nor any other caller outside the corpus tag stage
+                sp.corpus_tagging = True
+                sp._build_groups({})
                 self.assertTrue(path.exists())           # the corpus build still saves it
+
+    # defect class: a cache aggregated over the tagger input but keyed by the
+    # corpus (ja word groups) overwritten by a tag_texts call on other texts.
+    # 2026-09-26: a one-sentence debug call rewrote ja_groups_t22_*.json.gz and
+    # the next passages link context moved 241 word ids.
+    def _patched(self, d, corpus):
+        path = Path(d) / "ja_groups_t22_x.json.gz"
+        sp = spec()
+        seen = []
+        return path, sp, seen, [
+            mock.patch.object(type(sp), "_kaikki_alias", lambda self: {"alias": {}}),
+            mock.patch.object(type(sp), "_groups_path", lambda self: path),
+            mock.patch.object(type(sp), "_passage_corpus_texts", lambda self: list(corpus)),
+            mock.patch.object(type(sp), "_analyse", lambda self, t: seen.append(t) or []),
+        ]
+
+    def test_tag_texts_on_other_texts_never_writes_or_groups_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, sp, seen, patches = self._patched(d, ["c1", "c2", "c3"])
+            with patches[0], patches[1], patches[2], patches[3]:
+                list(sp.tag_texts(["one sentence"]))      # a script, a test, spec.example_rows
+                self.assertFalse(path.exists())
+                self.assertEqual(sp._grouped_over, "corpus")
+                self.assertEqual(seen[:3], ["c1", "c2", "c3"])    # grouped over the corpus, not the given text
+                self.assertNotIn("one sentence", seen[:3])
+                seen.clear()
+                list(sp.tag_texts(["another"]))            # built once
+                self.assertEqual(seen, ["another"])
+
+    def test_passage_grouping_is_corpus_plus_passages_and_unsaved(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, sp, seen, patches = self._patched(d, ["c1", "c2"])
+            with patches[0], patches[1], patches[2], patches[3]:
+                sp.passage_tagging = True
+                list(sp.tag_texts(["p1"]))
+                self.assertEqual(seen[:3], ["c1", "c2", "p1"])
+                self.assertEqual(sp._grouped_over, "passages")
+                self.assertFalse(path.exists())
+
+    def test_corpus_tagging_writes_the_text_count_and_a_mismatch_fails_on_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, sp, seen, patches = self._patched(d, [])
+            with patches[0], patches[1], patches[2], patches[3]:
+                sp.corpus_tagging = True
+                list(sp.tag_texts(["c1", "c2"]))
+                self.assertTrue(path.exists())
+                state = json.loads(gzip.decompress(path.read_bytes()))
+                self.assertEqual(state["texts"], 2)
+                meta = Path(d) / "tagged_t22_x.jsonl.meta.json"
+                meta.write_text(json.dumps({"sentences": 2}))
+                sp._check_groups(path, state)                # matches the tagged corpus
+                meta.write_text(json.dumps({"sentences": 232793}))
+                with self.assertRaisesRegex(RuntimeError, "built from 2 texts"):
+                    sp._check_groups(path, state)
+                fresh = spec()
+                with mock.patch.object(type(fresh), "_groups_path", lambda self: path):
+                    with self.assertRaisesRegex(RuntimeError, "built from 2 texts"):
+                        fresh._ensure_groups()
+
+    def test_stage_tag_is_the_only_corpus_writer(self):
+        from packbuilder.core import tag as coretag
+        from packbuilder.core.util import corpus_write_ok
+        sp = spec()
+        self.assertFalse(corpus_write_ok(sp))
+        sp.corpus_tagging = True
+        self.assertTrue(corpus_write_ok(sp))
+        sp.passage_tagging = True
+        self.assertFalse(corpus_write_ok(sp))
+        with tempfile.TemporaryDirectory() as d:
+            flags = []
+            fake = types.SimpleNamespace(
+                word_re=sp.word_re, sentence_openers=sp.sentence_openers, corpus_tagging=False,
+                tag_text=lambda t: t, fix_token=lambda t: t, fix_sentence=lambda toks, row, doc: toks,
+                morph_keep=None, tagger="custom", spacy_model=None)
+            fake.tag_texts = lambda texts: (flags.append(fake.corpus_tagging), [[("a", "a", "X", {})] for _ in texts])[1]
+            env = types.SimpleNamespace(spec=fake)
+            out = Path(d) / "tagged_x.jsonl.gz"
+            with mock.patch.object(coretag, "tagged_path", lambda env, c: (out, "fake")), \
+                    mock.patch.object(coretag, "corpus_path", lambda env: Path(d) / "corpus.json.gz"):
+                coretag.stage_tag(env, {"rows": [[1, "a", "", "", None, ""]]})
+            self.assertEqual(flags, [True])
+            self.assertFalse(fake.corpus_tagging)          # restored
 
     def fake_linker(self, repo, write):
         sp = types.SimpleNamespace(repo=Path(repo), passage_tagging=False)

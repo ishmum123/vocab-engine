@@ -769,8 +769,8 @@ class Japanese(LanguageSpec):
     passage_unspaced = True         # report ws_words: the linked word count
     passage_words_counted = True    # length band: the counted tokens (particles the pack has count)
 
-    _passage_grouped = False        # passages: corpus word groups built (tag_texts, while spec.passage_tagging)
-    _passage_grouping = False
+    _grouped_over = None            # in-memory word groups built over: "corpus" (stage_tag, or any other caller), "passages" (corpus + passage texts)
+    _grouping = False               # tag_texts is running the grouping pass for a non-corpus caller
 
     def _passage_corpus_texts(self):
         """The cached corpus texts as stage_tag feeds them to the tagger."""
@@ -1154,23 +1154,34 @@ class Japanese(LanguageSpec):
         """Two passes: the first builds the word groups (headword, spellings,
         reading) over the whole corpus; the second yields the tagged tokens
         (lazily: the corpus is 230k sentences). See _build_groups."""
-        if self.passage_tagging and not self._passage_grouping:
-            # passages: the word groups (display lemma per Sudachi atom) come
-            # from the corpus plus the passages, as in the build, not from the
-            # few hundred passage texts alone (いつ is not 何時 なんじ); built
-            # once, never saved (_build_groups)
+        if not self.corpus_tagging and not self._grouping:
+            # any caller but the corpus tag stage (passages, spec.example_rows
+            # via tag_rows, a script or test): the word groups (display lemma
+            # per Sudachi atom) come from the cached corpus, never from the
+            # few texts given (いつ is not 何時 なんじ), and are never saved
+            # (_build_groups, core.util.corpus_write_ok). Passages group over
+            # the corpus plus the passage texts, as in the build; other callers
+            # over the corpus alone (example rows never join the lemma votes).
+            # Built once per kind; a run that tagged the corpus already has them.
             texts = list(texts)
-            if not self._passage_grouped:
-                self._passage_grouping = True
+            want = "passages" if self.passage_tagging else "corpus"
+            if self._grouped_over != want:
                 try:
-                    self.tag_texts(self._passage_corpus_texts() + texts)
+                    base = self._passage_corpus_texts()
+                except FileNotFoundError:
+                    base = []       # no cached corpus (unit tests): the given texts, in memory only
+                self._grouping = True
+                try:
+                    self.tag_texts(base + (texts if want == "passages" or not base else []))
                 finally:
-                    self._passage_grouping = False
-                self._passage_grouped = True
+                    self._grouping = False
+                self._grouped_over = want
             return (self._tokens(text) for text in texts)
         atoms = defaultdict(lambda: [Counter(), Counter(), 0])
+        n_texts = 0
         kana_verb = Counter()           # (hiragana verb surface, atom key) -> tokens
         for text in texts:
+            n_texts += 1
             toks = self._analyse(text)
             for i, t in enumerate(toks):
                 if t[6] is not None or DIGIT_RE.search(t[0]) or self._bound_suffix(t):
@@ -1185,7 +1196,9 @@ class Japanese(LanguageSpec):
                 full = k[1] not in ("VERB", "ADJ", "AUX") or t[5][5] in ("終止形-一般", "連体形-一般")
                 if full and not aux_use:
                     a[1][t[0]] += 1
-        self._build_groups(atoms)
+        self._build_groups(atoms, n_texts)
+        if self.corpus_tagging:
+            self._grouped_over = "corpus"
         # the homophones a kana form stands for (_homophone): verb surfaces by
         # the lemmas Sudachi gives them (いっ: 言う / 行く), noun readings by
         # the kanji words read that way (もと: 元, 基)
@@ -1202,7 +1215,7 @@ class Japanese(LanguageSpec):
                 self._noun_read[k[3]][lem] += atoms[k][2]
         return (self._tokens(text) for text in texts)
 
-    def _build_groups(self, atoms):
+    def _build_groups(self, atoms, n_texts=None):
         """Atoms (normalised form, UPOS, counter, reading) -> words.
         1. Readings of one normalised form are one word unless both are
            written with the same spelling and the smaller reading holds >= 20%
@@ -1420,11 +1433,11 @@ class Japanese(LanguageSpec):
                 self._sound_splits.setdefault(a, b)
         self._norms = {lem: sorted(v) for lem, v in norms.items()}
         state = {"reading": self._reading, "forced": self.forced, "norms": self._norms, "norm_top": self._norm_top,
-                 "sound_splits": self._sound_splits,
+                 "sound_splits": self._sound_splits, "texts": n_texts,
                  "stats": {"reading homographs split": n_homograph}}
-        from ..core.util import derived_write_ok
-        if not derived_write_ok(self):
-            return          # passage tagging (corpus + passages) never overwrites the corpus groups file
+        from ..core.util import corpus_write_ok
+        if not corpus_write_ok(self):
+            return          # only the corpus tag stage writes the corpus groups file (passages, examples, scripts never do)
         with gzip.GzipFile(self._groups_path(), "wb", mtime=0) as g:
             g.write(json.dumps(state, ensure_ascii=False, sort_keys=True).encode("utf-8"))
 
@@ -1443,12 +1456,31 @@ class Japanese(LanguageSpec):
             if not path.exists():
                 raise RuntimeError(f"{path.name} missing: delete the cached tagged_* file and rebuild")
             state = json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
+            self._check_groups(path, state)
             self._reading = state["reading"]
             self._norms = state["norms"]
             self._norm_top = state.get("norm_top", {})
             self._sound_splits = state.get("sound_splits", {})
             self.forced = [tuple(x) for x in state["forced"]]
             self.stats.update(state["stats"])
+
+    def _check_groups(self, path, state):
+        """The saved groups must be the corpus tag stage's: their text count
+        equals the tagged corpus's sentence count (tagged_*.meta.json). A file
+        some other tag_texts caller overwrote (a few texts) fails here instead
+        of silently moving word ids. A file written before the count was
+        stored cannot be checked (logged)."""
+        from ..core.util import log
+        meta = path.with_name(path.name.replace("ja_groups_", "tagged_").replace(".json.gz", ".jsonl.meta.json"))
+        n = state.get("texts")
+        if n is None:
+            log(f"{path.name}: no text count (written before the check); cannot verify it against the tagged corpus")
+            return
+        if meta.exists():
+            want = json.loads(meta.read_text()).get("sentences")
+            if want is not None and n != want:
+                raise RuntimeError(f"{path.name} was built from {n} texts, the tagged corpus has {want} sentences: "
+                                   f"delete it and {meta.name.replace('.meta.json', '.gz')} and rebuild")
 
     def _tokens(self, text):
         out = []
