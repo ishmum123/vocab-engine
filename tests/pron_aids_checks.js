@@ -368,6 +368,7 @@ function walk(api, stopAt){
       ["hiragana typed for a katakana pron", "こーひー", "コーヒー", "ok"], ["exact katakana", "コーヒー", "コーヒー", "ok"],
       ["half-width katakana", "ｺｰﾋｰ", "コーヒー", "ok"], ["spaces around/inside", " たべ る ", "たべる", "ok"],
       ["affix mark omitted", "ねん", "〜ねん", "ok"], ["affix mark typed", "〜ねん", "〜ねん", "ok"],
+      ["standalone voicing mark ゛ (U+309B, not the combining U+3099) recomposes with its base kana", "は゛す", "バス", "ok"],
       ["ー missing (long vowel spelled out)", "こうひい", "コーヒー", "wrong"], ["ー missing", "コヒー", "コーヒー", "wrong"],
       ["extra ー", "たべるー", "たべる", "wrong"], ["small kana as full size", "きやく", "きゃく", "wrong"], ["full size as small", "きゃく", "きやく", "wrong"],
       ["voicing mark missing", "はす", "バス", "wrong"], ["other kana", "たべた", "たべる", "wrong"], ["prefix only", "たべ", "たべる", "wrong"],
@@ -377,7 +378,56 @@ function walk(api, stopAt){
     check(`checkPronTyped without tones (kana table, ${T.length} rows): katakana = hiragana, half-width folded, spaces/〜 ignored; ー, small kana, voicing exact; digits and romaji wrong (${badK.length} bad${badK[0] ? ": " + JSON.stringify(badK[0]) : ""})`, badK.length === 0);
     check("checkPronTyped with a tones pack (zh) or no pack: the pinyin path, unchanged",
       VC.checkPronTyped("xue2sheng", "xuésheng", PACK) === "ok" && VC.checkPronTyped("xuesheng", "xuésheng", PACK) === "tones" && VC.checkPronTyped("xue4sheng", "xuésheng") === "tonesDiff" && VC.checkPronTyped("たべる1", "たべる") === "tonesDiff");
-    check("affixBare: 〜/～ stripped at either end only; no mark: unchanged", VC.affixBare("〜年") === "年" && VC.affixBare("～さん") === "さん" && VC.affixBare("お〜") === "お" && VC.affixBare("年〜年") === "年〜年" && VC.affixBare("学生") === "学生");
+    check("affixBare: 〜/～/- stripped at either end only; no mark: unchanged", VC.affixBare("〜年") === "年" && VC.affixBare("～さん") === "さん" && VC.affixBare("お〜") === "お" && VC.affixBare("年〜年") === "年〜年" && VC.affixBare("学生") === "学生"
+      && VC.affixBare("-이다") === "이다" && VC.affixBare("가-") === "가" && VC.affixBare("-이/가") === "이/가");
+    check("affixBare: an inner hyphen (not at either edge) is a real character, never stripped",
+      VC.affixBare("धीरे-धीरे") === "धीरे-धीरे" && VC.affixBare("कौन-सा") === "कौन-सा");
+    check("affixAlts: no affix mark -> []; 〜 word -> bare form only; ko hyphen word with no slash -> bare form only",
+      VC.affixAlts("学生").length === 0 && VC.affixAlts("धीरे-धीरे").length === 0
+      && VC.affixAlts("〜年").length === 1 && VC.affixAlts("〜年")[0] === "年"
+      && VC.affixAlts("-이다").length === 1 && VC.affixAlts("-이다")[0] === "이다");
+    check("affixAlts: ko slash word -> bare slash form plus each alternative on its own, entry.w itself not repeated",
+      JSON.stringify(VC.affixAlts("-이/가")) === JSON.stringify(["이/가", "이", "가"])
+      && JSON.stringify(VC.affixAlts("-은/는")) === JSON.stringify(["은/는", "은", "는"]));
+    check("affixAlts: ko real parenthetical-optional words -> bare, with-syllable and without-syllable forms",
+      JSON.stringify(VC.affixAlts("-(으)로")) === JSON.stringify(["(으)로", "으로", "로"])
+      && JSON.stringify(VC.affixAlts("-(이)나")) === JSON.stringify(["(이)나", "이나", "나"])
+      && JSON.stringify(VC.affixAlts("-(이)랑")) === JSON.stringify(["(이)랑", "이랑", "랑"]));
+    check("affixAlts: a hypothetical word combining a slash and a parenthetical group per alternative still yields both bare alternatives, so a learner can type either without its optional syllable",
+      (() => { const a = VC.affixAlts("-(으)로/(이)나"); return a.includes("(으)로") && a.includes("(이)나") && a.includes("으로") && a.includes("로") && a.includes("이나") && a.includes("나"); })());
+    check("writtenTypedFold: NFKC-folds half-width kana to full-width and unifies ～ to 〜; katakana/hiragana untouched (unlike kanaFold)",
+      VC.writtenTypedFold("ﾃﾚﾋﾞ") === "テレビ" && VC.writtenTypedFold("～年") === "〜年" && VC.writtenTypedFold("〜年") === "〜年"
+      && VC.writtenTypedFold("テレビ") === "テレビ" && VC.writtenTypedFold("てれび") === "てれび");
+    check("acceptTyped: a no-tones written item accepts half-width kana and either affix tilde once writtenTypedFold is applied to the typed value (as writtenTypeItem now does)",
+      (() => {
+        const jaPack = { typing: { caseSensitive: false, accents: "lenient" } };
+        const tv = { id: "w9010", w: "テレビ", alt: null };
+        const affixWord = { id: "w9011", w: "〜年", alt: null };
+        return VC.acceptTyped(VC.writtenTypedFold("ﾃﾚﾋﾞ"), tv, jaPack, VC.affixAlts(tv.w)) === true
+          && VC.acceptTyped("ﾃﾚﾋﾞ", tv, jaPack, VC.affixAlts(tv.w)) === false // unfolded half-width does not match on its own
+          && VC.acceptTyped(VC.writtenTypedFold("～年"), affixWord, jaPack, VC.affixAlts(affixWord.w)) === true;
+      })());
+    {
+      const KO_WORDS = path.join(ROOT, "..", "korean", "pack", "words.json");
+      if(fs.existsSync(KO_WORDS)){
+        const koWords = JSON.parse(fs.readFileSync(KO_WORDS, "utf8"));
+        const withParens = koWords.filter(x => typeof x.w === "string" && (x.w.includes("(") || x.w.includes(")"))).map(x => x.w).sort();
+        const expected = ["-(으)로", "-(이)나", "-(이)랑"].sort();
+        check(`no korean pack word other than the 3 parenthetical-optional ones carries a parenthesis in w (${withParens.length} found)`,
+          JSON.stringify(withParens) === JSON.stringify(expected));
+      } else console.log("NOTE  ../korean/pack missing: korean parenthesis-guard check skipped");
+    }
+    check("acceptTyped: a Korean-shaped word ('typing' object, no 'pron') accepts w, the affix-bare form and each slash alternative, but not an unrelated string",
+      (() => {
+        const koPack = { typing: { caseSensitive: false, accents: "lenient" } };
+        const entry = { w: "-이/가", alt: null };
+        const extra = VC.affixAlts(entry.w);
+        return VC.acceptTyped("-이/가", entry, koPack, extra) === true
+          && VC.acceptTyped("이/가", entry, koPack, extra) === true
+          && VC.acceptTyped("이", entry, koPack, extra) === true
+          && VC.acceptTyped("가", entry, koPack, extra) === true
+          && VC.acceptTyped("나", entry, koPack, extra) === false;
+      })());
     const { api: aj, spoken } = await boot({ pack: jp, words, sentences: [], units, passages: [], voices: [{ lang: "ja-JP", name: "j" }] });
     const base = () => VC.normalizeProg({ sets: { A1: 3 }, placedOnce: true, sessions: 5 }, jp);
     const atTier = ids => { const pm = base(); ids.forEach(id => { const u = units.find(x => x.words[0] === id); VC.ensureChars(pm).c[u.id] = { r: 5, w: 0, s: 5 }; }); return pm; };
