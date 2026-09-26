@@ -17,7 +17,8 @@
     /* Target-language text: the UI font first, then system fonts that cover non-Latin
        scripts (IBM Plex lacks many glyphs; missing ones fall through to system fonts). */
     --wbase: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, "PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
-    /* pack.fontFamily, when set, is prepended at boot: --wfont = <pack font>, var(--wbase). */
+    /* pack.fontFamily, when set, is prepended at boot: --wfont = <pack font>, var(--wbase)
+       (pack.rtl: its named families only, generic keywords such as serif dropped). */
     --wfont: var(--wbase);
     --safe-b: env(safe-area-inset-bottom, 0px);
     /* The fixed tab bar's real height: 56px buttons (fixed, see .tabs) + 1px top border,
@@ -69,6 +70,17 @@
      elements then align to their start side. English glosses never carry it. */
   [data-tl]{font-family:var(--wfont)}
   :root[data-tlh] [data-tl]{line-height:var(--tlh)}
+  /* pack.rtl (docs/PACK_SCHEMA.md "RTL rendering"): target text and UI/English text never
+     share a bidi context. UI lines nested in a target-language block carry dir=ltr +
+     data-ui (UIA): their own isolated LTR context, in the UI font. Target-language
+     fragments inside UI text (ui(), tf()) are <bdi data-tl lang dir=rtl class=tlf>: the
+     pack font, with the pack line-height capped so a tall script (Nastaliq 2.6) does
+     not grow the UI line it sits in. */
+  [data-ui]{font-family:var(--font);unicode-bidi:isolate}
+  [dir=rtl] [data-ui]{text-align:right} /* still aligned to the RTL block's start edge */
+  :root[data-tlrtl] input[data-tl]::placeholder{font-family:var(--font)} /* English placeholder, UI font */
+  :root[data-tlrtl] .gloss{text-align:right} /* the LTR popover line sits on the RTL block's edge */
+  :root[data-tlh] [data-tl].tlf{line-height:1}
   /* Korean only: words (Hangul syllable blocks) are space-separated like Latin, so the
      default break-anywhere wrapping can split inside a word (봤어/요). Scoped off the
      lang attribute TA already sets from pack.langTag, not a global rule: languages with
@@ -963,9 +975,50 @@ function fontsHref(pack){
   const fam = ok.map(f => "family=" + f.trim().replace(/ +/g, "+")).join("&");
   return { href: `https://fonts.googleapis.com/css2?${fam}&display=swap`, rejected };
 }
-// Everything the UI needs to mark target-language text: {lang, rtl, fontFamily, lineHeight}.
+// The pack font stack the UI prepends to its own (--wfont = <this>, UI stack): the named
+// families of fontFamilyOf with generic keywords (serif, sans-serif, ...) dropped, so a
+// Latin run inside target text (pron, roman, a number) falls through to the UI font
+// instead of a generic serif. null when no named family is left. The list is split on
+// commas outside quotes, so a quoted family name holding a comma stays one family. The UI
+// uses it for pack.rtl packs only; LTR packs keep fontFamily as given.
+const GENERIC_FAMILY_RE = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|math|emoji|fangsong|ui-serif|ui-sans-serif|ui-monospace|ui-rounded)$/i;
+function fontStackOf(pack){
+  const f = fontFamilyOf(pack); if(!f) return null;
+  const parts = []; let cur = "", q = "";
+  for(const ch of f){
+    if(q){ cur += ch; if(ch === q) q = ""; }
+    else if(ch === '"' || ch === "'"){ cur += ch; q = ch; }
+    else if(ch === ","){ parts.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  parts.push(cur);
+  const named = parts.map(x => x.trim()).filter(x => x && !GENERIC_FAMILY_RE.test(x));
+  return named.length ? named.join(", ") : null;
+}
+// Everything the UI needs to mark target-language text: {lang, rtl, fontFamily, fontStack, lineHeight}.
 function scriptDisplay(pack){
-  return { lang: targetLang(pack), rtl: !!(pack && pack.rtl === true), fontFamily: fontFamilyOf(pack), lineHeight: lineHeightOf(pack) };
+  return { lang: targetLang(pack), rtl: !!(pack && pack.rtl === true), fontFamily: fontFamilyOf(pack), fontStack: fontStackOf(pack), lineHeight: lineHeightOf(pack) };
+}
+// RTL packs (docs/PACK_SCHEMA.md "RTL rendering"): a UI/English string (gloss, note,
+// label) split into runs, each run of right-to-left script (Hebrew/Arabic blocks) flagged
+// rtl, so the UI can isolate it in its own <bdi> and the English around it keeps its
+// order. A run spans from an RTL letter to the last RTL letter reachable without crossing
+// a strong-LTR letter: everything between (spaces, ZWNJ, "...", "…", "/", commas, digits,
+// brackets) is neutral or weak and, as in the Unicode bidi algorithm, takes the
+// direction of the RTL text on both sides, so a phrase such as "از ... متنفرم" or
+// "کا/کی/کے" stays one run in its own order. Trailing neutrals (": I have)") stay
+// outside. Joined, the runs' text is the input. [] for "" / null.
+const RTL_CH = "\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF";
+const RTL_RUN_RE = new RegExp(`[${RTL_CH}](?:(?:[${RTL_CH}]|[^\\p{L}\\p{M}])*[${RTL_CH}])?`, "gu");
+function rtlRuns(s){
+  const str = s == null ? "" : String(s), out = [];
+  let i = 0, m; RTL_RUN_RE.lastIndex = 0;
+  while((m = RTL_RUN_RE.exec(str))){
+    if(m.index > i) out.push({ t: str.slice(i, m.index), rtl: false });
+    out.push({ t: m[0], rtl: true }); i = m.index + m[0].length;
+  }
+  if(i < str.length) out.push({ t: str.slice(i), rtl: false });
+  return out;
 }
 
 // ------------------------------------------------------------------ placement
@@ -2927,7 +2980,7 @@ function migrateLegacy(pack, legacyMap, oldRecord){
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
   meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, unitExampleSentences, rubyCovers, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
-  targetLang, fontFamilyOf, lineHeightOf, fontsHref, scriptDisplay,
+  targetLang, fontFamilyOf, fontStackOf, lineHeightOf, fontsHref, scriptDisplay, rtlRuns,
   foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
@@ -3026,9 +3079,27 @@ document.title = PACK.name;
 const DISP = VC.scriptDisplay(PACK);
 const TA = ` data-tl lang="${escapeHtml(DISP.lang)}"${DISP.rtl ? ' dir="rtl"' : ""}`;
 const tw = s => `<bdi${TA}>${escapeHtml(s)}</bdi>`;
+// pack.rtl rendering rules (docs/PACK_SCHEMA.md "RTL rendering"); every one is a no-op for
+// LTR packs (same markup as before).
+// ui: THE renderer for a UI/English string that may embed target-language text (glosses,
+// sentence translations, notes, lesson text, meta lines): escaped, each RTL-script run
+// wrapped in <bdi TA class="tlf"> so it neither reorders the English around it nor falls
+// to a system font; class tlf caps its line-height inside the UI line.
+// tf: a pack label placed inside a UI line (stage label, a symbol's name): for RTL packs
+// ui() (a Latin name such as "choṭī he" stays UI text, never dir=rtl / pack font), else
+// tw() as before.
+// UIA: attributes for a UI/English element nested inside a target-language (dir=rtl)
+// block: its own LTR bidi context and the UI font.
+const ui = s => DISP.rtl ? VC.rtlRuns(s).map(r => r.rtl ? `<bdi${TA} class="tlf">${escapeHtml(r.t)}</bdi>` : escapeHtml(r.t)).join("") : escapeHtml(s);
+const tf = s => DISP.rtl ? ui(s) : tw(s);
+const UIA = DISP.rtl ? ' dir="ltr" data-ui' : "";
 (function(){
   const r = document.documentElement;
-  if(DISP.fontFamily) r.style.setProperty("--wfont", `${DISP.fontFamily}, var(--wbase)`);
+  // pack.rtl: fontStack, the pack's named families only (generic serif etc. dropped), so
+  // Latin text inside target-language elements falls through to the UI font, not a
+  // generic serif. LTR packs keep pack.fontFamily exactly as given.
+  const wf = DISP.rtl ? DISP.fontStack : DISP.fontFamily;
+  if(wf) r.style.setProperty("--wfont", `${wf}, var(--wbase)`);
   if(DISP.lineHeight){ r.style.setProperty("--tlh", String(DISP.lineHeight)); r.setAttribute("data-tlh", ""); }
   if(DISP.rtl) r.setAttribute("data-tlrtl", "");
   // Google Fonts is the only external resource allowed; VC.fontsHref only ever builds a
@@ -3286,7 +3357,7 @@ function bigWordHTML(entry){
 // byKey maps each option value to its word; written (optional) gives the written label
 // for a value that is not itself the label (recall keys options by word id).
 function wordOptHtml(byKey, written){
-  return o => { const e = byKey[o]; const d = e ? dispWord(e) : null; const p = e ? pronBeside(e) : ""; return `${d && d.isPron ? twReading(d.text) : tw(written ? written(o) : o)}${p ? `<span class="op"><bdi>${readingHTML(p)}</bdi></span>` : ""}`; };
+  return o => { const e = byKey[o]; const d = e ? dispWord(e) : null; const p = e ? pronBeside(e) : ""; return `${d && d.isPron ? twReading(d.text) : tw(written ? written(o) : o)}${p ? `<span class="op"${UIA}><bdi>${readingHTML(p)}</bdi></span>` : ""}`; };
 }
 
 // ===================== generic drill runner =====================
@@ -3368,14 +3439,14 @@ function dnext(){
 }
 function renderMcItem(it){
   const P = $("panel");
-  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${noticeFor(it)}${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  P.innerHTML = `<div class="drill-body"><p class="q">${ui(it.label)}</p>${noticeFor(it)}${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
   const opts = shuffle(it.opts.slice());
   const container = $("o");
   let answered = false;
   opts.forEach((o,i)=>{
     const b = document.createElement("button");
-    b.innerHTML = `<b class="num">${i+1}</b>${it.optHtml ? it.optHtml(o) : escapeHtml(o)}`;
+    b.innerHTML = `<b class="num"${UIA}>${i+1}</b>${it.optHtml ? it.optHtml(o) : ui(o)}`;
     if(it.optsT && DISP.rtl) b.dir = "rtl"; // options are target-language words
     b.onclick = () => {
       if(answered) return; answered = true;
@@ -3402,7 +3473,7 @@ function renderMcItem(it){
 }
 function renderTypeItem(it){
   const P = $("panel");
-  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${noticeFor(it)}${it.html||""}
+  P.innerHTML = `<div class="drill-body"><p class="q">${ui(it.label)}</p>${noticeFor(it)}${it.html||""}
     <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"${it.inputTA !== undefined ? it.inputTA : TA} placeholder="${escapeHtml(it.placeholder || (DISP.rtl ? "type the word" : "type the word…"))}">
     <div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="submit">Check</button><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
@@ -3485,7 +3556,7 @@ function tokTap(t){
     box.querySelectorAll(".tk.on").forEach(x => x.classList.remove("on"));
     t.classList.add("on");
     let g = box.querySelector(".tokgloss");
-    if(!g){ g = document.createElement("div"); g.className = "gloss tokgloss"; if(DISP.rtl) g.setAttribute("dir", "rtl"); box.appendChild(g); }
+    if(!g){ g = document.createElement("div"); g.className = "gloss tokgloss"; if(DISP.rtl) g.setAttribute("dir", "ltr"); box.appendChild(g); } // an LTR box, as glossBox
     g.innerHTML = html; g.hidden = false;
     bringIntoView(g); // appended below the sentence: a tap on its last line can open it under the tab bar
   }
@@ -3636,13 +3707,13 @@ const pfWrittenTap = pf => pf.written ? showWrittenBtn(pf.written) : "";
 // heard from its own speaker button (sentSayHTML) and is a data-tokbox for the popover.
 function sentenceRowHTML(s, entry, written){
   const pf = pfSentence(s, entry, null, written, true);
-  if(pf && pf.taps) return `<div class="sent tks" data-tokbox><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${sentSayHTML(s)}${pfWrittenTap(pf)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
-  if(pf) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
+  if(pf && pf.taps) return `<div class="sent tks" data-tokbox><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${sentSayHTML(s)}${pfWrittenTap(pf)}</div><div class="se">${ui(s.en)}</div></div>`;
+  if(pf) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="se">${ui(s.en)}</div></div>`;
   const rt = sentenceRuby(s);
-  if(rt && rt.some(k => WORDS_BY_ID[k.wordId])) return `<div class="sent tks" data-tokbox><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry, true)}${sentSayHTML(s)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
-  if(rt) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry)}</div><div class="se">${escapeHtml(s.en)}</div></div>`;
+  if(rt && rt.some(k => WORDS_BY_ID[k.wordId])) return `<div class="sent tks" data-tokbox><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry, true)}${sentSayHTML(s)}</div><div class="se">${ui(s.en)}</div></div>`;
+  if(rt) return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st hasruby"${TA}>${rubyTextHTML(s, rt, entry)}</div><div class="se">${ui(s.en)}</div></div>`;
   const p = pronOf(s);
-  return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st"${TA}>${entry ? highlightHTML(s, entry) : escapeHtml(s.t)}</div>${p ? `<div class="sp">${readingHTML(p)}</div>` : ""}<div class="se">${escapeHtml(s.en)}</div></div>`;
+  return `<div class="sent" data-sent="${SENT_INDEX.get(s)}"><div class="st"${TA}>${entry ? highlightHTML(s, entry) : escapeHtml(s.t)}</div>${p ? `<div class="sp">${readingHTML(p)}</div>` : ""}<div class="se">${ui(s.en)}</div></div>`;
 }
 function exampleSentencesHTML(entry){
   const ex = wordExampleSentences(entry, 2);
@@ -3652,7 +3723,7 @@ function exampleSentencesHTML(entry){
 function revealBlock(entry){
   const p = pronBeside(entry), hear = canHearWord(entry);
   const icon = hear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${hear ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${wordFormHTML(entry)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
+  return `<div${hear ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${wordFormHTML(entry)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${ui(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
 }
 const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
 // hear — the word's clip or TTS plays it; pick the meaning. Unhearable, it degrades to read.
@@ -3679,14 +3750,14 @@ function recallItem(entry){
   // into one key, whatever they display as.
   const byId = {}; [entry, ...ds].forEach(e=>{ byId[e.id] = e; });
   return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
-    html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
+    html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
     opts: [entry.id, ...ds.map(d=>d.id)], a: entry.id, optHtml: wordOptHtml(byId, o => byId[o].w), optsT: true, reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // type — meaning shown; type the word (normalised per pack.typing, alt forms accepted).
 function typeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:"Type the word",
-    html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
+    html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
     check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
@@ -3699,7 +3770,7 @@ function typeItem(entry){
 function pronTypeItem(entry){
   const hear = canHearWord(entry);
   return { kind:"type", key:"w:"+entry.id, label:"Type the reading (tone marks or numbers)",
-    html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
+    html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
     placeholder: "tone marks or numbers…", inputTA: "",
     mount: () => { if(hear){ const b = $("rp2"); b.onclick = () => sayWord(entry, b); } },
     check: val => VC.checkPronTyped(val, entry.pron) === "ok",
@@ -3718,18 +3789,18 @@ function missSummary(miss){
 // ===================== sentence drill items =====================
 function sentenceRevealBlock(s){
   const pf = pfSentence(s, null, null, null, true);
-  if(pf && pf.taps) return `<div data-tokbox><div class="rw${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${sentSayHTML(s)}${pfWrittenTap(pf)}</div><div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  if(pf && pf.taps) return `<div data-tokbox><div class="rw${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${sentSayHTML(s)}${pfWrittenTap(pf)}</div><div style="color:var(--mute)">${ui(s.en)}</div></div>`;
   if(pf){
     const canHear = canHearSentence(s);
     const icon = canHear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-    return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${icon}${pfWrittenTap(pf)}</div><div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+    return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${icon}${pfWrittenTap(pf)}</div><div style="color:var(--mute)">${ui(s.en)}</div></div>`;
   }
   const rt = sentenceRuby(s);
-  if(rt && rt.some(k => WORDS_BY_ID[k.wordId])) return `<div data-tokbox><div class="rw hasruby"${TA}>${rubyTextHTML(s, rt, null, true)}${sentSayHTML(s)}</div><div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  if(rt && rt.some(k => WORDS_BY_ID[k.wordId])) return `<div data-tokbox><div class="rw hasruby"${TA}>${rubyTextHTML(s, rt, null, true)}${sentSayHTML(s)}</div><div style="color:var(--mute)">${ui(s.en)}</div></div>`;
   const p = rt ? "" : pronOf(s);
   const canHear = canHearSentence(s);
   const icon = canHear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(s.en)}</div></div>`;
+  return `<div${canHear ? ` data-sent="${SENT_INDEX.get(s)}" style="cursor:pointer"` : ""}><div class="rw${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${ui(s.en)}</div></div>`;
 }
 const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
 function readSentence(s){
@@ -3764,8 +3835,8 @@ function gapSentence(s, typed){
   // could be shown, where no blank can be placed: no gap item (caller falls back).
   const pf = pfSentence(s, null, match);
   if(pf === false) return null;
-  const html = pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="q">${escapeHtml(s.en)}</div>`
-    : `<div class="med wd"${TA}>${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${escapeHtml(s.en)}</div>`;
+  const html = pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="q">${ui(s.en)}</div>`
+    : `<div class="med wd"${TA}>${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q">${ui(s.en)}</div>`;
   const base = { key:"s:"+s.id, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
     onReveal: () => saySentence(s) };
   if(typed && TYPING){
@@ -3793,7 +3864,7 @@ const canHearUnit = it => { const w = WORDS_BY_ID[it.wordId]; return w ? canHear
 function charRevealBlock(it){
   const tap = WORDS_BY_ID[it.wordId] && canHearWord(WORDS_BY_ID[it.wordId]);
   const icon = tap ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${tap ? ` data-wid="${escapeHtml(it.wordId)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(it.t)}${icon}</div>${it.reading ? `<div class="rp">${readingHTML(it.reading)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(it.gloss)}</div></div>`;
+  return `<div${tap ? ` data-wid="${escapeHtml(it.wordId)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(it.t)}${icon}</div>${it.reading ? `<div class="rp">${readingHTML(it.reading)}</div>` : ""}<div style="color:var(--mute)">${ui(it.gloss)}</div></div>`;
 }
 function charDrillItem(kind, unit){
   const it = VC.charItem(kind, unit, CHAR_CTX);
@@ -3810,7 +3881,7 @@ function charDrillItem(kind, unit){
       mount: () => { if(!hear) return; const btn = $("sp"); sayUnit(it, btn); btn.onclick = () => sayUnit(it, btn); },
       onReveal: null });
   }
-  return Object.assign(base, formOpts, { label:"How is it written?", html: `<div class="med" style="text-align:center">${escapeHtml(it.gloss)}</div>` });
+  return Object.assign(base, formOpts, { label:"How is it written?", html: `<div class="med" style="text-align:center">${ui(it.gloss)}</div>` });
 }
 // ===================== script primer items =====================
 // One renderer per VC.scriptItem kind (pack.script only, docs/SCRIPT_PRIMER.md §2). The
@@ -3836,7 +3907,7 @@ function scriptRevealBlock(it){
   const head = r.syll ? `<div class="rw xrs">${r.syll.parts.map(p => tw(p)).join(" + ")} = ${tw(r.syll.t)}</div>` : `<div class="rw"${TA}>${escapeHtml(r.t)}</div>`;
   const w = r.word;
   const wordTap = w && (scriptVoice() || !!wordAudio(SCRIPT_BYID[w.id]));
-  return `<div>${head}<div>${r.name ? `${tw(r.name)} · ` : ""}<b>${escapeHtml(r.roman)}</b></div>${r.note ? `<div style="color:var(--mute)">${escapeHtml(r.note)}</div>` : ""}${w ? `<div class="xrword"${wordTap ? ` data-xw="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(w.w)}${wordTap ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : ""}</div><div class="rp">${escapeHtml(w.roman)}</div><div style="color:var(--mute)">${escapeHtml(w.en || "")}</div></div>` : ""}</div>`;
+  return `<div>${head}<div>${r.name ? `${tf(r.name)} · ` : ""}<b>${escapeHtml(r.roman)}</b></div>${r.note ? `<div style="color:var(--mute)">${ui(r.note)}</div>` : ""}${w ? `<div class="xrword"${wordTap ? ` data-xw="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(w.w)}${wordTap ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : ""}</div><div class="rp">${escapeHtml(w.roman)}</div><div style="color:var(--mute)">${ui(w.en || "")}</div></div>` : ""}</div>`;
 }
 function scriptDrillItem(kind, unit, ctx){
   const it = VC.scriptItem(kind, unit, ctx || scriptCtx());
@@ -3937,13 +4008,13 @@ function scriptTeachHTML(u){
   const ital = u.italic ? `<div class="xrow2">italic <span class="xit"${TA}>${escapeHtml(u.italic)}</span></div>` : "";
   const exs = VC.scriptExamples(u, SCRIPT_BYID).map(e => {
     const tap = scriptVoice() || !!wordAudio(SCRIPT_BYID[e.id]);
-    return `<div class="rowset"${tap ? ` data-xw="${escapeHtml(e.id)}" style="cursor:pointer"` : ""}><span class="wd"${TA}>${scriptHL(e.w, g)}</span><span class="info"><span class="pr">${escapeHtml(e.roman)}</span><span class="en">${escapeHtml(VC.gloss(SCRIPT_BYID[e.id]))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>`;
+    return `<div class="rowset"${tap ? ` data-xw="${escapeHtml(e.id)}" style="cursor:pointer"` : ""}><span class="wd"${TA}>${scriptHL(e.w, g)}</span><span class="info"><span class="pr">${escapeHtml(e.roman)}</span><span class="en">${ui(VC.gloss(SCRIPT_BYID[e.id]))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>`;
   }).join("");
   const headName = VC.scriptUnitHeadName(u);
-  return `<div class="xteach"><div class="xhead"${DISP.rtl ? ' dir="rtl"' : ""}><span class="cform xg"${TA}>${escapeHtml(u.t)}</span><span class="info" dir="ltr">${headName ? `<span class="xnm">${tw(headName)}</span>` : ""}<b class="xrm">${escapeHtml(u.roman)}</b>${VC.scriptUnitNote(u) ? `<span class="en">${escapeHtml(VC.scriptUnitNote(u))}</span>` : ""}</span>${play}</div>${row2}${ital}${exs}</div>`;
+  return `<div class="xteach"><div class="xhead"${DISP.rtl ? ' dir="rtl"' : ""}><span class="cform xg"${TA}>${escapeHtml(u.t)}</span><span class="info" dir="ltr">${headName ? `<span class="xnm">${tf(headName)}</span>` : ""}<b class="xrm">${escapeHtml(u.roman)}</b>${VC.scriptUnitNote(u) ? `<span class="en">${ui(VC.scriptUnitNote(u))}</span>` : ""}</span>${play}</div>${row2}${ital}${exs}</div>`;
 }
 const scriptNotesHTML = (st, set) => SNOTES.filter(n => n && n.st === st && n.set === set)
-  .map(n => `<div class="card-teach xnote"><h3>${escapeHtml(n.h)}</h3><p>${escapeHtml(n.body)}</p></div>`).join("");
+  .map(n => `<div class="card-teach xnote"><h3>${ui(n.h)}</h3><p>${ui(n.body)}</p></div>`).join("");
 // Plan entries are {kind, word} or, from the unified plans, {kind, unit} (a character
 // unit, or a script unit with a script kind).
 const planItem = p => isScriptPlan(p) ? scriptDrillItem(p.kind, p.unit) : p.unit ? charDrillItem(p.kind, p.unit) : itemFromPlan(p);
@@ -3999,7 +4070,7 @@ function pathStrip(){
   const stages = HAS_STAGES
     ? VC.stagePath(PACK, WORDS, CHAR_LIST, prog, SU).map(s => ({ label: s.label, frac: s.frac, tl: s.kind === "chars" || s.kind === "script" }))
     : LEVELS.map(lv=>({ label: levelLabel(lv), frac: nSets(lv) ? (prog.sets[lv]||0)/nSets(lv) : 1 }));
-  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.tl ? tw(s.label) : escapeHtml(s.label)}</div>`).join("")}</div>`;
+  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.tl ? tf(s.label) : escapeHtml(s.label)}</div>`).join("")}</div>`;
 }
 // The snapshot (VC.todaySnapshot) Today runs on: taken at Start today and kept for the
 // session, so finishing a stage mid-session changes neither what Learn teaches nor
@@ -4022,7 +4093,7 @@ const scriptCount = () => HAS_SCRIPT ? VC.recordedScriptUnits(SUNITS, prog, PACK
 // the first word level, or skip it (VC.answerScriptChoice). Replaces Start today until
 // answered; reversible from Progress.
 function scriptChoiceHTML(){
-  const L = SCFG.stages.map(st => tw(st.label)).join(" and ");
+  const L = SCFG.stages.map(st => tf(st.label)).join(" and ");
   return `<div class="stmt" id="scriptChoice">${L} first: learn to read the script, symbol by symbol, before ${escapeHtml(levelLabel(LEVELS[0]))}. If you can already read it, skip it. You can change this later in Progress.<button class="next" id="scriptLearn" style="margin-top:8px">Learn the script</button><button class="ghost" id="scriptSkip" style="margin-top:8px">I can read it, skip</button></div>`;
 }
 // The one-time line for a learner whose progress predates the primer (VC.scriptNotice):
@@ -4044,7 +4115,7 @@ function charChoiceHTML(){
   const path = VC.stagePath(PACK, WORDS, CHAR_LIST, prog, SU);
   const first = path.findIndex(s => s.kind === "chars");
   const next = path.slice(first + 1).find(s => s.kind === "words" && !s.done);
-  const L = tw(CHAR_CFG.label), N = escapeHtml(next ? next.label : "");
+  const L = tf(CHAR_CFG.label), N = ui(next ? next.label : "");
   return `<div class="stmt" id="charChoice">${L} next: learn to recognise the written form of the words you already know. Or go on to ${N} first and do ${L} after it. You can change this later in Progress.<button class="next" id="choiceStart" style="margin-top:8px">Start ${L}</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to ${N}</button></div>`;
 }
 function todayRender(){
@@ -4079,10 +4150,10 @@ function todayRender(){
   const xNotice = showScriptNotice();
   P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${legacyFail ? `<div class="stmt" id="legacyFail">${legacyFailHTML(legacyFail)}<button class="ghost" id="legacySkip" style="margin-top:8px">Start without it</button></div>` : ""}${xNotice ? `<div class="stmt" id="scriptNotice">A script primer is available. Turn it on in Progress.<button class="ghost" id="scriptNoticeOk" style="margin-top:8px">OK</button></div>` : ""}${pathStrip()}${xChoice ? scriptChoiceHTML() : ""}
     ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice && !xChoice ? charChoiceHTML() : ""}
-    ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${escapeHtml(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
-    ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${rubyTw(readHint.title, readHint.titleRuby)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
+    ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${ui(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
+    ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${pfRubyText(readHint.title, readHint.titleRuby) ? rubyTw(readHint.title, readHint.titleRuby) : tf(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
-    <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${escapeHtml(s[1])}</td></tr>`).join("")}</table>
+    <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${ui(s[1])}</td></tr>`).join("")}</table>
     </div>${choice ? "" : `<div class="actions"><button class="next" id="go">Start today</button></div>`}`;
   if(legacyNotice) $("legacyOk").onclick = () => { legacyNotice = null; todayRender(); };
   if(legacyFail) $("legacySkip").onclick = () => { legacyFail = null; storeReadOnly = false; store.save(); todayRender(); };
@@ -4179,7 +4250,7 @@ function wordRowHTML(w, cls){
   // shrink to width:0 next to the gloss (that caused unbreakable transliterations
   // like "budan" to overlap the gloss text when the gloss was long).
   const p = pronBeside(w);
-  return `<span class="wd${dispWord(w).isPron ? " pf" : ""}"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${readingHTML(p)}</span>` : ""}<span class="en">${escapeHtml(VC.gloss(w))}</span></span>`;
+  return `<span class="wd${dispWord(w).isPron ? " pf" : ""}"${TA}>${wordFormHTML(w)}</span><span class="info">${p ? `<span class="pr">${readingHTML(p)}</span>` : ""}<span class="en">${ui(VC.gloss(w))}</span></span>`;
 }
 function vocabTeach(list, lv, onDrill){
   setScore(0,0); screenTop();
@@ -4215,9 +4286,9 @@ function charTeach(cs, stage, onDrill){
     const w = VC.unitWord(u, WORDS_BY_ID), reading = VC.unitReading(u, WORDS_BY_ID);
     const tap = w && canHearWord(w);
     const ex = VC.unitExampleSentences(u, w, SENTENCES, PACK, 1); // prefers one showing the unit written with ruby
-    return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${readingHTML(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w, u.words)).join("")}</div>`;
+    return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${readingHTML(reading)}</span>` : ""}<span class="en">${ui(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w, u.words)).join("")}</div>`;
   }).join("");
-  P.innerHTML = `<p class="q">${tw(stage.label)}, set ${cs.index+1} of ${cs.total}: the written form of words you already know.${hint}</p>
+  P.innerHTML = `<p class="q">${tf(stage.label)}, set ${cs.index+1} of ${cs.total}: the written form of words you already know.${hint}</p>
     <div id="ctl">${cards}</div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
   $("dr").onclick = onDrill;
 }
@@ -4227,7 +4298,7 @@ function scriptTeach(ss, stage, onDrill){
   setScore(0,0); screenTop();
   const P = $("panel");
   const set = ss.units.length ? ss.units[0].set : null;
-  P.innerHTML = `<p class="q">${tw(stage.label)}, set ${ss.index+1} of ${ss.total}: ${ss.units.length} new symbol${ss.units.length === 1 ? "" : "s"}.${scriptVoice() || ss.units.some(u => u.audio) ? " Tap the speaker to hear one." : ""}</p>
+  P.innerHTML = `<p class="q">${tf(stage.label)}, set ${ss.index+1} of ${ss.total}: ${ss.units.length} new symbol${ss.units.length === 1 ? "" : "s"}.${scriptVoice() || ss.units.some(u => u.audio) ? " Tap the speaker to hear one." : ""}</p>
     <div id="xtl">${scriptNotesHTML(stage.key, set)}${ss.units.map(scriptTeachHTML).join("")}</div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
   paintScriptHL($("xtl"));
   $("dr").onclick = onDrill;
@@ -4250,14 +4321,14 @@ function lessonTeach(lesson, onDone, onBack){
   setScore(0,0); screenTop();
   if(!prog.soundsOpened){ prog.soundsOpened = true; store.save(); }
   const P = $("panel");
-  P.innerHTML = `${onBack ? '<div class="row"><button id="back">‹ lessons</button></div>' : ""}<p class="q">${escapeHtml(lesson.blurb)}</p>
+  P.innerHTML = `${onBack ? '<div class="row"><button id="back">‹ lessons</button></div>' : ""}<p class="q">${ui(lesson.blurb)}</p>
     <div id="cards"></div><div class="actions"><button class="next" id="dr">Drill</button></div>`;
   if(onBack) $("back").onclick = onBack;
   const cw = $("cards");
   (lesson.cards||[]).forEach(c => {
     const el = document.createElement("div"); el.className = "card-teach";
-    el.innerHTML = `<h3>${escapeHtml(c.h)}</h3><p>${c.body}</p>
-      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset">${r.map((cell,i)=>`<span class="${["pr","wd","en"][i]||"en"}"${i===1 ? TA : ""}>${i === 0 ? readingHTML(cell) : escapeHtml(cell)}</span>`).join("")}</div>`).join("")}</div>` : ""}
+    el.innerHTML = `<h3>${ui(c.h)}</h3><p>${c.body}</p>
+      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset">${r.map((cell,i)=>`<span class="${["pr","wd","en"][i]||"en"}"${i===1 ? TA : ""}>${i === 0 ? readingHTML(cell) : i === 1 ? escapeHtml(cell) : ui(cell)}</span>`).join("")}</div>`).join("")}</div>` : ""}
       ${c.say ? `<div class="taplist">${c.say.map((s,i)=>`<button data-s="${i}">▶ ${tw(s)}</button>`).join("")}</div>` : ""}`;
     if(c.say) el.querySelectorAll("[data-s]").forEach((b,i)=>b.onclick=()=>say(c.say[i]));
     cw.appendChild(el);
@@ -4288,8 +4359,8 @@ function soundsRender(){
     return;
   }
   const done = LESSON_LIST.filter(l=>prog.lessons[l.id]).length;
-  P.innerHTML = `<p class="q">Optional: how ${escapeHtml(PACK.name)} sounds and is written. ${LESSON_LIST.length} lessons, ${done} done.</p>
-    ${HAS_SCRIPT ? scriptTabHTML() : ""}<div class="plist">${LESSON_LIST.map((l,i)=>`<button data-i="${i}"><span>${escapeHtml(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>${SOUNDS_REF ? soundsRefHTML() : ""}`;
+  P.innerHTML = `<p class="q">Optional: how ${ui(PACK.name)} sounds and is written. ${LESSON_LIST.length} lessons, ${done} done.</p>
+    ${HAS_SCRIPT ? scriptTabHTML() : ""}<div class="plist">${LESSON_LIST.map((l,i)=>`<button data-i="${i}"><span>${ui(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>${SOUNDS_REF ? soundsRefHTML() : ""}`;
   P.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ soundsSel = +b.dataset.i; soundsRender(); });
   if(SOUNDS_REF) P.querySelectorAll("[data-rs]").forEach(b=>b.onclick=()=>speak(b.dataset.rs, b));
   if(HAS_SCRIPT) scriptTabWire();
@@ -4301,7 +4372,7 @@ function soundsRender(){
 // (panel data-xs/data-xopen listener). "Practise weakest 20" runs VC.scriptTestPlan.
 function scriptChartHTML(){
   const recs = VC.scriptRecs(prog);
-  return SCFG.stages.map(st => `<div class="refh">${tw(st.label)}</div>` + VC.scriptSets(st.key, SUNITS).map((set, i) =>
+  return SCFG.stages.map(st => `<div class="refh">${tf(st.label)}</div>` + VC.scriptSets(st.key, SUNITS).map((set, i) =>
     `<div class="xset"><span class="xsn">${i + 1}</span><div class="refcells xcells">${set.map(u => {
       const r = recs[u.id]; const m = !!r && VC.scriptMastered(r, PACK);
       const state = m ? "mastered" : r ? "taught" : "";
@@ -4350,7 +4421,7 @@ function soundsRefGroups(){
 function soundsRefHTML(){
   const groups = soundsRefGroups();
   if(!groups.length) return "";
-  return `<details class="refcard"><summary>Reference: every sound in the lessons</summary>${hasSpeech ? `<p class="q">Tap a sound to hear it.</p>` : ""}${groups.map(g => `<div class="refh">${escapeHtml(g.title)}</div><div class="refcells">${g.cells.map(c => `<button type="button" data-rs="${escapeHtml(c.say)}" aria-label="${escapeHtml(c.label)}">${readingHTML(c.label)}</button>`).join("")}</div>`).join("")}</details>`;
+  return `<details class="refcard"><summary>Reference: every sound in the lessons</summary>${hasSpeech ? `<p class="q">Tap a sound to hear it.</p>` : ""}${groups.map(g => `<div class="refh">${ui(g.title)}</div><div class="refcells">${g.cells.map(c => `<button type="button" data-rs="${escapeHtml(c.say)}" aria-label="${escapeHtml(c.label)}">${readingHTML(c.label)}</button>`).join("")}</div>`).join("")}</details>`;
 }
 
 // ===================== Words =====================
@@ -4439,7 +4510,7 @@ function readRender(){
       const ps = PASSAGE_LIST.filter(p => p.lv === l.lv);
       return `<div class="rlv"><div class="rlh">${L}<span class="q" style="margin:0">${ps.filter(passageDone).length} / ${ps.length} done</span></div>
         <div class="plist">${ps.map(p => { const d = passageDone(p);
-          return `<button data-pid="${escapeHtml(p.id)}"${DISP.rtl ? ' dir="rtl"' : ""}><span>${rubyTw(p.title, p.titleRuby, true)}<span class="q" style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick">✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
+          return `<button data-pid="${escapeHtml(p.id)}"${DISP.rtl ? ' dir="rtl"' : ""}><span>${rubyTw(p.title, p.titleRuby, true)}<span class="q"${UIA} style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick"${UIA}>✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
     }).join("")}`;
   P.querySelectorAll("[data-pid]").forEach(b => b.onclick = () => startPassage(PASSAGE_LIST.find(p => p.id === b.dataset.pid)));
 }
@@ -4585,10 +4656,14 @@ function rubyTw(t, ruby, inButton){
   return pfRubyText(t, ruby) ? `<bdi${TA}>${rubyTextOr(t, ruby, inButton)}</bdi>` : tw(t);
 }
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
-// RTL packs: the popover runs right-to-left (tapped word at the right edge, then pron and
-// gloss in reading order); pron and the English gloss stay isolated LTR runs inside it.
+// RTL packs: the popover (#gloss and the sentence tokgloss) is an LTR line, right-aligned:
+// the tapped word is its own isolated dir=rtl span (TA), pron and gloss follow as
+// isolated LTR runs, so a gloss that wraps never interleaves with the word, and RTL
+// fragments inside the gloss are isolated by ui(). The results' weak-word rows are RTL
+// flex rows (checkbox on the right like the rows around them); each piece is its own
+// flex item, pron/gloss/why labels dir=ltr.
 const LTR = DISP.rtl ? ' dir="ltr"' : "";
-const glossBox = () => `<div class="gloss" id="gloss"${DISP.rtl ? ' dir="rtl"' : ""} hidden></div>`;
+const glossBox = () => `<div class="gloss" id="gloss"${LTR} hidden></div>`;
 // spanGloss: the tapped span's display-only gloss (spans[i][3], carried as data-pg on
 // the tap span), shown instead of the word's gloss; without one the word's own gloss.
 // head (optional {surface, reading}, pronFirst phrase spans, spanHead): the headword is the
@@ -4597,7 +4672,7 @@ const glossBox = () => `<div class="gloss" id="gloss"${DISP.rtl ? ' dir="rtl"' :
 function glossHTML(id, spanGloss, head){
   const w = WORDS_BY_ID[id]; if(!w) return "";
   const g = spanGloss ? String(spanGloss).replace(/\s+/g, " ").trim() : "";
-  const ge = ` <span class="ge"${LTR}>${escapeHtml(g || VC.gloss(w))}</span>`;
+  const ge = ` <span class="ge"${LTR}>${ui(g || VC.gloss(w))}</span>`;
   if(head){
     const r = head.reading || "";
     if(dispWord(w).isPron && r) return `<span class="gw"${TA}>${readingHTML(r)}${showWrittenBtn(head.surface)}</span>${ge}`;
@@ -4653,7 +4728,7 @@ function readQuestionScreen(){
   const tf = q.type === "tf";
   const order = tf ? [true, false] : shuffle([0,1,2,3]);
   P.innerHTML = `<div class="drill-body top"><p class="q">Question ${qi+1} / ${p.questions.length}</p>
-    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${q.en ? `<div class="q">${escapeHtml(q.en)}</div>` : ""}
+    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${q.en ? `<div class="q">${ui(q.en)}</div>` : ""}
     <div class="opts ${tf ? "" : "opts-w"}" id="o"></div>
     <div class="reveal" id="rv"></div>
     <button class="ghost" id="ptoggle" aria-expanded="${RD.shown}" style="margin-top:12px">${RD.shown ? "Hide passage" : "Show passage"}</button>
@@ -4671,7 +4746,7 @@ function readQuestionScreen(){
   const box = $("o");
   order.forEach((v, i) => {
     const b = document.createElement("button");
-    b.innerHTML = `<b class="num">${i+1}</b>${tf ? (v ? "True" : "False") : rubyTw(q.options[v], (q.optionsRuby || [])[v], true)}`;
+    b.innerHTML = `<b class="num"${UIA}>${i+1}</b>${tf ? (v ? "True" : "False") : rubyTw(q.options[v], (q.optionsRuby || [])[v], true)}`;
     if(!tf && DISP.rtl) b.dir = "rtl";
     b.dataset.v = String(v);
     b.onclick = () => {
@@ -4680,7 +4755,7 @@ function readQuestionScreen(){
       [...box.children].forEach(x => { x.disabled = true; if(x.dataset.v === String(q.answer)) x.classList.add("ok"); });
       if(!rec.ok) b.classList.add("bad");
       const s = p.sentences[q.sentence];
-      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"${TOKBOX}><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${escapeHtml(s.en)}</div></div>`);
+      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"${TOKBOX}><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${ui(s.en)}</div></div>`);
       const hs = $("pbox").querySelector(`[data-si="${q.sentence}"]`); if(hs) hs.classList.add("hi");
       showNext(); setScore(qi+1, p.questions.length);
     };
@@ -4710,8 +4785,8 @@ function readResults(){
   P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
     <p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
-      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${escapeHtml(s.en)}</div></div>`; }).join("")}
-    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
+      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${ui(s.en)}</div></div>`; }).join("")}
+    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q"${UIA} style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
     <div id="addmsg" class="q" hidden></div>
     <button class="ghost" id="rlist" style="margin-top:10px">Back to passages</button></div>`;
@@ -4792,7 +4867,7 @@ function placeVocabNext(){
     <div class="opts" id="o"></div>`;
   if(asHear){ const btn = $("rp"); sayWord(w, btn); btn.onclick = ()=>sayWord(w, btn); }
   opts.forEach(o => {
-    const b = document.createElement("button"); b.textContent = o;
+    const b = document.createElement("button"); b.innerHTML = ui(o);
     b.onclick = () => { PL.res[it.b].n++; if(o===VC.gloss(w)) PL.res[it.b].r++; placeVocabNext(); };
     $("o").appendChild(b);
   });
@@ -4928,7 +5003,7 @@ function charProgress(){
     const taught = VC.charSets(st.levels, CHAR_LIST, PACK).filter(set => VC.charSetTaught(set, prog)).reduce((n, set) => n + set.length, 0);
     const masteredN = list.filter(u => recs[u.id] && VC.charTier(streak(u), PACK) !== "pron").length;
     const bareN = list.filter(u => recs[u.id] && VC.charTier(streak(u), PACK) === "bare").length;
-    return `<tr><td>${tw(st.label)}</td><td>${taught} / ${list.length} taught · ${st.recorded} recorded · ${masteredN} mastered · ${bareN} bare</td></tr>`;
+    return `<tr><td>${tf(st.label)}</td><td>${taught} / ${list.length} taught · ${st.recorded} recorded · ${masteredN} mastered · ${bareN} bare</td></tr>`;
   }).join("");
   const defer = !!(prog.chars && prog.chars.defer === true);
   const deferred = VC.charStages(PACK, Object.assign({}, prog, { chars: Object.assign({}, prog.chars, { defer: true }) }));
@@ -4958,14 +5033,14 @@ function scriptProgress(){
   let rows = SCFG.stages.map(st => {
     const list = VC.scriptStageUnits(st.key, SUNITS);
     const taught = VC.scriptSets(st.key, SUNITS).filter(set => VC.scriptSetTaught(set, prog)).reduce((n, set) => n + set.length, 0);
-    return `<tr><td>${tw(st.label)}</td><td>${taught} / ${list.length} taught · ${list.filter(isM).length} mastered</td></tr>`;
+    return `<tr><td>${tf(st.label)}</td><td>${taught} / ${list.length} taught · ${list.filter(isM).length} mastered</td></tr>`;
   }).join("");
   if(SUNITS.every(isM)) rows += `<tr id="xMastered"><td colspan="2">Script mastered</td></tr>`;
   const off = VC.scriptSkipped(prog);
   const stageOn = st => !(prog.script && prog.script.skip && prog.script.skip[st.key] === true);
   const multi = SCFG.stages.length > 1;
   const controls = `<div id="scriptCtl" style="margin-top:14px"><div class="row"><button class="chip ${off ? "" : "on"}" id="xOn" aria-pressed="${!off}">Script primer on</button><button class="chip ${off ? "on" : ""}" id="xOff" aria-pressed="${off}">Script primer off</button></div>
-    ${multi && !off ? `<div class="row">${SCFG.stages.map((st, i) => `<button class="chip ${stageOn(st) ? "on" : ""}" id="xSt${i}" aria-pressed="${stageOn(st)}">${tw(st.label)}</button>`).join("")}</div>` : ""}
+    ${multi && !off ? `<div class="row">${SCFG.stages.map((st, i) => `<button class="chip ${stageOn(st) ? "on" : ""}" id="xSt${i}" aria-pressed="${stageOn(st)}">${tf(st.label)}</button>`).join("")}</div>` : ""}
     <p class="q" style="margin-top:6px">Changes what Today's Learn step teaches next. Nothing you've learned is lost.</p></div>`;
   const wire = () => {
     $("xOn").onclick = () => { VC.setScriptSkipped(prog, false); store.save(); progressRender(); };
@@ -4981,7 +5056,7 @@ function legacySummaryHTML(m, kept){
   const p = m.prog, n = o => Object.keys(o || {}).length;
   const setsN = Object.values(p.sets || {}).reduce((a, b) => a + (b || 0), 0);
   const parts = [`${n(p.w)} word records`, `${n(p.s)} sentence records`];
-  if(p.chars) parts.push(`${n(p.chars.c)} ${tw(CHAR_CFG ? CHAR_CFG.label : "")} records`);
+  if(p.chars) parts.push(`${n(p.chars.c)} ${tf(CHAR_CFG ? CHAR_CFG.label : "")} records`);
   parts.push(`${setsN} sets done`, `${p.sessions || 0} sessions`);
   const LIST_MAX = 20;
   const um = m.unmapped || [];
@@ -5085,4 +5160,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:9288311-1530565-->
+<!--ve-build:1969847951-1535488-->

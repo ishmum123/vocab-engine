@@ -986,6 +986,25 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     } catch(e){ check(`${name}: section threw: ${e.message}`, false); }
   }
 
+  // ---------------------------------------------------------------- RTL rendering rules
+  // charTeach and the character drill under pack.rtl (docs/PACK_SCHEMA.md "RTL rendering"):
+  // glosses that embed an RTL phrase go through ui(); no UI text sits in a dir=rtl context.
+  console.log("\n[rtl] character teach cards and drill items under pack.rtl");
+  try{
+    const { rtlAudit } = require("./fixtures/rtl_audit.js");
+    const words = WORDS.map(w => Object.assign({}, w, { en: `${w.en} (کتاب ... من)` }));
+    const b = await boot({ pack: Object.assign({}, PACK, { rtl: true }), words });
+    const units = CHARACTERS.slice(0, 3);
+    b.api.charTeach({ units, index: 0, total: 5 }, { label: PACK.characters && PACK.characters.label || "Characters" }, () => {});
+    const teach = b.api.html("panel");
+    const bad = rtlAudit(teach);
+    check(`rtl pack: charTeach has no bidi/font violations (${bad.length}${bad[0] ? ": " + bad.slice(0, 3).join(" | ") : ""})`, bad.length === 0);
+    check("rtl pack: charTeach glosses isolate the RTL phrase as one run", /\(<bdi data-tl lang="[^"]+" dir="rtl" class="tlf">کتاب \.\.\. من<\/bdi>\)/.test(teach));
+    const it = b.api.charDrillItem("charRead", units[0]);
+    const bad2 = rtlAudit(it.reveal);
+    check(`rtl pack: character reveal block has no bidi/font violations (${bad2.length})`, bad2.length === 0);
+  } catch(e){ check(`rtl charTeach section threw: ${e.message}`, false); }
+
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.log(`FAIL  harness threw: ${e.stack}`); process.exit(1); });

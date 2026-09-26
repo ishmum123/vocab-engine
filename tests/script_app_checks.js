@@ -143,6 +143,7 @@ return {
   hasScript: () => HAS_SCRIPT, scriptTab: () => SCRIPT_TAB, byId: () => SCRIPT_BYID,
   scriptDrillItem, scriptCtx, kindCtx: () => scriptKindCtx(), scriptTeachHTML, scriptChartHTML, scriptHL, drill,
   panelListeners: () => document.getElementById("panel")._listeners.click || [],
+  ui, tf, glossHTML, glossBox, revealBlock, wordRowHTML, readItem, recallItem, typeItem, sentenceRowHTML, sentenceRevealBlock, startPlacement,
 };`;
   const names = ["document","window","SpeechSynthesisUtterance","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
   const args = [document, window, window.SpeechSynthesisUtterance, { userAgent:"ScriptAppChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
@@ -156,6 +157,8 @@ return {
 }
 
 const count = (s, re) => (s.match(re) || []).length;
+const { rtlAudit, elsMarkup } = require("./fixtures/rtl_audit.js");
+const optsMarkup = api => elsMarkup(api.el("o") ? api.el("o").children : []);
 const stripTags = h => h.replace(/<[^>]+>/g, "").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&");
 const segsOf = h => [...h.matchAll(/<div class="seg">[\s\S]*?<\/i><\/div>([\s\S]*?)<\/div>/g)].map(m => stripTags(m[1]));
 const learnLine = h => stripTags((h.match(/2\. Learn<\/td><td>([\s\S]*?)<\/td>/) || [])[1] || "");
@@ -459,8 +462,9 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
       !/class="xnm"/.test(dhN.match(/<div class="xhead"[\s\S]*?<\/div>/)[0]) && nItem.reveal.name === "");
     const rnN = FX.fa(); const ru3 = rnN.script.units.find(u => u.id === "fa-be"); ru3.name = "be";
     const rbN = await boot(rnN);
+    // (A Latin name in an RTL pack is UI text: plain, no dir=rtl / pack-font bdi; RTL rendering rules.)
     check("... a head name that differs from the roman is kept on both",
-      /class="xnm"[^<]*<bdi[^>]*>be<\/bdi>/.test(rbN.api.scriptTeachHTML(ru3)) && VC.scriptItem("symSound", ru3, { units: rnN.script.units, words: rnN.words }).reveal.name === "be");
+      /class="xnm">be<\/span>/.test(rbN.api.scriptTeachHTML(ru3)) && VC.scriptItem("symSound", ru3, { units: rnN.script.units, words: rnN.words }).reveal.name === "be");
     // RTL answer block: one edge for every line (root flag + rule), LTR packs untouched.
     check("rtl pack: root carries data-tlrtl, and .reveal/.rvb align right under it", fb.document.documentElement._attrs["data-tlrtl"] === "" && /:root\[data-tlrtl\] \.reveal,:root\[data-tlrtl\] \.rvb\{text-align:right\}/.test(appHtml));
     check("ltr pack (ko): no data-tlrtl on the root", kb.document.documentElement._attrs["data-tlrtl"] === undefined);
@@ -695,6 +699,90 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     check(`${lang}: 390px proxy: teach head ${wide.w}px (${wide.id}) and widest chart cell ${Math.round(cell)}px fit`, wide.w <= 358 && cell <= 336);
     b.api.goto("sounds");
     check(`${lang}: Script tab chart has every unit`, count(b.api.html("panel"), /data-xopen/g) === units.length);
+  }
+
+  // ---------------------------------------------------------------- [14] RTL rendering rules
+  console.log("\n[14] RTL rendering rules: bidi isolation and pack font on rendered markup (fa-like)");
+  {
+    const FA = FX.fa();
+    FA.words.forEach(w => { w.en = `${w.en} (${w.w} / ${w.w})`; });
+    const bk = FA.words.find(w => w.w === "کتاب"); bk.en = "book (کتاب‌ها: books)";
+    FA.script.notes[0].body = "Short vowels are not written: کتاب is read ketâb.";
+    const b = await boot(FA); const api = b.api;
+    const rr = api.ui(bk.en);
+    check("ui(): each RTL run in a gloss is its own <bdi data-tl lang dir=rtl class=tlf>, the English around it escaped, text unchanged",
+      rr === 'book (<bdi data-tl lang="fa" dir="rtl" class="tlf">کتاب‌ها</bdi>: books)' && stripTags(rr) === bk.en);
+    check("ui(): a Latin-only string is exactly escapeHtml", api.ui("a <b> & 'c'") === VC.escapeHtml("a <b> & 'c'"));
+    check("VC.rtlRuns: runs join back to the input, spaces/ZWNJ inside a run kept, none for Latin",
+      VC.rtlRuns("x حروفِ تہجی, y").map(r => r.t).join("") === "x حروفِ تہجی, y" && VC.rtlRuns("x حروفِ تہجی, y").filter(r => r.rtl).length === 1 &&
+      VC.rtlRuns("abc").length === 1 && !VC.rtlRuns("abc")[0].rtl && VC.rtlRuns("").length === 0 && VC.rtlRuns("(bound: لـ)")[1].t === "لـ");
+    const rtlOnly = x => VC.rtlRuns(x).filter(r => r.rtl).map(r => r.t);
+    const oneRun = (x, run) => { const r = rtlOnly(x); return r.length === 1 && r[0] === run && VC.rtlRuns(x).map(q => q.t).join("") === x; };
+    check("VC.rtlRuns: neutrals between RTL letters (..., …, /, spaces) stay inside one run, so a phrase keeps its order",
+      oneRun("to hate (از ... متنفرم: I hate)", "از ... متنفرم") && oneRun("of (کا/کی/کے)", "کا/کی/کے") && oneRun("only (لا … إلا)", "لا … إلا") &&
+      oneRun("still (ما زال / لا يزال)", "ما زال / لا يزال") && oneRun("either (إما…أو) or", "إما…أو"));
+    check("VC.rtlRuns: a Latin letter ends the run, trailing neutrals stay outside",
+      JSON.stringify(VC.rtlRuns("near; (میرے پاس: I have)")) === JSON.stringify([{ t: "near; (", rtl: false }, { t: "میرے پاس", rtl: true }, { t: ": I have)", rtl: false }]) &&
+      JSON.stringify(rtlOnly("کا and کی")) === JSON.stringify(["کا", "کی"]));
+    check("VC.fontStackOf: quote-aware split (a quoted family with a comma is one family)",
+      VC.fontStackOf({ fontFamily: '"Foo, Bar", serif, Baz' }) === '"Foo, Bar", Baz' && VC.fontStackOf({ fontFamily: "'A,B'" }) === "'A,B'");
+    check("VC.fontStackOf: generic families dropped (Latin falls to the UI stack), null when none named",
+      VC.fontStackOf({ fontFamily: '"Noto Nastaliq Urdu", serif' }) === '"Noto Nastaliq Urdu"' && VC.fontStackOf({ fontFamily: "Vazirmatn, \"Noto Naskh Arabic\", sans-serif" }) === 'Vazirmatn, "Noto Naskh Arabic"' &&
+      VC.fontStackOf({ fontFamily: "serif" }) === null && VC.scriptDisplay(FA.pack).fontStack === "Vazirmatn");
+    const sites = {};
+    sites.gloss = api.glossHTML(bk.id);
+    sites.glossBox = api.glossBox();
+    sites.reveal = api.revealBlock(bk);
+    sites.wordRow = api.wordRowHTML(bk, "wl");
+    api.drill([api.readItem(bk)], () => {});
+    sites.meaningItem = api.html("panel") + optsMarkup(api);
+    answer(api, true); sites.meaningReveal = api.html("rv");
+    api.drill([api.recallItem(bk)], () => {});
+    sites.recallItem = api.html("panel") + optsMarkup(api);
+    api.drill([api.typeItem(bk)], () => {});
+    sites.typeItem = api.html("panel");
+    // A sentence whose translation embeds an RTL phrase with an ellipsis (one run).
+    const sent = { t: "این کتاب من است", en: "This is my book (کتاب ... من).", w: [bk.id] };
+    sites.sentenceRow = api.sentenceRowHTML(sent, bk);
+    sites.sentenceReveal = api.sentenceRevealBlock(sent);
+    const unit = FA.script.units.find(u => u.id === "fa-be");
+    sites.teachCard = api.scriptTeachHTML(unit);
+    VC.answerScriptChoice(api.getProg(), true); api.today();
+    sites.today = api.html("panel");
+    api.el("go").click();
+    sites.scriptTeach = api.html("panel");
+    api.goto("sounds"); sites.scriptTab = api.html("panel");
+    api.goto("progress"); sites.progress = api.html("panel");
+    api.goto("test"); sites.testTab = api.html("panel");
+    api.goto("words"); sites.wordsTab = api.html("panel") + (api.html("wbody") || "");
+    api.startPlacement(); sites.placement = api.html("panel") + optsMarkup(api);
+    check("script notes render on the teach screen with their RTL fragment in the pack font (the fixture note is live)",
+      /Short vowels are not written: <bdi data-tl lang="fa" dir="rtl" class="tlf">کتاب<\/bdi> is read ketâb\./.test(sites.scriptTeach));
+    check("sentence translation: an RTL phrase with an ellipsis is one isolated run",
+      /\(<bdi data-tl lang="fa" dir="rtl" class="tlf">کتاب \.\.\. من<\/bdi>\)/.test(sites.sentenceRow) && /class="tlf">کتاب \.\.\. من</.test(sites.sentenceReveal));
+    const TLF = 'class="tlf">الفبا</bdi>';
+    check("stage label as a pack fragment in UI lines is tf() (class tlf) at every site: Today plan + path strip, teach heading, Script chart, Progress row",
+      sites.today.split(TLF).length - 1 >= 2 && sites.scriptTeach.includes(TLF) && sites.scriptTab.includes(TLF) && sites.progress.includes(TLF));
+    check("placement options: meaning glosses with RTL fragments rendered through ui()", /class="tlf">/.test(optsMarkup(api)));
+    Object.keys(sites).forEach(k => { const bad = rtlAudit(sites[k]); check(`rtl audit: ${k} has no bidi/font violations (${bad.length})`, bad.length === 0, bad.slice(0, 4).join("; ")); });
+    check("gloss popover box is an LTR line (dir=ltr), the word inside it an isolated dir=rtl span", /^<div class="gloss" id="gloss" dir="ltr" hidden>/.test(sites.glossBox) && /<span class="gw" data-tl lang="fa" dir="rtl">/.test(sites.gloss));
+    check("Today Learn line: the stage label is a tf() fragment (pack font, capped line-height)", /2\. Learn<\/td><td><bdi data-tl lang="fa" dir="rtl" class="tlf">الفبا<\/bdi>, set/.test(sites.today));
+    check("meaning options with an RTL fragment: button stays LTR, fragment isolated", /<button><b class="num">\d<\/b>book \(<bdi data-tl lang="fa" dir="rtl" class="tlf">/.test(optsMarkup(api)) || /book \(<bdi[^>]*class="tlf">/.test(sites.meaningItem));
+    // Deliberately broken markup trips the audit (the audit itself is live).
+    check("rtl audit catches Latin in a dir=rtl block, RTL outside data-tl, and Latin inside data-tl",
+      rtlAudit('<div dir="rtl">79 words</div>').length === 1 && rtlAudit('<button dir="rtl"><span>✓ 3 / 4</span></button>').length === 1 && rtlAudit('<div dir="rtl">3 / 4 <bdi>x</bdi></div>').length === 1 && rtlAudit("<p>learn کتاب</p>").length === 2 && rtlAudit('<div data-tl lang="fa" dir="rtl">ketâb</div>').length === 2);
+    // LTR packs: the helpers are the old markup.
+    const kb = await boot(FX.ko());
+    // pack font stack: generic keywords are dropped for RTL packs only; an LTR pack's
+    // --wfont is exactly pack.fontFamily + the base stack, as before.
+    const koF = FX.ko(); koF.pack.fontFamily = '"Noto Sans KR", sans-serif';
+    const kf = await boot(koF);
+    check("LTR pack: --wfont is pack.fontFamily unchanged (generic sans-serif kept) + var(--wbase)", kf.document.documentElement.style["--wfont"] === '"Noto Sans KR", sans-serif, var(--wbase)');
+    const faF = FX.fa(); faF.pack.fontFamily = '"Noto Nastaliq Urdu", serif';
+    const ff = await boot(faF);
+    check("RTL pack: --wfont drops the generic serif", ff.document.documentElement.style["--wfont"] === '"Noto Nastaliq Urdu", var(--wbase)');
+    check("app.html: the placeholder font rule is scoped to RTL packs", /:root\[data-tlrtl\] input\[data-tl\]::placeholder\{font-family:var\(--font\)\}/.test(appHtml) && (appHtml.match(/[^\n]*::placeholder[^\n]*/g) || []).every(l => /^\s*:root\[data-tlrtl\] /.test(l)));
+    check("LTR pack: ui() is escapeHtml, tf() is tw(), glossBox has no dir", kb.api.ui("x (아이)") === "x (아이)" && kb.api.tf("아이") === '<bdi data-tl lang="ko">아이</bdi>' && !/dir=/.test(kb.api.glossBox()));
   }
 
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
