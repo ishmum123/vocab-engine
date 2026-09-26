@@ -1703,7 +1703,7 @@ async function swChecks(){
     check("build.sh refuses an output name that is unsafe to embed in sw.js, before writing anything",
       bad.status !== 0 && !fs.existsSync(path.join(dir, 'a"b.html')));
 
-    const ORIGIN = "https://ishmum123.github.io", SCOPE = ORIGIN + "/german/", PAGE_URL = SCOPE + "index.html";
+    const ORIGIN = "https://bannerless-studio.github.io", SCOPE = ORIGIN + "/german/", PAGE_URL = SCOPE + "index.html";
     const MARK = `<!--ve-build:${build}-->`;
     const CACHE = `ve:/german/:${build}`;
     const pageNet = (bodyText, opts) => u => { const r = new Response(u === PAGE_URL || u === SCOPE ? bodyText : "net:" + u, { status: (opts && opts.status) || 200 });
