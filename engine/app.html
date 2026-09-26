@@ -1296,7 +1296,8 @@ function scriptTeachHTML(u){
     const tap = scriptVoice() || !!wordAudio(SCRIPT_BYID[e.id]);
     return `<div class="rowset"${tap ? ` data-xw="${escapeHtml(e.id)}" style="cursor:pointer"` : ""}><span class="wd"${TA}>${scriptHL(e.w, g)}</span><span class="info"><span class="pr">${escapeHtml(e.roman)}</span><span class="en">${escapeHtml(VC.gloss(SCRIPT_BYID[e.id]))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>`;
   }).join("");
-  return `<div class="xteach"><div class="xhead"${DISP.rtl ? ' dir="rtl"' : ""}><span class="cform xg"${TA}>${escapeHtml(u.t)}</span><span class="info" dir="ltr">${u.name ? `<span class="xnm">${tw(u.name)}</span>` : ""}<b class="xrm">${escapeHtml(u.roman)}</b>${VC.scriptUnitNote(u) ? `<span class="en">${escapeHtml(VC.scriptUnitNote(u))}</span>` : ""}</span>${play}</div>${row2}${ital}${exs}</div>`;
+  const headName = VC.scriptUnitHeadName(u);
+  return `<div class="xteach"><div class="xhead"${DISP.rtl ? ' dir="rtl"' : ""}><span class="cform xg"${TA}>${escapeHtml(u.t)}</span><span class="info" dir="ltr">${headName ? `<span class="xnm">${tw(headName)}</span>` : ""}<b class="xrm">${escapeHtml(u.roman)}</b>${VC.scriptUnitNote(u) ? `<span class="en">${escapeHtml(VC.scriptUnitNote(u))}</span>` : ""}</span>${play}</div>${row2}${ital}${exs}</div>`;
 }
 const scriptNotesHTML = (st, set) => SNOTES.filter(n => n && n.st === st && n.set === set)
   .map(n => `<div class="card-teach xnote"><h3>${escapeHtml(n.h)}</h3><p>${escapeHtml(n.body)}</p></div>`).join("");

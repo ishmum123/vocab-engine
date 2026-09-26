@@ -66,7 +66,11 @@ Every element that shows target-language text carries `lang` (from `langTag`) an
 
 **Example-sentence highlighting.** In teach cards and reveals, the taught word is bolded in each example sentence wherever it is visible. The word is found the same way as for cloze: `w` and every `alt`, whole-word when `spaced`, overlapping hits merged into the widest one. A hit inside a longer pack word or compound is not bolded, so 本 inside 日本 is left plain. When the word is not visible, as when it appears only inflected and no `alt` matches, nothing is bolded. This is core.js `highlightParts`.
 
-**Words search** matches the query against `w`, every `alt`, `pron` and the gloss. Both sides are lowercased and accent-folded as in lenient typing. Whitespace is also ignored, so `nihao` finds `nǐ hǎo`. Arabic-script text is folded further for search only (typed answers keep these letters distinct): hamza and madda on a carrier drop (`انا` finds `أنا`, `سوال` finds `سؤال`), ٱ is ا, ة is ه (`مدرسه` finds `مدرسة`), ى is ی/ي (`فى` finds `في`), and a leading ال is optional on both sides (`كتاب` finds `الكتاب`). This is core.js `searchWords` (`searchFold`).
+**Words search** matches the query against `w`, every `alt`, `pron` and the gloss. Both sides are lowercased and accent-folded as in lenient typing. Whitespace is also ignored, so `nihao` finds `nǐ hǎo`. A hyphen folds to a space, so a reduplicated or hyphenated lemma (`धीरे-धीरे`) matches its unhyphenated spelling (`धीरे धीरे`) too. A romanised nasal tilde (`kahā̃`) folds to a literal `n`, so plain ASCII typing (`kahan`) finds it, alongside the existing macron/dot-below folding (`ā`, `ṛ`). This is core.js `searchWords` (`searchFold`); typed-answer checking (`normalizeTyped`/`acceptTyped`) is unaffected by any of the folds below.
+
+Arabic-script text (ar/fa/ur) is folded further for search only (typed answers keep these letters distinct): hamza and madda on a carrier drop (`انا` finds `أنا`, `سوال` finds `سؤال`), ٱ is ا, ة/ه/ۃ/ۀ all fold to ہ, ى is ی/ي (`فى` finds `في`), and a leading ال is optional on both sides (`كتاب` finds `الكتاب`). Urdu spelling variants of the same letter are unified to Urdu heh goal ہ — Arabic heh ه, teh marbuta goal ۃ, and the Arabic-preset ۀ all fold to ہ (`مدرسۃ` finds `مدرسہ`) — while do-chashmi heh ھ (a distinct aspirated phoneme) is never folded into ہ. Bari ye ے folds to ی at a word boundary only (`بڑے` and `بڑی` search as the same word); this is a deliberate tradeoff, since ے is otherwise indistinguishable from ی for search — a reveal still shows the pack's own spelling.
+
+Devanagari text (hi) is also folded further for search only (typed answers keep nukta and chandrabindu distinct, since they make a real phonemic contrast): nukta folds away (`जरूर` finds `ज़रूर`, `लडका` finds `लड़का`), including from a precomposed nukta letter (क़ ख़ ग़ ज़ ड़ ढ़ फ़ य़, U+0958–095F, decomposed first); chandrabindu ँ folds to anusvara ं (`हैँ` finds `हैं`), a common informal spelling swap. ZWJ/ZWNJ are dropped for every script.
 
 ## characters
 
@@ -174,13 +178,13 @@ Required when `pack.script` is set, absent otherwise. `{units, notes?}`.
 | `set` | int ≥ 1 | Teaching set within the stage; each stage's sets are contiguous from 1. File order is the order within a set. |
 | `group` | string | Distractor family (vowels, a dot family, a kana row). |
 | `t` | non-empty string | The glyph. A teach card may show two forms separated by a space ("Д д"); items use the last. |
-| `name` | string | The letter's name. |
+| `name` | string | The letter's name. Dropped from the teach card head and reveal when it only repeats `roman` ("ka" \| "ka"), compared trimmed and case-insensitively; core.js `scriptUnitHeadName`. |
 | `roman` | non-empty string | Canonical romanisation, the answer to `symSound`. |
 | `alt` | `[string]` | Other accepted romanisations (typed `symType`). Options ignore a one-way alt (ko ㄱ alt `k` is drilled against ㅋ); two units that accept each other's roman (fa غ gh/q, ق q/gh) are never each other's distractor. |
 | `say` | string | TTS carrier: the bare glyph, a carrier syllable or the name. Absent when unspeakable. |
 | `audio` | URL | Recorded clip; beats `say`, and plays even with `tts` false. |
 | `sound` | bool, default true | `false` for silent or modifier units. |
-| `note` | string | One-line sound note. |
+| `note` | string | One-line sound note. Dropped the same way when it only repeats `roman`; core.js `scriptUnitNote`. |
 | `confuse` | `[unitId]` | Hand-listed confusables: preferred distractors, and the padding for early sets. |
 | `ex` | `[[wordId, roman]]`, 1–3 | Example words from this pack with their romanisation. The glyph occurs in the word's `w` or `pron`. |
 | `syll` | `[{t, parts, roman}]` | Composition examples for `compose`; `parts` are glyphs of units at or before this set, `t` occurs in a first-level word. |
