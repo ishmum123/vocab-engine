@@ -434,6 +434,7 @@ class HookOwners(unittest.TestCase):
             self.assertEqual(own(sp, "passage_retag"), m in ("ru", "fr", "id", "fa", "ko", "ja", "ar", "hi", "ur"), m)
             self.assertEqual(own(sp, "passage_no_link"), m == "ru", m)
             self.assertEqual(own(sp, "passage_post_resolve"), m in ("es", "de", "fr", "id", "fa", "ja", "hi"), m)
+            self.assertEqual(bool(sp.passage_span_glosses), m in ("zh", "ja"), m)
             self.assertEqual(bool(sp.passage_form_base), m == "fr", m)
             self.assertEqual(bool(sp.passage_names_never_link), m == "id", m)
             self.assertEqual(own(sp, "passage_text"), m in ("fr", "id", "ja"), m)

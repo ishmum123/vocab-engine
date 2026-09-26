@@ -254,6 +254,10 @@ The link context is pickled with the spec attributes the fresh build set (`bind_
 
 Also generic, off unless a spec defines them: `passage_uncounted(toks, resolved)` returns token indices that are grammar, not words; such a token with no pack id is neither counted nor listed as out of pack (classify). `passage_words_counted` makes the words-per-passage band use the counted tokens.
 
+### Span display glosses
+
+`spec.passage_span_glosses` (zh, ja; off elsewhere): `passages.run` reads `gloss_display.json` from the passage source's directory (`<repo>/tools/gloss_display.json`, or the flat pack dir: `packs/zh/gloss_display.json`) and gives every span that has no gloss of its own the word's display gloss as its optional 4th element (`span_glosses`; docs/PACK_SCHEMA.md `sentences[].spans`). A key is a headword `w` or `"lemma|pos"`. Bare-headword keys are span-only: the pack build (`core/words.apply_gloss_display`) merges only `"lemma|pos"` keys into `en` and does not list bare keys as unused. Keys that match no pack word are listed on stderr. ko keeps its `tools/gloss_display.json` build merge and the flag off (its spans would otherwise gain a 4th element and change ko passages.json bytes).
+
 ### Japanese (ja) passages
 
 ja is spaCy-free (SudachiPy, `tag_texts`); run with the japanese repo's `.venv`. Hooks (`langs/ja.py`):
@@ -275,6 +279,13 @@ ja is spaCy-free (SudachiPy, `tag_texts`); run with the japanese repo's `.venv`.
   - outside spans each kanji segment is a token with a null wordId (names, unlinked words); a segment `_token_ruby` cannot read gets Sudachi's reading of its own text (listed as a fallback).
   The report's "Readings" section gives token counts, null wordIds, fallbacks, cut segments, word-reading overrides and the kana rules applied.
 - `sentences.json` `ruby` (`sentence_ruby`, the build) uses the same token rule (`ruby_over`) over the sentence's kana line (Tatoeba furigana or Sudachi, `kana_line`) with its linked tokens as the spans: every kanji is inside a token, a kana segment crossing a token edge is cut (一人 ひと|り), a kanji with no reading in the line reads by Sudachi, and a sentence whose tokens or kana line do not spell its text reads by Sudachi with no links. No word-reading override there (the transcription is already checked against the word, `_kana_lemma_agree`). `core.pipeline.write_characters` keeps a token of a unit's `words[0]` and nulls the wordId of any other token over a Han character (a name, a word with no unit); build stats count tokens, null tokens, cuts and Sudachi readings under `ruby: ...`.
+- QA rules (`passage_retag`, `passage_post_resolve`; passage-only, the build never runs them):
+  - Grammar tokens (upos X: neither counted nor linked): kana いく/くる and ほしい after the te-form (なっていく, 聞こえてくる, 来てほしい; kanji 行く/来る stay the motion verbs, 歩いて行きました; で "by" is no te-form); と + いう (減るという問題, 「…」という答え); 後 after その or a number/counter (その後, 3年後: read ご, no pack entry).
+  - 前 after a number, a counter/duration or 以上/くらい/ぐらい/ほど (10年前, 3年前に, 400年以上前に) is 前 "front; before, ago", not 前に; に is the particle again.
+  - A kanji numeral + つ is one token and span on 〜つ (一つ, 三つ), via `_passage_join`; a digit numeral (3つ) does not join, so つ links on its own.
+  - A counter after a numeral whose plain noun is a lower-level pack word links the plain noun (3点: 点 A1, not 〜点 B1). Where there is no plain noun (3キロ), the display gloss carries both senses.
+  - A declared name absorbs a following 城/寺 only when the joined form is itself declared (`NAME_SUFFIX`: 松本城 in `names` reads じょう, not 城 しろ "castle"); with only 松本 declared, 城 stays its own token and links the pack word "castle" as before.
+- `passage_span_glosses`: `japanese/tools/gloss_display.json` (bare headword keys: 高い, 〜キロ, 話, 焼く, 迎える, 〜回, 前に, 開く, とる, 出る, 受ける, 注意, 大事, 点, 〜点).
 
 ### Linker-level passage hooks
 
@@ -315,7 +326,7 @@ Segmentation (per hanzi run, `ZhLinker._segment_run`): every candidate unit at e
 - Phrase units (`PHRASES`): 一点/一点儿, 有点(儿), 有一点(儿), 一下, 有的, 有时候, 只有, 还好, 下班, 上下班, 上课, 下课, 开会, 长大, 草地, 越来越, 开车, 红包, 过生日, 别的, 不用, 找钱, 交朋友, 老人: one token and one span linking the head word (越来越 -> 越, 开车 -> 开, 过生日 -> 过, 有点 -> 点), with the phrase's own display gloss on the span. Only where the phrase is no pack word. Guards: never where the first character completes a pack word with the one before (早上课 = 早上 + 课, 所有的 = 所有 + 的) or the last starts one with the next (一下午 = 一 + 下午); a phrase starting with 一 never follows a numeral (十一点); 一点/有点 never precede 钟/半/多/零/a numeral, and 一点 never follows a time word (下午一点 is 1 p.m.).
 - 没有 before a verb (a linked word or unit whose gloss starts "to "), 在 or 和 is one span linking 没 with the gloss "did not; have not (没有+V)", unless a 的 follows in the same clause (那里没有卖水的商店: "there is no shop that sells water", 没 + 有). Known limit: a noun/verb word before the clause end still merges (性别没有要求: 要求 "to request; requirement").
 - Spans: one per linked token, UTF-16 offsets on the original sentence; a compound, derived, reduplicated or phrase unit gets one span. `words` lists each linked id once, in order.
-- Display glosses: `packs/zh/gloss_display.json` (`spec.gloss_display_file`, beside pack.json; keys are headwords `w`, `_` keys are comments) gives a sense list per word (点 "o'clock; a little (一点, 有点); ..."). The builder writes it as the optional 4th span element on every span of that word; a phrase unit's own gloss wins. It is display-only: words.json `en`, drills, links, counts, budgets and question checks never see it (zh words.json is built by pack_from_hsk.py, so unlike ko's `tools/gloss_display.json` it cannot be merged into `en` at build). Keys that match no pack word are listed on stderr. The app shows span gloss, else the word's gloss (docs/PACK_SCHEMA.md `sentences[].spans`).
+- Display glosses: `packs/zh/gloss_display.json` (keys are headwords `w`) through the generic span-gloss layer (see "Span display glosses"). A phrase unit's own gloss wins.
 
 Readings (`ZhLinker.passage_ruby`, only when `pack.json` has `characters`): every segmenter token holding a hanzi gets `[start, end, reading, wordId]` (UTF-16, wordId null for a token of no pack word: a name, an oop word, aspect 过) in `sentences[].ruby`, `titleRuby`, `questions[].ruby` and `questions[].optionsRuby` (docs/PACK_SCHEMA.md passages.json), so the pronunciation-first Read tab never shows a hanzi or drops a syllable (这个 zhège, 越来越 yuèláiyuè, not the linked word's zhè, yuè). Reading sources, in order:
 
