@@ -233,30 +233,42 @@ function typingLenientFor(entry, pack){
   const at = idx[String(entry.lv)];
   return at === undefined ? true : at < strictAt;
 }
-// Collision guard index: strict normal form (no accent or letter folds) of every pack
-// entry's w and alt -> the entries spelled that way. Built once per words array.
-const STRICT_FORMS = new WeakMap();
-function strictFormIndex(words, caseSensitive){
-  let byCase = STRICT_FORMS.get(words);
-  if(!byCase){ byCase = {}; STRICT_FORMS.set(words, byCase); }
+// Collision guard keys. Strict key: normalizeTyped without folds. Pointing key: the strict
+// key minus marks that never tell two written words apart, so typing them cannot turn one
+// pack word into another: Arabic harakat/Quranic marks/tatweel, Hebrew niqqud, ZWJ/ZWNJ,
+// and Cyrillic stress (U+0301 after a Cyrillic letter). Latin accents, Arabic hamza marks
+// and every LENIENT_LETTERS letter are kept (they do tell words apart: si/sí, ما/ماء).
+const POINTING_MARKS = new RegExp("[" + FOLD_SCRIPTS.arabic + FOLD_SCRIPTS.hebrew + FOLD_SCRIPTS.joiners + "]", "g");
+function pointingKey(strictForm){
+  return strictForm.normalize("NFD").replace(POINTING_MARKS, "")
+    .replace(/(?<=[\u0400-\u04ff][\u0300-\u036f]*)\u0301/g, "").normalize("NFC");
+}
+// Per words array (and case mode): strict key -> entries, pointing key -> entries, over
+// every entry's w and alt. Built once.
+const GUARD_INDEX = new WeakMap();
+function guardIndex(words, caseSensitive){
+  let byCase = GUARD_INDEX.get(words);
+  if(!byCase){ byCase = {}; GUARD_INDEX.set(words, byCase); }
   const k = caseSensitive ? "cs" : "ci";
   if(byCase[k]) return byCase[k];
-  const idx = new Map();
+  const strict = new Map(), pointing = new Map();
+  const add = (m, f, e) => { if(!f) return; if(!m.has(f)) m.set(f, []); m.get(f).push(e); };
   words.forEach(e => [e.w, ...(e.alt||[])].forEach(x => {
     const f = normalizeTyped(x, { caseSensitive });
-    if(!f) return;
-    if(!idx.has(f)) idx.set(f, []);
-    idx.get(f).push(e);
+    add(strict, f, e); add(pointing, pointingKey(f), e);
   }));
-  return (byCase[k] = idx);
+  return (byCase[k] = { strict, pointing });
 }
 // Accepts entry.w or any entry.alt (plus any `extra` surfaces, e.g. the literal form a
 // cloze blank had in its sentence), compared after normalising both sides.
 // words (optional, the pack's WORDS): collision guard for lenient folding. An exact
 // (strict-form) match to the target always passes. An answer that matches only after
 // folding (any lenient fold: accents, stress, pointing, joiners, LENIENT_LETTERS) is
-// rejected when its strict form is another pack entry's w/alt: typing ماء "water" for
-// ما "what", or si for sí, is wrong; امس for أمس or perche for perché is fine.
+// rejected when it spells another pack entry: its strict key is another entry's, or its
+// pointing key is another entry's and no target's (so مَا, مـا or ما typed for ماء, and
+// si or s+ZWJ+i for sí, are wrong). A pointing key the target shares stays accepted:
+// замок for за́мок passes even when замо́к is also a pack word (typed замо́к does not).
+// امس for أمس and perche for perché are fine.
 function acceptTyped(input, entry, pack, extra, words){
   const t = (pack && pack.typing) || {};
   const cs = !!t.caseSensitive, lenient = typingLenientFor(entry, pack);
@@ -264,14 +276,19 @@ function acceptTyped(input, entry, pack, extra, words){
   const strict = { caseSensitive: cs };
   const got = normalizeTyped(input, strict);
   if(!got) return false;
-  if(targets.some(x => normalizeTyped(x, strict) === got)) return true;
+  const targetStrict = targets.map(x => normalizeTyped(x, strict));
+  if(targetStrict.includes(got)) return true;
   if(!lenient) return false;
   const full = { caseSensitive: cs, foldAccents: true };
   const gotL = normalizeTyped(input, full);
   if(!gotL || !targets.some(x => normalizeTyped(x, full) === gotL)) return false;
   if(!Array.isArray(words)) return true;
-  const hits = strictFormIndex(words, cs).get(got) || [];
-  return !hits.some(e => e !== entry && !(e.id != null && e.id === entry.id));
+  const other = e => e !== entry && !(e.id != null && e.id === entry.id);
+  const idx = guardIndex(words, cs);
+  if((idx.strict.get(got) || []).some(other)) return false;
+  const pk = pointingKey(got);
+  if(targetStrict.some(x => pointingKey(x) === pk)) return true;
+  return !(idx.pointing.get(pk) || []).some(other);
 }
 
 // ------------------------------------------------------------------ sentences
@@ -2748,7 +2765,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
   meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, unitExampleSentences, rubyCovers, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
   targetLang, fontFamilyOf, fontStackOf, lineHeightOf, fontsHref, scriptDisplay, rtlRuns,
-  foldAccents, foldLenientLetters, LENIENT_LETTERS, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
+  foldAccents, foldLenientLetters, LENIENT_LETTERS, pointingKey, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,

@@ -1952,6 +1952,17 @@ async function swChecks(){
       return !VC.acceptTyped("все", RU[1], LEN, null, RU) && !VC.acceptTyped("всё", RU[0], LEN, null, RU) &&
         VC.acceptTyped("еж", RU[2], LEN, null, RU) && VC.acceptTyped("делать", RU[3], LEN, null, RU) &&
         !VC.acceptTyped("замо́к", RU[4], LEN, null, RU) && VC.acceptTyped("замок", RU[4], LEN, null, RU); })());
+  check("guard key ignores non-distinguishing marks: مَا / مـا rejected for ماء, مَاءٌ for ما; مَا for ما and مَاءٌ for ماء accepted",
+    (() => { const W = [{ id:"ma", w:"ما" }, { id:"mae", w:"ماء" }];
+      return !VC.acceptTyped("مَا", W[1], LEN, null, W) && !VC.acceptTyped("مـا", W[1], LEN, null, W) && !VC.acceptTyped("مَاءٌ", W[0], LEN, null, W) &&
+        VC.acceptTyped("مَا", W[0], LEN, null, W) && VC.acceptTyped("مَاءٌ", W[1], LEN, null, W); })());
+  check("guard key ignores joiners: s+ZWJ+i and s+ZWNJ+i rejected for sí; s+ZWJ+í accepted",
+    (() => { const ES = [{ id:"si", w:"si" }, { id:"si2", w:"sí" }];
+      return !VC.acceptTyped("s\u200di", ES[1], LEN, null, ES) && !VC.acceptTyped("s\u200ci", ES[1], LEN, null, ES) && VC.acceptTyped("s\u200dí", ES[1], LEN, null, ES); })());
+  check("guard key ignores Cyrillic stress only: stress-less замок accepted for за́мок though замо́к is a pack word; Latin á kept (pointingKey)",
+    (() => { const RU = [{ id:"a", w:"за́мок" }, { id:"b", w:"замо́к" }];
+      return VC.acceptTyped("замок", RU[0], LEN, null, RU) && !VC.acceptTyped("замо́к", RU[0], LEN, null, RU) &&
+        VC.pointingKey("за́мок") === "замок" && VC.pointingKey("está") === "está" && VC.pointingKey("مَـا") === "ما" && VC.pointingKey("أ") === "أ"; })());
   check("guard: strict mode unchanged (exact accepted, folded rejected, with and without words)",
     VC.acceptTyped("ما", AR[3], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR));
 })();
