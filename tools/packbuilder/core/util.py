@@ -59,6 +59,20 @@ def derived_write_ok(spec):
     return not getattr(spec, "passage_tagging", False)
 
 
+def corpus_write_ok(spec):
+    """May spec code write a cache aggregated over the texts handed to the
+    tagger and keyed by the corpus (ja word groups)? Only while
+    core.tag.stage_tag tags the cached corpus (spec.corpus_tagging). Any other
+    caller of tag_texts (passages, spec.example_rows via tag_rows, a script or
+    test calling it on a few texts) would otherwise overwrite the corpus file
+    with an aggregate over its own texts, and every later cache-warm build
+    and passages link context would read it (a one-sentence ja groups file
+    moved 241 Japanese word ids, 2026-09-26). derived_write_ok is the weaker
+    rule for per-text memos (fa/hi/ur Stanza, ar camel), which any text may
+    extend."""
+    return bool(getattr(spec, "corpus_tagging", False)) and derived_write_ok(spec)
+
+
 def file_sig(path):
     st = path.stat()
     return f"{path.name}:{st.st_size}"
