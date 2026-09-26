@@ -182,6 +182,13 @@ class LanguageSpec:
     multiword = {}              # phrase -> parts; linked by substring
     apocope = {}                # apocopated surface -> lemma (links only)
     drop_keys = {}              # (lemma, group) -> None | key its tokens link to
+    second_entry_overlap_exempt = frozenset()   # lemmas whose second POS entry is admitted despite
+        # weak automatic evidence (a low dictionary-sense score, a definitional sense, or high
+        # translation overlap with the first entry) once SECOND_ENTRY_SHARE already shows real corpus
+        # support for both POS (a deverbal noun/verb pair such as "to sing"/"song": the senses are
+        # genuinely distinct even though "to sing a song" keeps "song" in most translations, and a
+        # forced word's own sense often scores 0 for lack of bag evidence). A true same-sense signal
+        # (shared gloss stem, same POS group, a nominalised adjective) is never exempted.
     profanity = set()
     profane_stems = ()
     bad_text_re = None          # target-language sentences to skip (known errors)
