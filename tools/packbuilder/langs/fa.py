@@ -639,7 +639,14 @@ class Persian(LanguageSpec):
     }
     versions = {"corpus": "c1", "tag": "t25", "lex": "l3"}
 
-    typing = None
+    # typed production on: lenient accents fold harakat/tatweel and ZWNJ/ZWJ
+    # on both sides (PACK_SCHEMA typing.accents), so a typed answer without
+    # harakat or the ZWNJ pseudo-space (e.g. میروم for می‌روم) still matches
+    # the pack word. strictFromLevel null: harakat are never written in
+    # ordinary Persian text at any level, so strict is never appropriate.
+    # Arabic kaf/yeh (ك/ي) always equal the Persian forms (ک/ی) in both
+    # modes per the schema, independent of this setting.
+    typing = {"caseSensitive": False, "accents": "lenient", "strictFromLevel": None}
     show_pron = True
     target_len = {"A1": 5, "A2": 6, "B1": 7}
     min_len = {"A1": 3, "A2": 4, "B1": 5}

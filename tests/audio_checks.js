@@ -445,7 +445,7 @@ async function swChecks(){
     check("pack.audio.version 3: sw.js audio cache version 3", src.includes(`const AUDIO_CACHE = PREFIX + "audio:v" + "3";`));
     check("sw.js install precaches only the page (no audio route in install)", !/audio/.test((src.match(/addEventListener\("install"[\s\S]*?\n\}\);/) || [""])[0]));
 
-    const ORIGIN = "https://ishmum123.github.io", SCOPE = ORIGIN + "/persian/";
+    const ORIGIN = "https://bannerless-studio.github.io", SCOPE = ORIGIN + "/persian/";
     const sim = swSim(src, SCOPE);
     const PREFIX = "ve:/persian/:", AUDIO = PREFIX + "audio:v3";
     const clip = Buffer.from("0123456789");
