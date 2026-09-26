@@ -1191,6 +1191,10 @@ function ttsDriver(ss, o){
   // the retry/poll timers stop()/say() sweep on every call, so it fires regardless of what
   // else the driver does (or doesn't do) in the meantime.
   let gen = 0, cur = null, timers = [], cancelled = false, cancelledTimer = null;
+  // Utterances the driver itself cancelled to retry (never started): an engine that fires
+  // onend (not an error) on cancel makes that look like a finished utterance, so callers
+  // that chain on the end (app.html speakTTS onEnd) ask dropped(u) first.
+  const droppedSet = typeof WeakSet === "function" ? new WeakSet() : null;
   const clear = () => { timers.forEach(t => { try{ clrT(t); }catch(e){} }); timers = []; };
   const busy = () => !!(ss.speaking || ss.pending);
   const markCancelled = () => {
@@ -1228,13 +1232,13 @@ function ttsDriver(ss, o){
         if(ss.speaking){ alive = true; return; }
         waited += opt.pollMs;
         if(waited < opt.watchMs){ timers.push(setT(poll, opt.pollMs)); return; }
-        if(!ss.speaking && !ss.pending){ cur = null; markCancelled(); try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
+        if(!ss.speaking && !ss.pending){ cur = null; if(droppedSet) droppedSet.add(u); markCancelled(); try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
       };
       timers.push(setT(poll, opt.pollMs));
     };
     if(hadWork) timers.push(setT(() => go(false), opt.deferMs)); else go(false);
   }
-  return { say, stop, current: () => cur };
+  return { say, stop, current: () => cur, dropped: u => !!(droppedSet && droppedSet.has(u)) };
 }
 // Recorded clip start watchdog (docs/AUDIO.md): a clip that has not fired "playing" within
 // ms of play() (a hung load, a stalled start) is reported once through onFail. Armed only
@@ -1383,9 +1387,10 @@ function readPassMode(r, prog, canListen){
   return isObj(rec) && rec.l ? "read" : "listen";
 }
 // The questions of a listening pass that are audio-only (text behind "Show question"):
-// ceil(n/2) indexes, ascending, picked by a PRNG seeded from the passage id and the number
-// of previous attempts (done[id].x), so the same pass is stable across re-renders and
-// the next re-read picks another half.
+// ceil(n/2) indexes, ascending. The question order is a shuffle seeded by the passage id
+// alone, rotated by the number of previous attempts (done[id].x), and the first ceil(n/2)
+// taken: stable for one pass across re-renders, and for n >= 2 consecutive attempts never
+// pick the same set (the rotation shifts the window by one position each time).
 function hashSeed(str){
   let h = 2166136261 >>> 0;
   for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
@@ -1398,8 +1403,9 @@ function seededRng(seed){
 function listenAudioOnly(pid, attempts, n){
   const k = Math.ceil((n || 0) / 2);
   if(!(k > 0)) return [];
-  const idx = shuffle(Array.from({ length: n }, (_, i) => i), seededRng(hashSeed(`${pid}#${attempts || 0}`)));
-  return idx.slice(0, k).sort((a, b) => a - b);
+  const idx = shuffle(Array.from({ length: n }, (_, i) => i), seededRng(hashSeed(String(pid))));
+  const r = (((attempts || 0) % n) + n) % n;
+  return idx.slice(r).concat(idx.slice(0, r)).slice(0, k).sort((a, b) => a - b);
 }
 // Length in words: whitespace tokens for spaced scripts, linked word tokens otherwise.
 function passageLength(p, pack){

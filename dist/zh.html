@@ -1545,6 +1545,10 @@ function ttsDriver(ss, o){
   // the retry/poll timers stop()/say() sweep on every call, so it fires regardless of what
   // else the driver does (or doesn't do) in the meantime.
   let gen = 0, cur = null, timers = [], cancelled = false, cancelledTimer = null;
+  // Utterances the driver itself cancelled to retry (never started): an engine that fires
+  // onend (not an error) on cancel makes that look like a finished utterance, so callers
+  // that chain on the end (app.html speakTTS onEnd) ask dropped(u) first.
+  const droppedSet = typeof WeakSet === "function" ? new WeakSet() : null;
   const clear = () => { timers.forEach(t => { try{ clrT(t); }catch(e){} }); timers = []; };
   const busy = () => !!(ss.speaking || ss.pending);
   const markCancelled = () => {
@@ -1582,13 +1586,13 @@ function ttsDriver(ss, o){
         if(ss.speaking){ alive = true; return; }
         waited += opt.pollMs;
         if(waited < opt.watchMs){ timers.push(setT(poll, opt.pollMs)); return; }
-        if(!ss.speaking && !ss.pending){ cur = null; markCancelled(); try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
+        if(!ss.speaking && !ss.pending){ cur = null; if(droppedSet) droppedSet.add(u); markCancelled(); try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
       };
       timers.push(setT(poll, opt.pollMs));
     };
     if(hadWork) timers.push(setT(() => go(false), opt.deferMs)); else go(false);
   }
-  return { say, stop, current: () => cur };
+  return { say, stop, current: () => cur, dropped: u => !!(droppedSet && droppedSet.has(u)) };
 }
 // Recorded clip start watchdog (docs/AUDIO.md): a clip that has not fired "playing" within
 // ms of play() (a hung load, a stalled start) is reported once through onFail. Armed only
@@ -1737,9 +1741,10 @@ function readPassMode(r, prog, canListen){
   return isObj(rec) && rec.l ? "read" : "listen";
 }
 // The questions of a listening pass that are audio-only (text behind "Show question"):
-// ceil(n/2) indexes, ascending, picked by a PRNG seeded from the passage id and the number
-// of previous attempts (done[id].x), so the same pass is stable across re-renders and
-// the next re-read picks another half.
+// ceil(n/2) indexes, ascending. The question order is a shuffle seeded by the passage id
+// alone, rotated by the number of previous attempts (done[id].x), and the first ceil(n/2)
+// taken: stable for one pass across re-renders, and for n >= 2 consecutive attempts never
+// pick the same set (the rotation shifts the window by one position each time).
 function hashSeed(str){
   let h = 2166136261 >>> 0;
   for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
@@ -1752,8 +1757,9 @@ function seededRng(seed){
 function listenAudioOnly(pid, attempts, n){
   const k = Math.ceil((n || 0) / 2);
   if(!(k > 0)) return [];
-  const idx = shuffle(Array.from({ length: n }, (_, i) => i), seededRng(hashSeed(`${pid}#${attempts || 0}`)));
-  return idx.slice(0, k).sort((a, b) => a - b);
+  const idx = shuffle(Array.from({ length: n }, (_, i) => i), seededRng(hashSeed(String(pid))));
+  const r = (((attempts || 0) % n) + n) % n;
+  return idx.slice(r).concat(idx.slice(0, r)).slice(0, k).sort((a, b) => a - b);
 }
 // Length in words: whitespace tokens for spaced scripts, linked word tokens otherwise.
 function passageLength(p, pack){
@@ -3694,13 +3700,16 @@ function audioHint(msg){
 function speakTTS(text, btn, onEnd){
   if(!hasSpeech || !tts) return;
   const gen = speakGen;
-  // onEnd once per speakTTS call, across ttsDriver's retry utterance: a cancelled or
-  // interrupted utterance (the retry's own cancel, or a newer speak) is not an end.
-  let fired = false;
-  const fire = () => { if(!fired && gen === speakGen){ fired = true; onEnd(); } };
+  // onEnd once per speakTTS call, across ttsDriver's retry utterance, and only for the
+  // newest utterance the driver built (live) that the driver did not itself cancel to
+  // retry (tts.dropped): an engine may fire onend, not an error, on cancel(). A cancelled
+  // or interrupted error (the retry's own cancel, or a newer speak) is not an end either.
+  let fired = false, live = null;
+  const fire = u => { if(!fired && gen === speakGen && u === live && !(tts.dropped && tts.dropped(u))){ fired = true; onEnd(); } };
   try{
     tts.say(() => {
       const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; u.rate = TTS_RATE;
+      live = u;
       let v = ttsVoice;
       try{ v = VC.liveVoice(ttsVoice, SS.getVoices(), TTS_LANG); }catch(e){}
       if(v) u.voice = v;
@@ -3710,8 +3719,8 @@ function speakTTS(text, btn, onEnd){
       }
       if(onEnd){
         const f = u.onend;
-        u.onend = e => { if(f) f(e); fire(); };
-        u.onerror = e => { if(f) f(e); if(!(e && (e.error === "canceled" || e.error === "interrupted"))) fire(); };
+        u.onend = e => { if(f) f(e); fire(u); };
+        u.onerror = e => { if(f) f(e); if(!(e && (e.error === "canceled" || e.error === "interrupted"))) fire(u); };
       }
       return u;
     });
@@ -5362,11 +5371,10 @@ function readQuestionScreen(){
     if(qtr) qtr.onclick = () => { if(rec.ok === null) rec.tr = true; $("qtrwrap").innerHTML = `<div class="q cue">${ui(q.en)}</div>`; };
   };
   wireTr();
-  if(qHidden) $("qsh").onclick = () => {
-    if(rec.ok === null) rec.qh = true;
-    $("qshwrap").innerHTML = qText() + qTr();
-    wireTr();
-  };
+  // Answering reveals it too (not logged: qh is only a tap before answering).
+  let qOpen = !qHidden;
+  const revealQ = () => { if(qOpen) return; qOpen = true; $("qshwrap").innerHTML = qText() + qTr(); wireTr(); };
+  if(qHidden) $("qsh").onclick = () => { if(rec.ok === null) rec.qh = true; revealQ(); };
   $("ptoggle").onclick = () => {
     RD.shown = !RD.shown;
     if(RD.shown && rec.ok === null) rec.reopened = true; // logged: looked back before answering
@@ -5383,6 +5391,7 @@ function readQuestionScreen(){
     b.onclick = () => {
       if(rec.ok !== null) return;
       rec.given = v; rec.ok = VC.gradeQuestion(q, v);
+      revealQ();
       [...box.children].forEach(x => { x.disabled = true; if(x.dataset.v === String(q.answer)) x.classList.add("ok"); });
       if(!rec.ok) b.classList.add("bad");
       const s = p.sentences[q.sentence];
@@ -5813,4 +5822,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:1033550867-1580953-->
+<!--ve-build:1104308658-1582011-->

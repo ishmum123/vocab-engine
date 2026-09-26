@@ -125,6 +125,7 @@ async function boot(opts){
     cancel(){ ss.cancels++; ss.speaking = false; ss.pending = false; },
     speak(u){ spoken.push(u.text); utts.push(u); ss.speaking = true; },
   };
+  if(o.ssHook) o.ssHook(ss, spoken, utts);
   const window = { VocabCore: VC, speechSynthesis: ss, SpeechSynthesisUtterance: function(t){ this.text = t; }, addEventListener(){} };
   const localStorage = { getItem(){ return null; }, setItem(){} };
   const fnBody = scriptOf(src) + `
@@ -185,8 +186,11 @@ const fire = (ss, u) => { ss.speaking = false; u.onend({}); };
     const a = VC.listenAudioOnly("p0006", 1, 5);
     check("listenAudioOnly: ceil(n/2) distinct ascending indexes in range", a.length === 3 && new Set(a).size === 3 && a.every((x, i) => x >= 0 && x < 5 && (i === 0 || a[i-1] < x)));
     check("listenAudioOnly: deterministic for the same id + attempt count", JSON.stringify(a) === JSON.stringify(VC.listenAudioOnly("p0006", 1, 5)));
-    const variants = new Set([0,1,2,3,4,5,6,7].map(x => JSON.stringify(VC.listenAudioOnly("p0006", x, 5))));
-    check(`listenAudioOnly: the pick varies across attempts (${variants.size} distinct over 8 attempts)`, variants.size > 1);
+    const sets = [0,1,2,3,4,5,6,7,8,9].map(x => JSON.stringify(VC.listenAudioOnly("p0006", x, 5)));
+    check(`listenAudioOnly n=5, attempts 0..9: no two consecutive sets equal`, sets.every((x, i) => i === 0 || x !== sets[i-1]), sets.join(" "));
+    const allIds = PASSAGES.every(p => { const n = p.questions.length; return [0,1,2,3,4,5].every(x => JSON.stringify(VC.listenAudioOnly(p.id, x, n)) !== JSON.stringify(VC.listenAudioOnly(p.id, x + 1, n))); });
+    check("listenAudioOnly: for every zh passage, attempts x and x+1 (x=0..5) never pick the same set", allIds);
+    check("listenAudioOnly n=2: alternates between the two questions", JSON.stringify([0,1,2].map(x => VC.listenAudioOnly("q", x, 2))) === JSON.stringify([VC.listenAudioOnly("q", 0, 2), VC.listenAudioOnly("q", 1, 2), VC.listenAudioOnly("q", 0, 2)]) && VC.listenAudioOnly("q", 0, 2)[0] !== VC.listenAudioOnly("q", 1, 2)[0]);
     check("listenAudioOnly: n=4 -> 2, n=1 -> 1, n=0 -> []", VC.listenAudioOnly("x", 0, 4).length === 2 && VC.listenAudioOnly("x", 0, 1).length === 1 && VC.listenAudioOnly("x", 0, 0).length === 0);
     const q = VC.normalizeProg({}, PACK);
     const r1 = VC.markPassageDone(q, "p1", 2, 5, "2026-09-27", true);
@@ -308,6 +312,28 @@ const fire = (ss, u) => { ss.speaking = false; u.onend({}); };
     check("re-render mid Play all: speech stopped, button back to Play all, RD.playing false", r.api.el("lplay").textContent !== "Stop" && /id="lplay">Play all</.test(r.api.html("panel")) && r.api.rd().playing === false);
     const r0 = r.spoken.length; fire(r.ss, rc); await sleep(DEFER);
     check("re-render: the stopped sentence's late end starts nothing", r.spoken.length === r0);
+    // Engine that fires onend (not an error) on cancel(), and never starts sentence 2's
+    // first utterance: ttsDriver cancels it and retries. The cancel's stale onend must not
+    // advance Play all, or sentence 2 would be skipped.
+    {
+      const P3 = JSON.parse(JSON.stringify(P)); P3.sentences = P3.sentences.slice(0, 3);
+      let stalled = false;
+      const hook = (ss, spoken, utts) => {
+        ss.speak = u => {
+          spoken.push(u.text); utts.push(u);
+          if(u.text === P3.sentences[1].t && !stalled){ stalled = true; ss.stalledU = u; return; } // never starts
+          ss.speaking = true;
+          setTimeout(() => { if(u.done) return; u.done = true; ss.speaking = false; if(u.onend) u.onend({}); }, 15);
+        };
+        ss.cancel = () => { ss.cancels++; ss.speaking = false; ss.pending = false; utts.forEach(u => { if(!u.done){ u.done = true; if(u.onend) u.onend({}); } }); };
+      };
+      const e = await boot({ ssHook: hook });
+      e.api.setProg(rereadProg(PASSAGES, P)); e.api.startPassage(P3, false, "listen");
+      e.api.el("lplay").click();
+      await sleep(VC.TTS_TIMING.watchMs + VC.TTS_TIMING.pollMs * 2 + VC.TTS_TIMING.deferMs + 400);
+      const want = [P3.sentences[0].t, P3.sentences[1].t, P3.sentences[1].t, P3.sentences[2].t];
+      check("onend-on-cancel engine + one retry: all 3 sentences in order, the stalled one retried, each once after its end", JSON.stringify(e.spoken) === JSON.stringify(want) && e.api.el("lplay").textContent === "Play all", JSON.stringify(e.spoken.map(t => P3.sentences.findIndex(x => x.t === t))));
+    }
     // Clips, no voice: the chain runs on the shared Audio element's onended.
     const CP = JSON.parse(JSON.stringify(P)); CP.sentences.forEach((s, i) => { s.audio = `audio/p/${i}.mp3`; });
     const d = await boot({ voices: [{ lang: "en-US", name: "en" }], passages: PASSAGES.map(p => p.id === P.id ? CP : p) });
@@ -343,14 +369,14 @@ const fire = (ss, u) => { ss.speaking = false; u.onend({}); };
       } else shownOk = shownOk && /class="med wd"/.test(h) && !/id="qsh"/.test(h);
       const os = b.api.el("o").children;
       os.find(x => x.dataset.v === String(q.answer)).click();
-      if(qi === lateIdx){ b.api.el("qsh").click(); lateOk = !b.api.rd().answers[qi].qh; }
+      if(qi === lateIdx){ const w = b.api.html("qshwrap"); lateOk = !b.api.rd().answers[qi].qh && /class="med wd"/.test(w) && !/id="qsh"/.test(w) && (!q.en || /id="qtr"/.test(w)); }
       b.api.el("nx").click(); await sleep(DEFER);
     }
     check("audio-only questions: text, translation button hidden behind #qsh; Replay present", hiddenOk);
     check("other questions show their text as in a reading pass", shownOk);
     check("every question is spoken on mount (both kinds)", spokeOk);
     check("Show question before answering: reveals text + translation button, logs qh", tapOk);
-    check("Show question after answering: not logged", lateOk);
+    check("answering an audio-only question reveals its text + translation button (#qsh gone), qh not logged", lateOk);
     const res = b.api.html("panel");
     const lines = [...res.matchAll(/(?:✓|✗) Question (\d+)[^<]*/g)].map(m => m[0]);
     check("results: 'Listening pass' and 'Text shown while listening'", /id="lmode"[^>]*>Listening pass<br>Text shown while listening</.test(res));

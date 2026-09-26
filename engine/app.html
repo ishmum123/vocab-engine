@@ -633,13 +633,16 @@ function audioHint(msg){
 function speakTTS(text, btn, onEnd){
   if(!hasSpeech || !tts) return;
   const gen = speakGen;
-  // onEnd once per speakTTS call, across ttsDriver's retry utterance: a cancelled or
-  // interrupted utterance (the retry's own cancel, or a newer speak) is not an end.
-  let fired = false;
-  const fire = () => { if(!fired && gen === speakGen){ fired = true; onEnd(); } };
+  // onEnd once per speakTTS call, across ttsDriver's retry utterance, and only for the
+  // newest utterance the driver built (live) that the driver did not itself cancel to
+  // retry (tts.dropped): an engine may fire onend, not an error, on cancel(). A cancelled
+  // or interrupted error (the retry's own cancel, or a newer speak) is not an end either.
+  let fired = false, live = null;
+  const fire = u => { if(!fired && gen === speakGen && u === live && !(tts.dropped && tts.dropped(u))){ fired = true; onEnd(); } };
   try{
     tts.say(() => {
       const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; u.rate = TTS_RATE;
+      live = u;
       let v = ttsVoice;
       try{ v = VC.liveVoice(ttsVoice, SS.getVoices(), TTS_LANG); }catch(e){}
       if(v) u.voice = v;
@@ -649,8 +652,8 @@ function speakTTS(text, btn, onEnd){
       }
       if(onEnd){
         const f = u.onend;
-        u.onend = e => { if(f) f(e); fire(); };
-        u.onerror = e => { if(f) f(e); if(!(e && (e.error === "canceled" || e.error === "interrupted"))) fire(); };
+        u.onend = e => { if(f) f(e); fire(u); };
+        u.onerror = e => { if(f) f(e); if(!(e && (e.error === "canceled" || e.error === "interrupted"))) fire(u); };
       }
       return u;
     });
@@ -2301,11 +2304,10 @@ function readQuestionScreen(){
     if(qtr) qtr.onclick = () => { if(rec.ok === null) rec.tr = true; $("qtrwrap").innerHTML = `<div class="q cue">${ui(q.en)}</div>`; };
   };
   wireTr();
-  if(qHidden) $("qsh").onclick = () => {
-    if(rec.ok === null) rec.qh = true;
-    $("qshwrap").innerHTML = qText() + qTr();
-    wireTr();
-  };
+  // Answering reveals it too (not logged: qh is only a tap before answering).
+  let qOpen = !qHidden;
+  const revealQ = () => { if(qOpen) return; qOpen = true; $("qshwrap").innerHTML = qText() + qTr(); wireTr(); };
+  if(qHidden) $("qsh").onclick = () => { if(rec.ok === null) rec.qh = true; revealQ(); };
   $("ptoggle").onclick = () => {
     RD.shown = !RD.shown;
     if(RD.shown && rec.ok === null) rec.reopened = true; // logged: looked back before answering
@@ -2322,6 +2324,7 @@ function readQuestionScreen(){
     b.onclick = () => {
       if(rec.ok !== null) return;
       rec.given = v; rec.ok = VC.gradeQuestion(q, v);
+      revealQ();
       [...box.children].forEach(x => { x.disabled = true; if(x.dataset.v === String(q.answer)) x.classList.add("ok"); });
       if(!rec.ok) b.classList.add("bad");
       const s = p.sentences[q.sentence];
