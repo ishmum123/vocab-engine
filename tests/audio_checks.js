@@ -507,6 +507,11 @@ async function reliabilityChecks(){
   { // cancel race: engine busy -> cancel once, speak deferred, exactly once; a newer speak wins
     let cancels = 0;
     const { api, log, ss } = await boot(D, { voices: FAVOICE, ss: { speaking: true, pending: false, paused: false, cancel(){ cancels++; ss.speaking = false; } } });
+    // render() now calls stopSpeaking() on every screen paint (category fix: a screen
+    // transition must not leave a previous utterance's watchdog/defer pending), so boot()'s
+    // own initial render -- with this mock engine pre-set "speaking" -- already counts one
+    // cancel before the test's own speak() call. Reset the counter here, same as log.spoken.
+    cancels = 0;
     log.spoken.length = 0;
     api.speak("اول");
     check("app, engine speaking: speak() cancels once and does not speak in the same tick (Chrome drops that utterance)", cancels === 1 && log.spoken.length === 0);

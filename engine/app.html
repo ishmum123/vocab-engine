@@ -563,10 +563,14 @@ const tts = SS ? VC.ttsDriver(SS, TIMERS) : null;
 let speakGen = 0, clipDisarm = () => {};
 // Stops whatever is currently playing/pending (clip or TTS) and bumps speakGen, so any
 // late callback from it (a clip's onended/onerror, a TTS retry) is dropped as stale. Every
-// speak() call does this itself before starting the next thing; dnext() (drill.js) also
-// calls it directly when the runner moves to an item that never calls speak() at all (a
-// silent item, e.g. pronTypeItem) -- without that, the previous item's ttsDriver watchdog
-// retry (up to watchMs + deferMs later) could still fire and speak stale text on top of it.
+// speak() call does this itself before starting the next thing; dnext() also calls it
+// directly when the runner moves to an item that never calls speak() at all (a silent
+// item, e.g. pronTypeItem) -- without that, the previous item's ttsDriver watchdog retry
+// (up to watchMs + deferMs later) could still fire and speak stale text on top of it. Every
+// other screen-entry function that can follow a screen with audio calls it too (render(),
+// readResults(), todayStep(), todayRender(), soundsRender(), wordsRender(), readRender(),
+// testRender(), placeRender(), placeVocabNext(), placeResult(), progressRender()) -- see
+// docs/AUDIO.md's Replay rule table for the full site-by-site accounting.
 function stopSpeaking(){
   ++speakGen;
   clipDisarm(); clipDisarm = () => {};
@@ -1481,6 +1485,7 @@ document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
   render();
 });
 function render(){
+  stopSpeaking();
   D = null; drillKeyHandler = null; screenTop();
   $("htitle").textContent = { today:"Today", sounds: SCRIPT_TAB ? SCFG.stages[0].label : "Sounds", words:"Words", read:"Read", test:"Test", progress:"Progress" }[tab];
   setScore(0,0);
@@ -1551,6 +1556,7 @@ function charChoiceHTML(){
   return `<div class="stmt" id="charChoice">${L} next: learn to recognise the written form of the words you already know. Or go on to ${N} first and do ${L} after it. You can change this later in Progress.<button class="next" id="choiceStart" style="margin-top:8px">Start ${L}</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to ${N}</button></div>`;
 }
 function todayRender(){
+  stopSpeaking();
   screenTop();
   setScore(0,0);
   const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
@@ -1638,6 +1644,7 @@ function enterFirstSoundsLessonFromToday(){
 // or unit), Review is snap.reviewSize, and Review/Recall rank units with words once
 // characters have started. Without it each step is the pre-characters code.
 function todayStep(){
+  stopSpeaking();
   const snap = HAS_STAGES ? (todayStepState.snap || (todayStepState.snap = takeSnapshot())) : null;
   const lw = learnedWords();
   const nn = snap ? (snap.stage && snap.stage.kind === "words" ? { lv: snap.stage.lv, set: snap.stage.set } : null) : nextNewSet();
@@ -1802,6 +1809,7 @@ function lessonTeach(lesson, onDone, onBack){
 
 // ===================== Sounds (pack lessons) =====================
 function soundsRender(){
+  stopSpeaking();
   setScore(0,0); screenTop();
   const P = $("panel");
   if(SCRIPT_TAB){ scriptTabRender(); return; }
@@ -1880,6 +1888,7 @@ function soundsRefHTML(){
 
 // ===================== Words =====================
 function wordsRender(){
+  stopSpeaking();
   setScore(0,0);
   const P = $("panel");
   const pronChip = PACK.showPron !== false ? `<button class="chip ${showPron()?'on':''}" id="wPron" aria-label="Show pronunciation" aria-pressed="${showPron()}">Pron</button>` : "";
@@ -1941,15 +1950,17 @@ function renderWordBody(){
 
 // ===================== Read (passages) =====================
 // Only packs with passages.json (PASSAGES, appended to sentences.js) show this tab.
-// RD is the passage in progress: {p, tapped: [wordId], answers: [{ok, reopened, given}],
+// RD is the passage in progress: {p, tapped: [wordId], answers: [{ok, reopened, given, tr}],
 // qi, shown, resultsDone, today}. Tapped ids and per-question reopen flags feed
-// VC.passageWeakWords on the results screen. today: the Today Read stage runs it (same
+// VC.passageWeakWords on the results screen; tr (translation peeked before answering) is a
+// results-line note only and does not feed weak words. today: the Today Read stage runs it (same
 // screens; "Skip today" instead of the passage list link, Continue on to the next step).
 const readLevelsNow = () => VC.readingLevels(PASSAGE_LIST, WORDS, PACK, prog);
 function refreshReadUnlocks(){ if(HAS_PASSAGES && VC.updateReadUnlocks(PASSAGE_LIST, WORDS, PACK, prog).length) store.save(); }
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const passageDone = p => (prog.read && prog.read.done && prog.read.done[p.id]) || null;
 function readRender(){
+  stopSpeaking();
   screenTop();
   setScore(0,0);
   if(RD){ RD.resultsDone ? readResults() : (RD.qi == null ? readPassageScreen() : readQuestionScreen()); return; }
@@ -2250,6 +2261,7 @@ function markPassageFinished(){
 }
 const WHY_LABEL = { tapped: "tapped while reading", wrong: "missed question", reopened: "looked back" };
 function readResults(){
+  stopSpeaking();
   drillKeyHandler = null; setScore(0,0); screenTop();
   const p = RD.p, P = $("panel");
   const sc = RD.answers.filter(a => a && a.ok).length;
@@ -2286,6 +2298,7 @@ function readResults(){
 
 // ===================== Test (placement + free tests) =====================
 function testRender(){
+  stopSpeaking();
   screenTop();
   setScore(0,0);
   const P = $("panel");
@@ -2322,6 +2335,7 @@ function testRender(){
 }
 function placementItemTotal(){ return VC.strata(WORDS, PACK.placement, SIZE).reduce((n,_,i)=>n+VC.placementItemCount(i), 0); }
 function placeRender(){
+  stopSpeaking();
   D = null; drillKeyHandler = null; setScore(0,0);
   const P = $("panel"); const lw = learnedWords();
   const first = levelLabel(PACK.placement[0][0]), last = levelLabel(PACK.placement[PACK.placement.length-1][0]);
@@ -2341,6 +2355,7 @@ function startPlacement(){
   placeVocabNext();
 }
 function placeVocabNext(){
+  stopSpeaking();
   const P = $("panel"); const V = PL.vocab;
   if(V.i >= V.items.length){ placeResult(); return; }
   const it = V.items[V.i++]; const w = it.w; setScore(V.i - 1, V.items.length);
@@ -2357,6 +2372,7 @@ function placeVocabNext(){
   });
 }
 function placeResult(){
+  stopSpeaking();
   setScore(0,0);
   const st = PL.st;
   const stop = VC.placementStopIndex(PL.res);
@@ -2377,6 +2393,7 @@ function placeResult(){
 
 // ===================== Progress =====================
 function progressRender(){
+  stopSpeaking();
   setScore(0,0);
   const P = $("panel");
   const lwAll = learnedWords();

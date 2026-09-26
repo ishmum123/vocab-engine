@@ -120,8 +120,13 @@ async function boot(opts){
     getVoices: () => o.voices !== undefined ? o.voices : [{ lang: "zh-CN", name: "x" }],
     onvoiceschanged: null,
     cancel(){ cancelCount++; ss.speaking = false; ss.pending = false; },
-    speak(u){ spoken.push(u.text); ss.speaking = true; },
+    // neverStarts: the mock never reports "speaking" back (a real engine that silently
+    // drops an utterance). ttsDriver's poll then never sees busy()===true, so after
+    // TTS_TIMING.watchMs it times out and fires exactly one retry (a stale re-speak) --
+    // used to test that a screen transition's stopSpeaking() cuts that retry off.
+    speak(u){ spoken.push(u.text); if(!o.neverStarts) ss.speaking = true; },
   };
+  const audioInstances = [];
   const window = { VocabCore: VC, speechSynthesis: ss, SpeechSynthesisUtterance: function(t){ this.text = t; }, addEventListener(){} };
   const localStorage = { getItem(){ return null; }, setItem(){} };
   const fnBody = scriptOf(appHtml) + `
@@ -134,10 +139,11 @@ return {
 };`;
   const names = ["SpeechSynthesisUtterance","document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES","CHARACTERS"];
   const args = [window.SpeechSynthesisUtterance, document, window, { userAgent:"PassageAudioChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
-    function(){ return { play(){ return Promise.resolve(); }, pause(){} }; }, () => true, () => {}, o.pack || PACK, o.words || WORDS, o.sentences || SENTENCES, LESSONS, o.passages || PASSAGES, o.units || CHARACTERS];
+    function(){ const inst = { src: "", play(){ inst.played = (inst.played||0)+1; return Promise.resolve(); }, pause(){} }; audioInstances.push(inst); return inst; },
+    () => true, () => {}, o.pack || PACK, o.words || WORDS, o.sentences || SENTENCES, LESSONS, o.passages || PASSAGES, o.units || CHARACTERS];
   const api = new Function(...names, fnBody)(...args);
   await tick(); await tick();
-  return { api, document, spoken, cancelCount: () => cancelCount, ss };
+  return { api, document, spoken, cancelCount: () => cancelCount, ss, audioInstances };
 }
 
 const seedPF = () => VC.normalizeProg({ sets: {}, placedOnce: true, sessions: 5 }, PACK);
@@ -194,6 +200,26 @@ const DEFER = VC.TTS_TIMING.deferMs + 30;
     check("Replay (#rvp) speaks the source sentence again", spoken.slice(k2).join() === s0.t);
   }catch(e){ check(`section threw: ${e.stack}`, false); }
 
+  // ---------------------------------------------------------------- (b2) reveal prefers the source sentence's own clip over TTS
+  console.log("\n[2b] reveal: a source sentence carrying audio plays its clip, not TTS");
+  try{
+    const passages = JSON.parse(JSON.stringify(PASSAGES));
+    const p = passages.find(x => x.questions.some(q => x.sentences[q.sentence])) || passages[0];
+    const q0 = p.questions[0];
+    const s0 = p.sentences[q0.sentence];
+    s0.audio = "https://example.test/clip.mp3";
+    const { api, spoken, audioInstances } = await boot({ passages });
+    api.setProg(seedPF());
+    api.startPassage(p);
+    api.el("rdone").click();
+    const k = spoken.length;
+    const opts = api.el("o").children;
+    const right = opts.find(b => b.dataset.v === String(q0.answer));
+    right.click();
+    check("reveal shows Replay (#rvp) for the clip too", RVP.test(api.html("rv")));
+    check("reveal plays the clip (src === s.audio), not TTS (nothing new spoken)", audioInstances.some(a => a.src === s0.audio) && spoken.length === k);
+  }catch(e){ check(`section threw: ${e.stack}`, false); }
+
   // ---------------------------------------------------------------- (c) replay button present iff a voice or clip exists
   console.log("\n[3] no voice: no Replay button anywhere, nothing spoken");
   try{
@@ -239,6 +265,22 @@ const DEFER = VC.TTS_TIMING.deferMs + 30;
     check("results: question 1's line has ' · translation shown'; no other question's does", /Question 1[^<]*· translation shown/.test(lines[0] || "") && lines.slice(1).every(l => !l.includes("translation shown")));
   }catch(e){ check(`section threw: ${e.stack}`, false); }
 
+  // ---------------------------------------------------------------- translation peeked AFTER answering does not log
+  console.log("\n[3c] readQuestionScreen: tapping #qtr AFTER answering shows the translation but does not log a peek");
+  try{
+    const { api } = await boot();
+    api.setProg(seedPF());
+    const p = PASSAGES[0];
+    const q0 = p.questions[0];
+    check("setup: this question carries an English translation", !!q0.en);
+    api.startPassage(p);
+    api.el("rdone").click();
+    const opts = api.el("o").children;
+    opts.find(b => b.dataset.v === String(q0.answer)).click(); // answer first
+    api.el("qtr").click(); // peek after answering
+    check("post-answer peek shows the translation but leaves rec.tr unset", api.html("qtrwrap").includes(VC.escapeHtml(q0.en)) && api.rd().answers[0].tr !== true);
+  }catch(e){ check(`section threw: ${e.stack}`, false); }
+
   console.log("\n[4] readResults: a Replay button per source sentence, no autoplay");
   try{
     const { api, spoken } = await boot();
@@ -246,16 +288,22 @@ const DEFER = VC.TTS_TIMING.deferMs + 30;
     const p = PASSAGES[0];
     api.startPassage(p);
     api.el("rdone").click();
+    let k;
     for(let qi = 0; qi < p.questions.length; qi++){
       const q = p.questions[qi];
       const opts = api.el("o").children;
       const btn = opts.find(b => b.dataset.v === String(q.answer)) || opts[0];
       btn.click(); await sleep(DEFER);
+      // Capture right before the LAST Next click, the one that transitions into
+      // readResults(): a leak (a deferred say() or watchdog retry from this reveal firing
+      // on the results screen instead) can only show up after that transition, not before.
+      if(qi === p.questions.length - 1) k = spoken.length;
       api.el("nx").click(); await sleep(DEFER);
     }
-    const k = spoken.length;
+    const T = VC.TTS_TIMING;
+    await sleep(T.watchMs + T.deferMs + 150); // long enough for a watchdog retry to have fired, if not stopped
     const html = api.html("panel");
-    check("results screen: nothing autoplays", spoken.length === k);
+    check("results screen: nothing autoplays (including a deferred/watchdog leak from the last reveal)", spoken.length === k);
     let allPresent = true;
     p.questions.forEach((q, i) => { if(!new RegExp(`id="rr${i}"`).test(html)) allPresent = false; });
     check(`results screen: a Replay button per question's source sentence (${p.questions.length} questions)`, allPresent);
@@ -266,34 +314,70 @@ const DEFER = VC.TTS_TIMING.deferMs + 30;
     check("results Replay speaks that question's source sentence", spoken.slice(k2).join() === s0.t);
   }catch(e){ check(`section threw: ${e.stack}`, false); }
 
-  // ---------------------------------------------------------------- (d) generation guard: a late onstart from a replaced question is ignored
-  console.log("\n[5] Next -> a previous question's late TTS onstart never marks the new question's button");
+  // ---------------------------------------------------------------- (d) Next re-renders a fresh button (sanity for the generation guard)
+  console.log("\n[5a] Next re-renders a fresh #rpa element for the new question (not the one the old utterance's onstart/onend closes over)");
   try{
-    const { api, ss } = await boot();
-    // Capture every utterance handed to speechSynthesis.speak() (speak() -> speakTTS() ->
-    // ss.speak(u)); the mock never fires onstart itself (a real engine fires it async), so
-    // question 1's utterance is still pending once question 2 has mounted.
-    const captured = [];
-    const realSpeak = ss.speak.bind(ss);
-    ss.speak = u => { captured.push(u); realSpeak(u); };
+    const { api } = await boot();
     api.setProg(seedPF());
     const p = PASSAGES.find(x => x.questions.length > 1) || PASSAGES[0];
     check("setup: a passage with more than one question", p.questions.length > 1);
     api.startPassage(p);
-    api.el("rdone").click(); // question 1 mounts: captured[0]
+    api.el("rdone").click();
     const q0 = p.questions[0];
-    const oldBtn = api.el("rpa"); // question 1's button, before any answer/Next
+    const oldBtn = api.el("rpa");
     const opts0 = api.el("o").children;
-    const right0 = opts0.find(b => b.dataset.v === String(q0.answer));
-    right0.click(); await sleep(DEFER); // reveal's sentence: captured[1]
-    api.el("nx").click(); await sleep(DEFER); // -> question 2 mounts, re-rendering #rpa as a new element: captured[2]
+    opts0.find(b => b.dataset.v === String(q0.answer)).click(); await sleep(DEFER);
+    api.el("nx").click(); await sleep(DEFER);
     const newBtn = api.el("rpa");
     check("Next re-renders a fresh #rpa element (not the same object)", newBtn && oldBtn && newBtn !== oldBtn);
-    // Fire question 1's utterance's onstart late, now that question 2 is showing.
-    const stale = captured[0];
-    check("setup: question 1's utterance was captured before it could fire onstart", !!stale && typeof stale.onstart === "function" && !newBtn.classList.contains("speaking"));
-    stale.onstart();
-    check("a late onstart from question 1's utterance does not mark question 2's button 'speaking'", !newBtn.classList.contains("speaking"));
+  }catch(e){ check(`section threw: ${e.stack}`, false); }
+
+  // ---------------------------------------------------------------- (d2) a watchdog retry armed by one question does not fire after Next
+  console.log("\n[5b] Next: a still-armed watchdog retry from the previous question's speech does not fire later on the new question");
+  try{
+    const { api, spoken } = await boot({ neverStarts: true }); // engine never reports "speaking" -> every say() times out and arms a retry
+    api.setProg(seedPF());
+    const p = PASSAGES.find(x => x.questions.length > 1) || PASSAGES[0];
+    check("setup: a passage with more than one question", p.questions.length > 1);
+    api.startPassage(p);
+    api.el("rdone").click(); // question 1 mounts and speaks q0.q; watchdog armed
+    const q0 = p.questions[0];
+    const s0text = p.sentences[q0.sentence].t;
+    const opts0 = api.el("o").children;
+    opts0.find(b => b.dataset.v === String(q0.answer)).click(); // reveal speaks the sentence; watchdog armed again
+    api.el("nx").click(); // question 2 mounts and speaks q1.q (its own watchdog arms too) -- move on before any of the above can time out
+    const k = spoken.length;
+    const T = VC.TTS_TIMING;
+    await sleep(T.watchMs + T.deferMs + 150); // long enough for a stale retry to fire, if one were left running
+    // Question 2's own watchdog is allowed to retry ITS OWN text once (that is the retry
+    // mechanism working as designed for the screen actually showing); what must never
+    // happen is question 1's or its reveal sentence's text playing again on top of it.
+    const after = spoken.slice(k);
+    check("no stale retry of question 1's text or its reveal sentence plays after Next", !after.includes(q0.q) && !after.includes(s0text));
+  }catch(e){ check(`section threw: ${e.stack}`, false); }
+
+  // ---------------------------------------------------------------- (e) category fix: readResults() stops a still-pending watchdog retry from the last reveal
+  console.log("\n[6] category fix: readResults() stops a still-armed watchdog retry from the last reveal (reproduces the reviewer's leak)");
+  try{
+    const { api, spoken } = await boot({ neverStarts: true });
+    api.setProg(seedPF());
+    const p = PASSAGES[0];
+    api.startPassage(p);
+    api.el("rdone").click();
+    for(let qi = 0; qi < p.questions.length; qi++){
+      const q = p.questions[qi];
+      const opts = api.el("o").children;
+      const btn = opts.find(b => b.dataset.v === String(q.answer)) || opts[0];
+      btn.click(); // reveal speaks the source sentence; the mock never confirms "speaking" so the watchdog is armed
+      api.el("nx").click(); // move on (to the next question, or to readResults() on the last one) before it can time out
+    }
+    // Now on the results screen. The last reveal's watchdog is still armed (it polls for
+    // up to watchMs, then retries once): without stopSpeaking() at readResults()'s top,
+    // that retry calls ss.speak() again here with the stale sentence text.
+    const k = spoken.length;
+    const T = VC.TTS_TIMING;
+    await sleep(T.watchMs + T.deferMs + 150);
+    check("results screen: the previous reveal's watchdog retry never fires here (nothing new spoken)", spoken.length === k);
   }catch(e){ check(`section threw: ${e.stack}`, false); }
 
   console.log(`\n${fails === 0 ? "ALL PASSED" : "FAILED"}: ${passes} passed, ${fails} failed`);
