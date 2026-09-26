@@ -1,6 +1,7 @@
-# Generated audio (Piper) — design
+# Generated audio (Piper)
 
-Status: design, phase 1 done 2026-09-26 (voice samples + this doc). Nothing below is implemented yet.
+Status: phase 1 (samples, design) done 2026-09-26; phase 2 (engine, validator, service worker, builder,
+tests) implemented on branch fa-audio-2. No pack ships clips yet: phase 3 renders and publishes Persian.
 Why: Persian has no TTS voice on Apple, Windows, Google TTS or Android (verified 2026-09-26), so the
 speaker is hidden and Listen items fall back to reading. Indonesian (no Apple voice) and Urdu reuse this.
 
@@ -79,79 +80,94 @@ far less gzipped. Explicit fields keep partial coverage and Tatoeba mixing trivi
 Helpers (app.html, speech section):
 
 ```js
-const wordAudio = w => (w && w.audio) || undefined;
+const wordAudio = VC.wordAudio;                    // core.js: a word's non-empty audio string, else undefined
 const sayWord = (w, btn) => speak(w.w, btn, wordAudio(w));
-const canHearWord = w => hasSpeech || !!wordAudio(w);      // mirrors canHearSentence
-const PACK_AUDIO = !!PACK.audio;                            // pack ships generated audio
+const canHearWord = w => hasSpeech || !!wordAudio(w);   // mirrors canHearSentence
+const PACK_AUDIO = VC.packAudio(PACK);             // pack.json audio {voice: non-empty, ...}
 ```
 
-Word call sites to switch from `speak(w.w…)`/`say(w.w)` to `sayWord`, and from `hasSpeech` to `canHearWord`:
+Fallback order in `speak(text, btn, url)`: the clip; if it fails to load (a 404, or offline and not
+cached), TTS of the same text when a voice is usable; else a short toast ("Offline: this recording isn't
+saved on this device yet." / "This recording couldn't be played."). An interrupted clip (AbortError, a
+later `speak` replaced it) and a blocked autoplay (NotAllowedError) are not failures; a generation counter
+drops failures of replaced clips.
 
-| site (app.html) | today | change |
+Call-site audit: every place that speaks a pack word, with its verdict (all migrated; tests/audio_checks.js).
+
+| site | before | after |
 |---|---|---|
-| panel `data-wid` tap (Words rows, teach, char teach) | `say(w.w)` | `sayWord(w)` |
-| `revealBlock` | `data-wid` + icon only if `hasSpeech` | gate on `canHearWord(entry)` |
-| `hearItem` (Listen drill) | read item + notice if `!hasSpeech` | gate on `canHearWord`; `sayWord` in mount/button |
-| `readItem` / `recallItem` / `typeItem` | `say(entry.w)` on mount/reveal | `sayWord(entry)` |
-| `pronTypeItem` | replay button if `hasSpeech` | `canHearWord` + `sayWord` |
-| `tokTap` popover | `say(head ? head.surface : w.w)` | `sayWord(w)` when no phrase head, or head.surface === w.w; else TTS as now |
-| `vocabTeach` rows + hint | `hasSpeech` gate, `say(w.w)` | `canHearWord`, `sayWord` |
-| `charTeach` head / `sayUnit` / `charDrillItem` | `hasSpeech` gate, `speak(w.w)` | `canHearWord(WORDS_BY_ID[id])`, `sayWord` |
-| `wordListInto` (Words tab) | `hasSpeech` gate | `canHearWord`, `sayWord` |
-| `placeVocabNext` (placement) | `asHear = hasSpeech && …` | `canHearWord(w) && …`, `sayWord` |
-| script primer example word (`data-xw`) | `scriptVoice() && speak(w.w)` | play `wordAudio(w)` when present, else as now |
-| script units (`sayUnitSound`, `unitHasSound`) | already use `u.audio` | none |
+| panel `data-wid` tap (reveal blocks, char teach heads) | `say(w.w)` | `sayWord(w)` |
+| `revealBlock` | tappable if `hasSpeech` | `canHearWord(entry)` |
+| `hearItem` (Listen: Today, Test, drills) | read + notice if `!hasSpeech` | `canHearWord` gate, `sayWord` |
+| `readItem` mount, `recallItem` / `typeItem` reveal | `say(entry.w)` | `sayWord(entry)` |
+| `pronTypeItem` replay + reveal | `hasSpeech` gate, `speak(entry.w)` | `canHearWord`, `sayWord` |
+| `tokTap` popover | `say(head ? surface : w.w)` | `sayWord(w)`; a phrase head whose surface differs from `w.w` stays TTS |
+| `vocabTeach` rows + hint | `hasSpeech` gate, `say(w.w)` | per-row `canHearWord`, `sayWord`; hint if any row hears |
+| `charTeach` heads + hint, `charRevealBlock`, `sayUnit`, charPick `hear` | `hasSpeech` | `canHearWord` / `canHearUnit`, `sayWord` |
+| `wordListInto` (Words tab) | `hasSpeech` gate, `say(w.w)` | `canHearWord`, `sayWord` |
+| `placeVocabNext` (placement) | `asHear = hasSpeech && rand` | `canHearWord(w) && rand` (same rng use), `sayWord` |
+| primer example-word tap `data-xw`, teach rows, reveal | `scriptVoice()` gate | `scriptVoice() \|\| wordAudio(w)`, `sayWord` |
+| primer `wordRead` / `wordHear` items (core.js `scriptItem`) | TTS only; no voice turns wordHear into wordRead | example-word clip as `audioUrl`; wordHear kept without a voice when every example word of the unit has a clip (`exRecorded`, also in `scriptKindFor`) |
+| script units (`sayUnitSound`, `unitHasSound`) | already `u.audio` | unchanged; teach hint also shows when a unit has `audio` |
 
-Test/drill pools: `tListen` and Today `g.listen` build `hearItem` for every word, so they work once
-`hearItem` checks `canHearWord`. Sentences already use `canHearSentence`.
+Lesson `say` strings (Sounds tab, lesson items and reference card) are free text with no clip: unchanged.
+Notices: `speechNotice()` and the Progress-tab warning are hidden when `PACK_AUDIO`; the Sounds-lesson
+warning stays. A pack with clips but no `pack.audio` plays them and still shows the notices (validator warns).
+Flag-off: with no `audio` fields every gate reduces to `hasSpeech`, so packs without audio behave as before
+(flagoff goldens unchanged; `tests/flagoff_snapshot.js` strips `pack.audio`, `words[].audio` and relative
+sentence `audio` so the phase 3 render is not drift; absolute Tatoeba URLs stay hashed).
 
-Notices: `speechNotice()`, the Sounds-lesson warning and the Progress-tab warning currently key on `!hasSpeech`.
-With `PACK_AUDIO`, suppress the word/sentence notices (the audio covers them). Keep the Sounds-lesson warning:
-lesson `say` strings are free text with no clip. `lessonSayMode` is unchanged.
+Service worker (`sw.template.js`):
+- install precaches the page only; `audio/*` requests in scope go to `audioResponse`: cached copy, else
+  fetch the whole clip (no Range), store a 200 in `AUDIO_CACHE`, trim to `AUDIO_CAP` = 800 (oldest stored
+  first; ~6 MB at Persian clip sizes). 404s pass through uncached. Offline with no copy the request fails
+  and the page falls back as above.
+- Range: media elements send Range (Chrome `bytes=0-`), so a Range request gets a 206 slice of the full
+  cached clip (suffix ranges, 416 when unsatisfiable).
+- `AUDIO_CACHE` = `ve:<scope>:audio:v<pack.audio.version>`; build.sh fills the version (0 without audio).
+  `activate` keeps it across page builds and deletes other audio versions.
+- **Untested until the phase 3 live check:** iOS Safari's media Range behaviour through the worker, and the
+  MIME type GitHub Pages sends for `.opus`. Codec risk: caniuse lists Opus as supported on iOS Safari
+  from 18.4 and "partial" on 11–18.3; which containers the partial covers is unverified. On a device
+  that cannot play Ogg Opus the clip fails, and Persian (no voice) shows the hint. Phase 3 checks a real
+  iPhone; if older iOS matters, add a second encoding (AAC `.m4a`) and pick per `canPlayType`.
 
-Service worker (`sw.template.js`): today it ignores same-origin non-page requests, so audio goes to the
-network only (Pages HTTP cache, max-age 600). Add:
-- never precache audio (install stays page-only);
-- `audio/*` requests: cache-first from a separate cache `<prefix>-audio-v<manifest version>`, fetched and
-  stored on first play; cap at N entries (proposed 800 ≈ 6 MB), evicting oldest-inserted on write;
-- the audio cache survives page-build changes (keyed by audio version, not build hash) and is deleted
-  when the version changes. The `activate` handler today deletes every `PREFIX*` cache but the current
-  build's, so its filter must skip the audio cache name;
-- offline miss → `Response.error()`. The engine's `audio.onerror` already clears the button state; add a
-  one-line hint ("Offline: this clip isn't saved yet") and fall back to TTS when a voice exists.
-- Range requests: Safari fetches media with `Range`; serve full cached responses with 200 only for non-range
-  requests, pass range requests to the network when uncached. Test on iOS Safari before shipping.
+## Builder: `python3 -m packbuilder audio --lang fa --repo <repo> [--check] [--prune] [--only w,s,p,x] [--limit N]`
 
-## Builder: `packbuilder audio --lang fa [--repo R] [--check] [--only w,s,p,x] [--limit N]`
-
-- Config lives in `pack.json` `audio: {voice, version}` (the engine reads it for `PACK_AUDIO`) plus the lang
-  spec (`langs/fa.py`: `AUDIO = {voice, length_scale_short: 1.25, pad_ms: [150, 250], bitrate: "24k"}`).
-  Bitrate/rate/engine version go in the manifest only.
-- Text per item: words `w`, sentences `t`, passage sentences `t`, units `say`. Optional per-language override
-  file `tools/audio_say.json` (`{id: "spoken text"}`), for ezafe kasre and stress fixes found in QA. Overrides
-  change the spoken text only, never the pack text.
-- Key = sha1(spoken text, voice, version, synth params). A file whose manifest key matches is skipped, so
-  reruns are idempotent and a text edit re-renders only that item. Orphan files (ids no longer in the pack)
-  are listed and deleted with `--prune`.
-- Writes `audio` URLs into the pack JSON for items with a file, skipping items that already carry an absolute
-  (Tatoeba) URL, then regenerates the .js consts (`jsonify_pack.py`) and the manifest.
-- `--check`: lists items with no file, files with a stale key, orphan files, and pack `audio` URLs pointing at
-  missing files; exit 1 if any. Run it in the language repo's `check.sh`.
-- Dependencies (`requirements-audio.txt`): piper-tts pinned, ffmpeg on PATH. Voice .onnx downloaded to the
-  repo `.cache/` (never committed).
-- Tests: key stability, skip-on-match, override applied, Tatoeba URL preserved, `--check` exit codes
-  (stub synth; no model in CI).
+Implemented in `tools/packbuilder/audio.py` (tests: `packbuilder/tests/test_audio.py`, stub synthesiser).
+- Config: `spec.AUDIO` in the language spec (`langs/fa.py`: voice, version, engine, licence), merged over
+  defaults (Opus 24 kbps, 24 kHz, words/carriers `length_scale` 1.25 + 150/250 ms padding, sentences 1.0).
+  The builder writes `pack.json` `audio: {voice, version}` when any clip exists; codec details go in the
+  manifest only. Bump `version` to re-render everything.
+- Items: words `w` → `audio/w/<id>.opus`, sentences `t` → `audio/s/`, passage sentences `t` →
+  `audio/p/<passageId>-<n>.opus`, script units `say` (skipping `sound: false`) → `audio/x/`. Items that
+  already carry an absolute URL (Tatoeba) are never rendered and never changed.
+- Overrides: `<repo>/tools/audio_say.json` = `{pack text: spoken text}`, keyed by the item's exact pack text
+  (so one fix covers every item with that text). Spoken text only; pack text never changes. `--check` fails
+  on stale keys (no item has that text) and notes overrides that change letters rather than only marks.
+- Key = sha1(spoken text, voice, version, codec, bitrate, rate, speed, padding), stored per file in
+  `audio/manifest.json`. A file whose key matches is skipped: reruns are idempotent (byte-identical
+  repo, `generated` unchanged) and a text or override edit re-renders only that item.
+- URLs: the builder owns relative `audio/…` URLs: set where the clip is current, removed where it is not.
+  Pack JSON keeps its layout; the .js consts are regenerated (`jsonify_pack.py`).
+- `--check` (writes nothing): missing, stale, orphan clips, dangling relative URLs, stale override keys; exit 1
+  on any. `--prune` deletes orphans. `--only` limits rendering to kinds; `--limit N` renders at most N.
+- Dependencies (`tools/packbuilder/requirements-audio.txt`): piper-tts 1.8.0, ffmpeg with libopus on PATH.
+  Voice model at `<repo>/.cache/voices/<voice>.onnx` (+ `.onnx.json`), never committed.
+- Smoke-tested 2026-09-26 on a copy of the Persian pack (`--limit 3`, real Piper): 3 Opus clips, URLs,
+  pack.audio, manifest; validator 0 errors. `--check` on the real pack: 5610 wanted, 5610 missing.
 
 ## Rollout
 
-1. **Phase 2 — engine + builder + tests.** Helpers and call-site table above, notices, SW audio cache,
-   validator (`words[].audio`, `passages[].sentences[].audio`), PACK_SCHEMA update, `packbuilder audio`.
-   Engine tests: `canHearWord` gating, notice suppression, SW cache cap/eviction/offline miss.
+1. **Phase 2 — engine + builder + tests (done, branch fa-audio-2).** Tests: `tests/audio_checks.js` (core,
+   app call sites on the Persian pack with 3 clips, fallback, build.sh version, SW cache),
+   `tests/validate_pack_audio_checks.js`, `packbuilder/tests/test_audio.py`.
 2. **Phase 3 — render, publish, live check.** Full Persian render (5610 files: 2000 words, 3025 sentences,
    552 passage sentences, 33 units). Measured estimate with ganji_adabi: ~14 min in one process
    (3025×0.11 s + 552×0.18 s + 2033×0.033 s synth + 5610×0.058 s encode); ~43.5 MB. Then a QA pass on a
    stratified sample (ear + ASR round-trip to flag outliers), `audio_say.json` fixes, publish the persian
-   repo, live check on the phone (Listen drill, Words tap, passage read-aloud, offline replay of a played clip).
+   repo, live check on the phone (Listen drill, Words tap, passage read-aloud, offline replay of a played clip)
+   and an iPhone (Opus playback, Range through the worker), and the `.opus` MIME type Pages serves.
 3. **Indonesian** (`id`): Piper lists one voice, `id_ID-news_tts-medium`; its MODEL_CARD licence is
    "See URL" (a Kaggle notebook link that looks mislabelled), so confirm the licence before use.
    Indonesian spelling is near-phonemic, so espeak-ng phonemes should need few overrides. Recorded audio
@@ -160,11 +176,10 @@ network only (Pages HTTP cache, max-age 600). Add:
    Urdu shares Persian's unvocalised-script issues (ezafe, short vowels), so plan the same `audio_say.json` pass.
    Voice lists checked against rhasspy/piper-voices voices.json on 2026-09-26.
 
-## Open questions (with recommendations)
+## Decisions (2026-09-26)
 
-1. **Voice.** Recommend ganji_adabi (best sentence intelligibility, CC0); ganji as runner-up. Exclude gyro until
-   its licence is confirmed. Decide by ear on the samples page.
-2. **Ezafe/stress fixes.** Recommend a hand/LLM-assisted `audio_say.json` pass on sentences in phase 3
-   (mark ezafe with kasre), over shipping raw espeak output. Cost: one review pass over ~3,600 sentences.
-3. **Slow words.** Recommend length_scale 1.25 + padding for words and primer carriers only; sentences at 1.0.
-4. **Audio cache cap.** Recommend 800 clips (~6 MB) cached on play, no bulk "download all" button in phase 2.
+1. **Voice:** the user decides by ear on the phase 1 samples; default ganji_adabi (`langs/fa.py` AUDIO).
+   gyro excluded until its licence is confirmed.
+2. **Ezafe/stress fixes:** yes, in phase 3, as `tools/audio_say.json` overrides (mechanism built in phase 2).
+3. **Slow render:** words and primer carriers only (length_scale 1.25 + padding); sentences at 1.0.
+4. **Audio cache:** cap 800 clips, cached on play; no "download all" in phase 2.

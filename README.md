@@ -34,9 +34,12 @@ tools/pack_from_hsk.py    reproducible hsk -> packs/zh converter
 tools/packbuilder/        shared corpus-based pack builder for language repos (it; see its README)
 tests/engine_checks.js    Node checks, no dependencies
 tests/pron_aids_checks.js Node checks for the pronunciation aids (docs/PACK_SCHEMA.md "Pronunciation aids"), incl. a byte-identical control against main's engine
+tests/audio_checks.js     Node checks for recorded audio (docs/AUDIO.md): word call sites, fallback, sw.js audio cache
+tests/validate_pack_audio_checks.js  validator rules for pack.audio / words[].audio / passage sentence audio
 tests/flagoff_snapshot.js Golden harness proving hsk-merge work is a no-op for every pack without `characters` (see docs/HSK_MERGE.md); tests/golden/ holds the goldens
 dist/zh.html dist/sw.js   built zh trainer + its service worker (committed; the tests fail if either is stale)
 docs/PACK_SCHEMA.md       pack format (authoritative)
+docs/AUDIO.md             recorded audio (Piper clips): findings, engine/SW/builder design, rollout
 TODO.md                   known gaps and follow-ups
 ```
 
@@ -48,6 +51,8 @@ python3 tools/validate_pack.py packs/zh
 ./build.sh packs/zh dist/zh.html
 /opt/homebrew/bin/node tests/engine_checks.js  # includes the stale-build guard for dist/zh.html
 /opt/homebrew/bin/node tests/flagoff_snapshot.js --check  # flag-off golden check (--capture to update goldens)
+/opt/homebrew/bin/node tests/audio_checks.js   # recorded audio (needs ../persian for the app section)
+python3 -m packbuilder audio --lang fa --repo ../persian --check   # from tools/: recorded-audio status of a repo
 python3 tools/pack_from_hsk.py [../hsk]        # regenerate packs/zh from hsk (idempotent)
 python3 -m unittest discover -s tools/packbuilder/tests -t tools   # packbuilder smoke tests
 ```
