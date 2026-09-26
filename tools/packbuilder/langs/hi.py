@@ -521,6 +521,10 @@ VECTOR_V2 = _f(["जाना", "देना", "लेना", "डालना
 ASPECT_AUX = frozenset(_f(["रहना", "सकना", "चुकना"]))
 STEM_AUX = _f(["रहना", "सकना", "चुकना", "जाना", "देना", "लेना", "पाना", "डालना", "पड़ना", "बैठना", "उठना"])
 VECTOR_V1_F = {fold(k): fold(v) for k, v in VECTOR_V1.items()}
+# nukta-distinct lemma pairs the fold() nukta-drop merges (सज़ा/सजा): before
+# these light verbs the merged surface is the nukta headword's noun sense, not
+# the other lemma's verb stem (QA v1.1; audited: the only such pack collision)
+NUKTA_NOUN_LV = {"सजा": frozenset(_f(["देना", "होना", "मिलना", "पाना", "सुनाना", "भुगतना"]))}
 ADVERB_SURFACES = {"अब": "अब", "अभी": "अभी", "यहाँ": "यहाँ", "वहाँ": "वहाँ", "जहाँ": "जहाँ", "कहाँ": "कहाँ",
                    "यहां": "यहाँ", "वहां": "वहाँ", "जहां": "जहाँ", "कहां": "कहाँ", "तब": "तब", "जब": "जब",
                    "कब": "कब", "क्यों": "क्यों", "कैसे": "कैसे", "यहीं": "यहीं", "वहीं": "वहीं", "कभी": "कभी",
@@ -801,7 +805,14 @@ class Hindi(LanguageSpec):
                  **{(fold(w), g): None for w in ("बलात्कार", "आत्महत्या", "ख़ुदकुशी", "दुष्कर्म")
                     for g in ("NOUN", "VERB", "ADJ")},
                  # spelling variants: tokens link the main spelling (SPELLING_VARIANTS)
-                 **{(fold(v), g): (fold(w), g) for (w, g), v in SPELLING_VARIANTS.items()}}
+                 **{(fold(v), g): (fold(w), g) for (w, g), v in SPELLING_VARIANTS.items()},
+                 # second-entry rule admitted these as a distinct sense by English-gloss
+                 # overlap, but the two POS are one Hindi sense split across a learner's
+                 # dictionary categories; merge into the more frequent POS's entry, whose
+                 # gloss gains the dropped sense (QA v1.1; चीनी sugar/Chinese stays a pair)
+                 ("वही", "DET"): ("वही", "PRON"), ("ठीक", "ADJ"): ("ठीक", "ADV"),
+                 (fold("बाक़ी"), "NOUN"): (fold("बाक़ी"), "ADJ"),
+                 ("मूर्ख", "NOUN"): ("मूर्ख", "ADJ"), ("विरोधी", "NOUN"): ("विरोधी", "ADJ")}
     profanity = _f(PROFANE)
     # profanity, and Tatoeba sentences dropped by text: ungrammatical, or a
     # contested language-politics claim (Hindi/Urdu), against the neutrality rule
@@ -811,7 +822,11 @@ class Hindi(LanguageSpec):
                              # or mistranslated rows; English that misrenders the Hindi
                              "|[A-Za-z]|टॉम के इसकी|टॉम के भीतर औरतों|इस कविता क्या आप|क्या है उनके अधिकार"
                              "|बाल किसने काटें|" + dev_rx("बर्दाश्त की भी हद") + "|रविबार"
-                             "|यात्रा करना पसंद करते हो\\?\" \"मैं भी")
+                             "|यात्रा करना पसंद करते हो\\?\" \"मैं भी"
+                             # QA v1.1: चीज़ "thing" false-friend-glossed as "cheese" (पनीर
+                             # is the real word); every corpus row with this gloss, pack or not
+                             "|चीज़ दूध से बनता है|मैं चीज़ खाता हूँ|मैं चीज़ खाती हूँ"
+                             "|टॉम को चीज़ पसंद है|मैंने बहुत सारा चीज़ दिया")
 
     def clean_sentence_text(self, t):
         """Tatoeba hygiene: a sentence-final full stop is the danda; no ZWJ/ZWSP."""
@@ -1215,7 +1230,11 @@ class Hindi(LanguageSpec):
             # (रात की बस ली, सीधी बस जाती: the bus, not बसना)
             modified = i > 0 and (txt[i - 1] in ("का", "की", "के") or toks[i - 1][2] in ("ADJ", "DET", "NUM")) \
                 and lx is not None and lx.usable_entries(txt[i], ["noun"])
-            if (aux_ok or conj) and not modified \
+            # सज़ा "punishment" folds (nukta dropped) to सजा, the stem of सजाना "to
+            # decorate"; before a light verb of the punishment sense (सज़ा दी, सज़ा
+            # हुई, सज़ा सुनाई) it is always the noun, genitive or not (QA v1.1)
+            nukta_lv = r[0] in NUKTA_NOUN_LV and i + 1 < n and toks[i + 1][1] in NUKTA_NOUN_LV[r[0]]
+            if (aux_ok or conj) and not modified and not nukta_lv \
                     and txt[i] + "ना" in infs and toks[i + 1][2] in ("VERB", "AUX", "ADP", "SCONJ", "PART", "CCONJ"):
                 out[i] = (txt[i] + "ना", "VERB")
                 done.add(i)
@@ -1225,6 +1244,16 @@ class Hindi(LanguageSpec):
                 adj = sorted(t for t, p, k in lx.F.get(txt[i], []) if p == "adj" and t != txt[i])
                 if adj and not lx.usable_entries(txt[i], ["adj"]):
                     out[i] = (adj[0], "ADJ")
+        # भरती, an unhaltanted spelling of भर्ती "recruitment, admission", is also
+        # भरना's feminine participle "filling"; before a light verb of the
+        # recruitment sense (भरती होना/हुई, भरती करना/किया) it is the noun, not
+        # the verb (QA v1.1, corpus 2017339/3620571 vs. भर्ती's own 494199/9013203)
+        for i, r in enumerate(out):
+            if i in done or not r or r[1] != "VERB" or r[0] != "भरना" or txt[i] != "भरती":
+                continue
+            if i + 1 < n and toks[i + 1][1] in ("होना", "करना", "कराना") and toks[i + 1][2] in ("VERB", "AUX"):
+                out[i] = ("भर्ती", "NOUN")
+                done.add(i)
         # V2 of an unlisted compound verb and passive जाना link their own verb
         # (लौट जाती: जाना, किया जा सकता: जाना, ख़रीद लें: लेना; QA 2026-09-26);
         # conjunctive कर/के after a stem links nothing
