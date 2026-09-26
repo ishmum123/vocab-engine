@@ -572,6 +572,34 @@ class Linker:
         return ids, cl, make_spans(text, offsets, recs, ids), claimed
 
 
+def load_span_glosses(tools_dir, shipped):
+    """gloss_display.json beside the passage source ({} without it; _ keys are
+    comments). A key is a headword `w` (span-only: the pack build never merges
+    it) or "lemma|pos" (the build's gloss_display key, also merged into `en` by
+    a packbuilder build). Keys matching no shipped word are listed on stderr."""
+    from .core.words import load_gloss_display
+    table = load_gloss_display(tools_dir, "gloss_display.json")
+    known = {w["w"] for w in shipped.values()} | {f"{w.get('lemma')}|{w.get('pos')}" for w in shipped.values()}
+    unused = sorted(k for k in table if k not in known)
+    if unused:
+        print(f"passages: gloss_display.json: {len(unused)} keys match no pack word: {unused[:10]}", file=sys.stderr)
+    return table
+
+
+def span_glosses(spans, table, shipped):
+    """Spans with no gloss of their own get the word's display gloss as a 4th
+    element: table["lemma|pos"], else table[w]. Display-only (docs/PACK_SCHEMA.md)."""
+    out = []
+    for s in spans:
+        if len(s) == 3:
+            w = shipped[s[2]]
+            g = table.get(f"{w.get('lemma')}|{w.get('pos')}") or table.get(w["w"])
+            if g:
+                s = s + [g]
+        out.append(s)
+    return out
+
+
 def _derived_state(d):
     """{file name: (size, mtime_ns)} of a derived cache directory ({} if absent)."""
     if d is None or not d.is_dir():
@@ -770,6 +798,9 @@ def run(spec, check_only=False, out=sys.stdout):
     shipped = {w["id"]: w for w in json.loads((pack_dir / "words.json").read_text())}
     for w in shipped.values():
         w.setdefault("lemma", w["w"])      # a pack without lemmas (zh): the headword
+    # spec.passage_span_glosses (zh, ja): gloss_display.json in the tools dir
+    # (<repo>/tools, or the flat pack dir) gives display-only span glosses
+    span_table = load_span_glosses(tools_dir, shipped) if getattr(spec, "passage_span_glosses", False) else {}
     # spec.passage_linker (zh): a language whose pack has no build context
     # supplies its own linker with the Linker interface
     lk = spec.passage_linker(shipped, pack_dir) if hasattr(spec, "passage_linker") else \
@@ -814,6 +845,8 @@ def run(spec, check_only=False, out=sys.stdout):
             toks = lk.tag(t, en, names)
             sent_toks.append(toks)
             ws, cl, spans, linked_toks = lk.links_all(toks, t, en, names)
+            if span_table:
+                spans = span_glosses(spans, span_table, shipped)
             sents.append({"t": t, "en": en, "words": ws, "spans": spans})
             placed = {sp_[2] for sp_ in spans}
             n_spans += len(spans)

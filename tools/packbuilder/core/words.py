@@ -669,7 +669,9 @@ def apply_gloss_display(repo, out_words, path="tools/gloss_display.json"):
         if k in table:
             w["en"] = table[k]
             applied.add(k)
-    unused = sorted(set(table) - applied)
+    # keys without "|" are bare headwords: span-only glosses for passages
+    # (passages.load_span_glosses), never merged here
+    unused = sorted(k for k in set(table) - applied if "|" in k)
     stat("gloss_display", {"applied": sorted(applied), "unused": unused})
     if unused:
         log(f"gloss_display: {len(unused)} keys match no shipped word: {unused[:10]}")

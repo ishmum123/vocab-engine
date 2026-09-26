@@ -264,6 +264,8 @@ READING_FIX = {"私": "ワタシ", "明日": "アシタ", "何": "ナニ", "富�
 # verbs used as auxiliaries after て/で (ている, てしまう, てみる ...): no link
 # unless listed here (てください is the request word)
 AUX_VERB_KEEP = {"ください"}
+NUMERAL_CHARS = frozenset("0123456789０１２３４５６７８９一二三四五六七八九十百千万〇")
+NAME_SUFFIX = frozenset({"城", "寺"})    # after a declared name: じょう/じ, not the noun 城 しろ, 寺 てら
 
 # ---- register / content filters --------------------------------------------
 # kana items are bounded by non-hiragana on the left (やくそく is not くそ)
@@ -780,6 +782,7 @@ class Japanese(LanguageSpec):
 
 
     passage_retag_names = True      # passage_retag gets the declared names (no capitals mark them)
+    passage_span_glosses = True     # passages.run writes tools/gloss_display.json senses on spans
 
     def passage_text(self, text, names, lexicon):
         """Passages (Linker.pretag, before tagging): text unchanged; loads
@@ -804,33 +807,85 @@ class Japanese(LanguageSpec):
             # corpus groups keep apart as ごろ
             if "頃" in heads and "ごろ" not in heads:
                 self.passage_lemma_alias.setdefault("ごろ", "頃")
+            self._passage_lv = {w["lemma"]: w.get("lv") for w in words}    # passage_post_resolve: counter vs plain noun
         for n in names:
             self.passage_lemma_alias.pop(n, None)     # a declared name is never a pack word (あかり: not 明かり)
         return text
 
     def passage_retag(self, toks, names=frozenset()):
-        """Passages: a declared name is one PROPN token, never a pack word
-        (あかり is not 明かり "light"; あおば町 split by Sudachi is joined)."""
+        """Passages: token rules before resolving (the corpus build never runs
+        them). Returns `toks` itself when no rule applies.
+        - `_passage_join` first: a kanji numeral + the counter つ is one token
+          (一つ, 二つ; a digit numeral like 3つ does not join), and a
+          determiner/kanji-numeral + noun joined spelling that is a pack
+          headword (その後, 一番) is one token.
+        - A declared name is one PROPN token, never a pack word (あかり is not
+          明かり "light"; あおば町 split by Sudachi is joined), and takes a
+          following NAME_SUFFIX (松本城: じょう, not 城 しろ "castle").
+        - Grammar, not words (upos X: neither counted nor linked): kana いく/くる
+          and ほしい after the te-form (なっていく, 聞こえてくる, 来てほしい; kanji
+          行く/来る stay the motion verbs: 歩いて行きました); と + いう (減るという
+          問題, 「…」という答え); 後 read ご after その or a number/counter (その後,
+          3年後), which the pack has no entry for."""
         toks = self._passage_join(toks)
-        if not names:
-            return toks
-        out, i = [], 0
-        while i < len(toks):
-            j, acc = i, ""
-            hit = None
-            while j < len(toks) and len(acc) < max(map(len, names)):
-                acc += toks[j][0]
-                j += 1
-                if acc in names:
-                    hit = j
-            if hit is not None:
-                surf = "".join(t[0] for t in toks[i:hit])
-                out.append([surf, surf, "PROPN", toks[i][3]])
-                i = hit
-            else:
-                out.append(toks[i])
+        out = list(toks)
+        name_at = set()
+        if names:
+            joined, i = [], 0
+            longest = max(map(len, names))
+            while i < len(out):
+                j, acc, hit = i, "", None
+                while j < len(out) and len(acc) < longest:
+                    acc += out[j][0]
+                    j += 1
+                    if acc in names:
+                        hit = j
+                if hit is not None:
+                    surf = "".join(t[0] for t in out[i:hit])
+                    if hit < len(out) and out[hit][0] in NAME_SUFFIX:
+                        surf += out[hit][0]
+                        hit += 1
+                    name_at.add(len(joined))
+                    joined.append([surf, surf, "PROPN", out[i][3]])
+                    i = hit
+                else:
+                    joined.append(out[i])
+                    i += 1
+            out = joined
+        res, i = [], 0
+        while i < len(out):
+            t = out[i]
+            prev = res[-1] if res else None
+            if i not in name_at and prev is not None and self._te_form(prev) and (
+                    t[1] in ("欲しい", "ほしい") or
+                    (t[1] in ("行く", "いく") and t[0][:1] in ("い", "ゆ")) or
+                    (t[1] in ("来る", "くる") and t[0][:1] in ("く", "き", "こ"))):
+                res.append([t[0], t[1], "X", t[3]])                # ている-type auxiliary
                 i += 1
-        return out
+                continue
+            if t[0] == "と" and t[2] in ("PART", "ADP") and i + 1 < len(out) and out[i + 1][0] == "いう":
+                res += [[t[0], t[1], "X", t[3]], [out[i + 1][0], out[i + 1][1], "X", out[i + 1][3]]]
+                i += 2                                              # という: grammar
+                continue
+            if t[0] == "後" and prev is not None and (prev[0] == "その" or self._numeric(prev)):
+                res.append([t[0], t[1], "X", t[3]])                # その後, 3年後: ご
+                i += 1
+                continue
+            res.append(t)
+            i += 1
+        return toks if res == list(toks) else res
+
+    @staticmethod
+    def _te_form(tok):
+        """The te-form particle: て, or で as a conjunctive particle (住んで), not で "at, by"."""
+        return tok[0] == "て" or (tok[0] == "で" and "接続助詞" in feats_of(tok[3]).get("Pos", ""))
+
+    @staticmethod
+    def _numeric(tok):
+        """A numeral, or a counter/duration word (〜年, 〜時間, 〜ヶ月; 以上 after one is
+        checked by the caller)."""
+        return tok[2] == "NUM" or (tok[1] or "").startswith("〜") or \
+            bool(tok[0]) and all(c in NUMERAL_CHARS for c in tok[0])
 
     _passage_heads = {}             # pack headword -> build groups (passage_text)
 
@@ -841,7 +896,8 @@ class Japanese(LanguageSpec):
           みっつ), not 一 "one" (いち) + つ;
         - a determiner or kanji numeral + a noun whose joined spelling is a
           pack headword that is no counter: その + 後 (read ご) is その後, 一 +
-          番 is 一番 "most". Digits never join (1番 is the counter)."""
+          番 is 一番 "most". Digits never join (1番 is the counter, 2つ needs
+          no join: つ links on its own, unlike ひとつ/みっつ's irregular reading)."""
         out, i, joined = [], 0, False
         while i < len(toks):
             t = toks[i]
@@ -936,6 +992,18 @@ class Japanese(LanguageSpec):
             if out[i] == (lemma + "に", "ADV") and toks[i + 1][0] == "に" and out[i + 1] is None:
                 ranges.append((i, i + 1, i))
         self._pp_ranges[tuple((t[0], t[1], t[2]) for t in toks)] = ranges
+        # a counter read after a numeral whose plain noun is also a pack word at a
+        # lower level links the plain noun (3点: 点 A1 "points", not 〜点 B1)
+        lv = getattr(self, "_passage_lv", None) or {}
+        rank = {x: k for k, x in enumerate(self.level_ids)}
+        for i, r in enumerate(out):
+            if r is None or i == 0:
+                continue
+            prev = toks[i - 1]
+            if r[0].startswith("〜") and self._numeric(prev) and not (prev[1] or "").startswith("〜"):
+                plain = r[0][1:]
+                if plain in lv and r[0] in lv and rank.get(lv[plain], 99) < rank.get(lv[r[0]], 99):
+                    out[i] = (plain, "NOUN")
         return out
 
     def passage_phrase_ranges(self, toks):

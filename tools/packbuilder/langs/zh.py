@@ -43,8 +43,9 @@ as themselves (没有 = 没 + 有, 不去 = 不 + 去, 是 ... 的 = 是 + 的).
 Latin letters are one counted token (out of pack unless declared); ASCII or
 full-width digits are numerals; everything else is punctuation.
 
-Spans may carry a 4th element, a display-only gloss: the phrase's gloss, else
-the word's entry in gloss_display.json beside pack.json (docs/PACK_SCHEMA.md).
+Spans may carry a 4th element, a display-only gloss: the phrase's gloss here,
+else the word's entry in gloss_display.json beside pack.json, added by
+passages.run for every spec with passage_span_glosses (docs/PACK_SCHEMA.md).
 
 jieba (optional, tools/packbuilder/requirements-zh.txt) is report-only: a
 proper noun jieba finds (nr/ns/nt/nz) that the pack segmentation split into
@@ -154,23 +155,15 @@ class Spec(LanguageSpec):
     level_ids = ["1", "2", "3", "4"]
     passage_join = ""               # passage text = sentences joined without spaces
     passage_unspaced = True         # report ws_words = linked words (the count the app shows)
-    gloss_display_file = "gloss_display.json"     # beside pack.json: {headword w: display gloss for spans}
+    gloss_display_file = "gloss_display.json"     # beside pack.json (the flat layout's tools dir)
+    passage_span_glosses = True     # passages.run writes gloss_display.json senses on spans
 
     def load(self):
         return self
 
     def passage_linker(self, shipped, pack_dir):
         import json
-        import sys
-
-        from ..core.words import load_gloss_display
         pack = json.loads((pack_dir / "pack.json").read_text())
-        display = load_gloss_display(pack_dir, self.gloss_display_file)
-        known = {w["w"] for w in shipped.values()}
-        unused = sorted(k for k in display if k not in known)
-        if unused:
-            print(f"zh passages: {self.gloss_display_file}: {len(unused)} keys match no pack word: {unused[:10]}",
-                  file=sys.stderr)
         # readings (passage_ruby) only for a pack with a characters stage: sentences.json
         # ruby surfaces that read otherwise than their word (这个 zhège) and characters.json
         # unit readings
@@ -190,7 +183,7 @@ class Spec(LanguageSpec):
             for u in (json.loads(cp.read_text()) if cp.exists() else []):
                 if u.get("reading") and u.get("t"):
                     readings.setdefault(("unit", u["t"]), u["reading"])
-        return ZhLinker(shipped, pack.get("compounds", []), display, readings)
+        return ZhLinker(shipped, pack.get("compounds", []), readings)
 
 
 SPEC = Spec
@@ -206,7 +199,7 @@ class ZhLinker:
     lemma_of, lemma_ids, num_ids, lowered) over the pack's own dictionary,
     plus declared (per-passage units), n_words and passage_notes."""
 
-    def __init__(self, shipped, compounds=(), display=None, readings=None):
+    def __init__(self, shipped, compounds=(), readings=None):
         self.shipped = shipped
         # passage_ruby: None = no characters stage, no ruby written. Else the reading
         # lexicon (_reading_lexicon): surface -> reading from words.json pron, then
@@ -215,9 +208,6 @@ class ZhLinker:
         self._lex = None
         self.ruby_fallback = {}     # char -> count read by pypinyin with no override (report)
         self.ruby_override = {}     # char or surface -> count read from an override table
-        # display-only glosses by headword (gloss_display.json): written on every
-        # span of the word (spans[i][3]); links, counts and words.json never see them
-        self.display = dict(display or {})
         self.id_of = {}
         for wid in sorted(shipped):
             self.id_of.setdefault(shipped[wid]["w"], wid)
@@ -469,9 +459,9 @@ class ZhLinker:
             if wid not in ids:
                 ids.append(wid)
             span = [utf16_index(text, t[3]["s"]), utf16_index(text, t[3]["e"]), wid]
-            # optional 4th element, display-only: the phrase's gloss, else the
-            # word's gloss_display.json text (the app falls back to the word's en)
-            g = t[3].get("gloss") or self.display.get(self.shipped[wid]["w"])
+            # optional 4th element, display-only: the phrase's gloss (a word's
+            # gloss_display.json sense is added by passages.run, span_glosses)
+            g = t[3].get("gloss")
             if g:
                 span.append(g)
             spans.append(span)

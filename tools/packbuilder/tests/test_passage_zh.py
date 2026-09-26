@@ -161,9 +161,10 @@ class Segmentation(unittest.TestCase):
 
 class PhrasesAndGlosses(unittest.TestCase):
     def spans(self, text, display=None):
-        L = ZhLinker(SHIPPED, COMPOUNDS, display)
+        L = ZhLinker(SHIPPED, COMPOUNDS)
         toks = L.tag(text, "", frozenset())
-        return L.links_all(toks, text, "")[2]
+        sp = L.links_all(toks, text, "")[2]
+        return passages.span_glosses(sp, display, SHIPPED) if display else sp
 
     def test_phrase_one_span_with_gloss(self):
         self.assertEqual(self.spans("越来越好"), [[0, 3, ID["越"], "more and more"], [3, 4, ID["好"]]])

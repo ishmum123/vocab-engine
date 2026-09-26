@@ -52,6 +52,90 @@ class Names(unittest.TestCase):
         self.assertEqual([t[0] for t in out], ["田中さん"])
 
 
+TE = "Pos=助詞-接続助詞"
+
+
+class QARules(unittest.TestCase):
+    """Passage QA rules (a)-(g): passage_retag and passage_post_resolve."""
+
+    def upos(self, toks, names=frozenset()):
+        return [(t[0], t[2]) for t in spec().passage_retag(toks, names)]
+
+    def test_a_auxiliary_after_te(self):
+        toks = [T("なっ", "なる", "VERB"), ["て", "て", "PART", TE], T("いく", "行く", "VERB")]
+        self.assertEqual(self.upos(toks)[2], ("いく", "X"))
+        toks = [T("来", "来る", "VERB"), ["て", "て", "PART", TE], T("ほしい", "欲しい", "ADJ")]
+        self.assertEqual(self.upos(toks)[2], ("ほしい", "X"))
+        toks = [T("聞こえ", "聞こえる", "VERB"), ["て", "て", "PART", TE], T("き", "来る", "VERB")]
+        self.assertEqual(self.upos(toks)[2], ("き", "X"))
+        # kanji 行く after the te-form is the motion verb; で "by" is no te-form
+        toks = [T("歩い", "歩く", "VERB"), ["て", "て", "PART", TE], T("行き", "行く", "VERB")]
+        self.assertEqual(self.upos(toks)[2], ("行き", "VERB"))
+        toks = [T("車"), ["で", "で", "PART", "Pos=助詞-格助詞"], T("くる", "来る", "VERB")]
+        self.assertEqual(self.upos(toks)[2], ("くる", "VERB"))
+
+    def test_b_to_iu(self):
+        toks = [T("減る", upos="VERB"), T("と", upos="PART"), T("いう", "言う", "VERB"), T("問題")]
+        self.assertEqual(self.upos(toks), [("減る", "VERB"), ("と", "X"), ("いう", "X"), ("問題", "NOUN")])
+        toks = [T("と", upos="PART"), T("言い", "言う", "VERB")]          # 「…」と言いました: the verb
+        self.assertIs(spec().passage_retag(toks, frozenset()), toks)
+
+    def test_c_mae_after_duration(self):
+        sp = spec()
+        toks = [T("3", "", "NUM"), T("年", "〜年"), T("前"), T("に", upos="PART")]
+        self.assertEqual(sp.passage_post_resolve(toks, [None, ("〜年", "NOUN"), ("前に", "ADV"), None]),
+                         [None, ("〜年", "NOUN"), ("前", "NOUN"), ("に", "PART")])
+        toks = [T("400", "", "NUM"), T("年", "〜年"), T("以上"), T("前"), T("に", upos="PART")]
+        out = sp.passage_post_resolve(toks, [None, ("〜年", "NOUN"), ("以上", "NOUN"), ("前に", "ADV"), None])
+        self.assertEqual(out[3:], [("前", "NOUN"), ("に", "PART")])
+        toks = [T("寝る", upos="VERB"), T("前"), T("に", upos="PART")]      # 寝る前に: unchanged
+        self.assertEqual(sp.passage_post_resolve(toks, [("寝る", "VERB"), ("前に", "ADV"), None])[1], ("前に", "ADV"))
+
+    def test_d_go_after_sono_or_duration(self):
+        self.assertEqual(self.upos([T("その", upos="DET"), T("後", "後（ご）")])[1], ("後", "X"))
+        self.assertEqual(self.upos([T("1", "", "NUM"), T("ヶ月", "〜ヶ月"), T("後", "")])[2], ("後", "X"))
+        toks = [T("食べ", "食べる", "VERB"), T("た", upos="AUX"), T("後")]      # 食べた後 (あと) stays
+        self.assertIs(spec().passage_retag(toks, frozenset()), toks)
+
+    def test_e_numeral_tsu_one_unit(self):
+        out = spec().passage_retag([T("一", "一（ひと）", "NUM"), T("つ", "〜つ"), T("は", upos="PART")], frozenset())
+        self.assertEqual(out[0][:3], ["一つ", "〜つ", "NOUN"])
+        # a digit numeral does not join (_passage_join): つ links on its own, no
+        # irregular reading to preserve (test_no_join_for_digits_non_headwords_or_other_pos)
+        out = spec().passage_retag([T("3", "", "NUM"), T("つ", "〜つ")], frozenset())
+        self.assertEqual([t[0] for t in out], ["3", "つ"])
+
+    def test_f_counter_prefers_lower_level_plain_noun(self):
+        sp = spec()
+        sp._passage_lv = {"点": "A1", "〜点": "B1", "〜回": "A1", "回": "B1"}
+        toks = [T("3", "", "NUM"), T("点", "〜点")]
+        self.assertEqual(sp.passage_post_resolve(toks, [None, ("〜点", "NOUN")])[1], ("点", "NOUN"))
+        toks = [T("2", "", "NUM"), T("回", "〜回")]                  # the counter is the lower level: kept
+        self.assertEqual(sp.passage_post_resolve(toks, [None, ("〜回", "NOUN")])[1], ("〜回", "NOUN"))
+        toks = [T("点", "〜点")]                                     # no numeral before: kept
+        self.assertEqual(sp.passage_post_resolve(toks, [("〜点", "NOUN")])[0], ("〜点", "NOUN"))
+
+    def test_g_name_suffix(self):
+        out = spec().passage_retag([T("松本"), T("城", "城", "NUM"), T("は", upos="PART")], frozenset({"松本"}))
+        self.assertEqual([t[:3] for t in out][0], ["松本城", "松本城", "PROPN"])
+        out = spec().passage_retag([T("城"), T("の", upos="PART")], frozenset({"松本"}))
+        self.assertEqual(out[0][0], "城")                            # the noun castle stays
+
+
+class SpanGlosses(unittest.TestCase):
+    def test_bare_headword_and_lemma_pos_keys(self):
+        sh = {"a": {"w": "高い", "lemma": "高い", "pos": "adj"}, "b": {"w": "点", "lemma": "点", "pos": "noun"},
+              "c": {"w": "猫", "lemma": "猫", "pos": "noun"}}
+        table = {"高い": "high, tall; expensive", "点|noun": "point(s)"}
+        spans = [[0, 2, "a"], [2, 3, "b"], [3, 4, "c"], [4, 5, "a", "own gloss"]]
+        self.assertEqual(passages.span_glosses(spans, table, sh),
+                         [[0, 2, "a", "high, tall; expensive"], [2, 3, "b", "point(s)"], [3, 4, "c"], [4, 5, "a", "own gloss"]])
+
+    def test_flag_owners(self):
+        self.assertTrue(spec().passage_span_glosses)
+        self.assertFalse(get_spec("ko", None, load=False).passage_span_glosses)   # ko merges its table into en at build
+
+
 class Uncounted(unittest.TestCase):
     def test_grammar_tokens(self):
         toks = [T("勉強", upos="NOUN"), T("し", "する", "VERB"), T("て", upos="SCONJ"),
