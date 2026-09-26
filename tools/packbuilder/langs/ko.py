@@ -1378,7 +1378,10 @@ class Korean(LanguageSpec):
     nikl_file = "nikl_results.tsv"
     versions = {"corpus": "c1", "tag": "t2", "lex": "l1"}
 
-    typing = None                # no typed production: Hangul input is not assumed
+    # typed production on: caseSensitive is irrelevant (no case in Hangul),
+    # accents lenient is a no-op (no combining marks to fold), strictFromLevel
+    # null since there is nothing lenient-only folds to stop folding at any level.
+    typing = {"caseSensitive": False, "accents": "lenient", "strictFromLevel": None}
     show_pron = False            # Hangul is phonetic
     use_audio = False            # 25 permissive clips: TTS ko-KR throughout
     target_len = {"A1": 4, "A2": 5, "B1": 6}      # eojeols (a Korean sentence has few, long words)
