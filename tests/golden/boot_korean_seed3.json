@@ -13,7 +13,7 @@
   {
    "step": 0,
    "label": "Review",
-   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"warn\">This browser has no text-to-speech voice for this language, so listening items show the word instead of playing audio.</div><div class=\"big wd\" data-tl lang=\"ko\">가다</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"big wd\" data-tl lang=\"ko\">저</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
   },
   {
    "step": 1,
@@ -23,12 +23,12 @@
   {
    "step": 2,
    "label": "Listen",
-   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"big wd\" data-tl lang=\"ko\">그</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"warn\">This browser has no text-to-speech voice for this language, so listening items show the word instead of playing audio.</div><div class=\"big wd\" data-tl lang=\"ko\">가다</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
   },
   {
    "step": 3,
    "label": "Recall",
-   "html": "<div class=\"drill-body\"><p class=\"q\">Which word is this?</p><div class=\"med\" style=\"text-align:center\">to follow; to pour (따라 하다: to copy; -에 따르면: according to)</div><div class=\"opts opts-hero opts-w\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+   "html": "<div class=\"drill-body\"><p class=\"q\">Type the word</p><div class=\"med\" style=\"text-align:center\">I, me (humble)</div>\n    <input type=\"text\" id=\"tin\" autocomplete=\"off\" autocapitalize=\"off\" autocorrect=\"off\" spellcheck=\"false\" data-tl lang=\"ko\" placeholder=\"type the word…\">\n    <div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"submit\">Check</button><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
   },
   {
    "step": 4,

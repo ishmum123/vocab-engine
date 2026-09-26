@@ -2501,14 +2501,29 @@ function numberedForms(pron){
   return runs.length ? combos.map(pronKey) : [];
 }
 // Typed reading vs a word's pron: "ok" (marked, or numbered per numberedForms, case and
-// apostrophes ignored), "tones" (right letters, no tone marks or digits: counts as wrong,
-// the reveal gives the marked form) or "wrong".
+// apostrophes ignored), "tones" (right letters, no tone marks or digits), "tonesDiff"
+// (right letters, tones given but not all right, e.g. ni2hao3 or nihao5) or "wrong"
+// (the letters differ). Tones are optional: the typed-reading item accepts every verdict
+// but "wrong" and notes the marked form after "tones" or "tonesDiff".
+const pronLetters = s => pronKey(stripMarks(s)).replace(/\p{N}/gu, "");
 function checkPronTyped(input, pron){
   const got = pronKey(input);
   if(!got || !pron) return "wrong";
   if(got === pronKey(pron) || numberedForms(pron).indexOf(got) >= 0) return "ok";
-  if(!/\p{N}/u.test(got) && markCount(got) === 0 && got === pronKey(stripMarks(pron))) return "tones";
-  return "wrong";
+  if(pronLetters(got) !== pronLetters(pron)) return "wrong";
+  return !/\p{N}/u.test(got) && markCount(got) === 0 ? "tones" : "tonesDiff";
+}
+// pack.typing "pron": the typed item a plan's "type" slot (a word's production slot) is.
+// The type slots alternate in plan order, reading first: "pron" (type the reading, silent,
+// tones optional), then "written" (type the characters, the word's audio played). Plan
+// order is already fixed by the plan builders' rng, so no randomness is added and every
+// plan is unchanged; i undefined (a lone item) is "pron".
+// The app still gives a "written" slot the reading item when the word's written form is
+// not on display (pronFirst: a word below its character tier is shown by its reading).
+function typeSlotKind(plan, i){
+  let n = 0;
+  for(let j = 0; j < (i || 0); j++) if(plan && plan[j] && plan[j].kind === "type") n++;
+  return n % 2 ? "written" : "pron";
 }
 // ---- span reading
 // Joins two readings: with pack.tones an apostrophe goes before a syllable starting with
@@ -2696,7 +2711,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
   recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, graphemes, shapingClusters, scriptUnitNote, scriptUnitHeadName, searchFold, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
-  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
+  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, typeSlotKind, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
