@@ -2266,6 +2266,7 @@ function readPassageScreen(){
   $("rdone").onclick = () => { RD.qi = 0; RD.shown = false; readQuestionScreen(); };
 }
 function readQuestionScreen(){
+  stopSpeaking(); // no-voice path: a still-playing clip (previous reveal, read-aloud) must not run into this question
   screenTop();
   const p = RD.p, P = $("panel"), qi = RD.qi, q = p.questions[qi];
   if(!RD.answers[qi]) RD.answers[qi] = { ok: null, reopened: false, given: null, tr: false };
