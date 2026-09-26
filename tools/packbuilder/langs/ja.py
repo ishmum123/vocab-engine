@@ -265,7 +265,8 @@ READING_FIX = {"私": "ワタシ", "明日": "アシタ", "何": "ナニ", "富�
 # unless listed here (てください is the request word)
 AUX_VERB_KEEP = {"ください"}
 NUMERAL_CHARS = frozenset("0123456789０１２３４５６７８９一二三四五六七八九十百千万〇")
-NAME_SUFFIX = frozenset({"城", "寺"})    # after a declared name: じょう/じ, not the noun 城 しろ, 寺 てら
+NAME_SUFFIX = frozenset({"城", "寺"})    # after a declared name, when the joined form is
+                                          # itself declared: じょう/じ, not the noun 城 しろ, 寺 てら
 
 # ---- register / content filters --------------------------------------------
 # kana items are bounded by non-hiragana on the left (やくそく is not くそ)
@@ -821,7 +822,10 @@ class Japanese(LanguageSpec):
           headword (その後, 一番) is one token.
         - A declared name is one PROPN token, never a pack word (あかり is not
           明かり "light"; あおば町 split by Sudachi is joined), and takes a
-          following NAME_SUFFIX (松本城: じょう, not 城 しろ "castle").
+          following NAME_SUFFIX only when the joined form is itself a declared
+          name (松本城 in `names`: じょう, not 城 しろ "castle"); otherwise the
+          suffix stays its own token and links the pack word normally (松本
+          alone declared: 城 is still "castle", as shipped).
         - Grammar, not words (upos X: neither counted nor linked): kana いく/くる
           and ほしい after the te-form (なっていく, 聞こえてくる, 来てほしい; kanji
           行く/来る stay the motion verbs: 歩いて行きました); と + いう (減るという
@@ -842,7 +846,7 @@ class Japanese(LanguageSpec):
                         hit = j
                 if hit is not None:
                     surf = "".join(t[0] for t in out[i:hit])
-                    if hit < len(out) and out[hit][0] in NAME_SUFFIX:
+                    if hit < len(out) and out[hit][0] in NAME_SUFFIX and surf + out[hit][0] in names:
                         surf += out[hit][0]
                         hit += 1
                     name_at.add(len(joined))

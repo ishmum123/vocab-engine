@@ -116,8 +116,14 @@ class QARules(unittest.TestCase):
         self.assertEqual(sp.passage_post_resolve(toks, [("〜点", "NOUN")])[0], ("〜点", "NOUN"))
 
     def test_g_name_suffix(self):
-        out = spec().passage_retag([T("松本"), T("城", "城", "NUM"), T("は", upos="PART")], frozenset({"松本"}))
+        # the joined form is itself declared: absorbed into the name token
+        out = spec().passage_retag([T("松本"), T("城", "城", "NUM"), T("は", upos="PART")],
+                                    frozenset({"松本", "松本城"}))
         self.assertEqual([t[:3] for t in out][0], ["松本城", "松本城", "PROPN"])
+        # only the plain name declared (松本城の見学案内, the shipped passage): 城
+        # stays its own token and links the pack word "castle", as shipped
+        out = spec().passage_retag([T("松本"), T("城", "城", "NUM"), T("は", upos="PART")], frozenset({"松本"}))
+        self.assertEqual([t[:3] for t in out], [["松本", "松本", "PROPN"], ["城", "城", "NUM"], ["は", "は", "PART"]])
         out = spec().passage_retag([T("城"), T("の", upos="PART")], frozenset({"松本"}))
         self.assertEqual(out[0][0], "城")                            # the noun castle stays
 

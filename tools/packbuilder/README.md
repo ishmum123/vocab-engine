@@ -284,7 +284,7 @@ ja is spaCy-free (SudachiPy, `tag_texts`); run with the japanese repo's `.venv`.
   - 前 after a number, a counter/duration or 以上/くらい/ぐらい/ほど (10年前, 3年前に, 400年以上前に) is 前 "front; before, ago", not 前に; に is the particle again.
   - A kanji numeral + つ is one token and span on 〜つ (一つ, 三つ), via `_passage_join`; a digit numeral (3つ) does not join, so つ links on its own.
   - A counter after a numeral whose plain noun is a lower-level pack word links the plain noun (3点: 点 A1, not 〜点 B1). Where there is no plain noun (3キロ), the display gloss carries both senses.
-  - A declared name absorbs a following 城/寺 (`NAME_SUFFIX`: 松本城 じょう is not 城 しろ "castle").
+  - A declared name absorbs a following 城/寺 only when the joined form is itself declared (`NAME_SUFFIX`: 松本城 in `names` reads じょう, not 城 しろ "castle"); with only 松本 declared, 城 stays its own token and links the pack word "castle" as before.
 - `passage_span_glosses`: `japanese/tools/gloss_display.json` (bare headword keys: 高い, 〜キロ, 話, 焼く, 迎える, 〜回, 前に, 開く, とる, 出る, 受ける, 注意, 大事, 点, 〜点).
 
 ### Linker-level passage hooks
