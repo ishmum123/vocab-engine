@@ -3,7 +3,7 @@
 // app.html the Today plan row, the listening passage screen (hidden text, play rows, Play
 // all, Show text), audio-only questions behind "Show question", the results lines, and a
 // no-voice/no-clip control whose markup is byte-identical to the base branch
-// (engine-passage-audio). Fake-DOM boot copied from tests/passage_audio_checks.js.
+// (engine-passage-audio, pinned sha BASE). Fake-DOM boot copied from tests/passage_audio_checks.js.
 // Run: node tests/listen_mode_checks.js
 "use strict";
 const fs = require("fs");
@@ -20,7 +20,9 @@ const SENTENCES = loadConst(path.join(ZH, "sentences.js"), "SENTENCES");
 const PASSAGES = loadConst(path.join(ZH, "sentences.js"), "PASSAGES");
 const LESSONS = loadConst(path.join(ZH, "lessons.js"), "LESSONS");
 const CHARACTERS = loadConst(path.join(ZH, "characters.js"), "CHARACTERS");
-const BASE = "engine-passage-audio";
+// [6] control baseline, pinned like pron_aids_checks.js MAIN: engine-passage-audio at
+// ea5dcbc (its fix round, merged into this branch), the engine before listen mode.
+const BASE = "ea5dcbc";
 
 let fails = 0, passes = 0;
 function check(name, cond, detail){
@@ -119,7 +121,8 @@ async function boot(opts){
     speaking: false, pending: false,
     getVoices: () => o.voices !== undefined ? o.voices : [{ lang: "zh-CN", name: "x" }],
     onvoiceschanged: null,
-    cancel(){ ss.speaking = false; ss.pending = false; },
+    cancels: 0,
+    cancel(){ ss.cancels++; ss.speaking = false; ss.pending = false; },
     speak(u){ spoken.push(u.text); utts.push(u); ss.speaking = true; },
   };
   const window = { VocabCore: VC, speechSynthesis: ss, SpeechSynthesisUtterance: function(t){ this.text = t; }, addEventListener(){} };
@@ -133,6 +136,7 @@ return {
   today: () => { tab = "today"; render(); },
   enterTodayStep: (step, read) => { tab = "today"; todayStepState = read === undefined ? { step } : { step, read }; todayStep(); },
   rd: () => RD,
+  rerender: () => render(),
 };`;
   const names = ["SpeechSynthesisUtterance","document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES","CHARACTERS"];
   const args = [window.SpeechSynthesisUtterance, document, window, { userAgent:"ListenModeChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
@@ -287,6 +291,23 @@ const fire = (ss, u) => { ss.speaking = false; u.onend({}); };
     c.api.el("lplay").click(); c.api.el("ls3").click(); await sleep(DEFER);
     const j2 = c.spoken.length; fire(c.ss, c.utts[c.utts.length - 1]); await sleep(DEFER);
     check("a row tap during Play all plays that row and ends the chain", c.spoken[j2 - 1] === P.sentences[3].t && c.spoken.length === j2);
+    // A tab switch (render() calls stopSpeaking) ends the chain and the current sentence at once.
+    const t = await boot();
+    t.api.setProg(rereadProg(PASSAGES, P)); t.api.startPassage(P, false, "listen");
+    t.api.el("lplay").click();
+    const cur = t.utts[t.utts.length - 1], c0 = t.ss.cancels, t0 = t.spoken.length;
+    t.document.querySelectorAll('#tabs button[data-t="words"]')[0].click();
+    check("tab switch: the playing sentence is cancelled at once", t.ss.cancels === c0 + 1 && t.api.rd() === null);
+    fire(t.ss, cur); await sleep(DEFER);
+    check("tab switch: the cancelled sentence's late end starts nothing", t.spoken.length === t0);
+    // A re-render of the listening screen (readRender stops speech) resets Play all.
+    const r = await boot();
+    r.api.setProg(rereadProg(PASSAGES, P)); r.api.startPassage(P, false, "listen");
+    r.api.el("lplay").click(); const rc = r.utts[r.utts.length - 1];
+    r.api.rerender();
+    check("re-render mid Play all: speech stopped, button back to Play all, RD.playing false", r.api.el("lplay").textContent !== "Stop" && /id="lplay">Play all</.test(r.api.html("panel")) && r.api.rd().playing === false);
+    const r0 = r.spoken.length; fire(r.ss, rc); await sleep(DEFER);
+    check("re-render: the stopped sentence's late end starts nothing", r.spoken.length === r0);
     // Clips, no voice: the chain runs on the shared Audio element's onended.
     const CP = JSON.parse(JSON.stringify(P)); CP.sentences.forEach((s, i) => { s.audio = `audio/p/${i}.mp3`; });
     const d = await boot({ voices: [{ lang: "en-US", name: "en" }], passages: PASSAGES.map(p => p.id === P.id ? CP : p) });
@@ -359,8 +380,8 @@ const fire = (ss, u) => { ss.speaking = false; u.onend({}); };
   try{
     let baseHtml = null;
     try{ baseHtml = cp.execSync(`git show ${BASE}:engine/app.html`, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); }catch(e){}
-    if(!baseHtml){ console.log(`SKIP  ${BASE} not available in this checkout`); }
-    else {
+    check(`base ${BASE} engine/app.html loaded from git (a missing sha is a failure)`, !!baseHtml);
+    if(baseHtml){
       const NV = [{ lang: "en-US", name: "en" }];
       const run = async html => {
         const b = await boot({ voices: NV, html });
