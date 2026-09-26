@@ -529,20 +529,43 @@ function pronShown(x){
 // (normalizeTyped keeps ة/ى distinct there, on purpose). A search key also folds the
 // letters learners routinely type without their marks or in a keyboard variant: hamza
 // and madda on a carrier (أ إ آ ؤ ئ ۀ ۂ -> ا و ی ه ہ, by dropping U+0653..U+0655 after
-// decomposition), alef wasla ٱ -> ا, teh marbuta ة -> ه, alef maksura ى -> ی (ي is
+// decomposition), alef wasla ٱ -> ا, teh marbuta ة -> ہ, alef maksura ى -> ی (ي is
 // already ی). Harakat, tatweel and ZWNJ go in foldAccents; ي/ك -> ی/ک in normalizeTyped.
+// Urdu spelling variants fold to the same canonical letter as Urdu heh goal (ہ): Arabic
+// heh ه, Urdu teh marbuta goal ۃ, and the Arabic-preset heh+hamza ۀ. Do-chashmi heh ھ
+// (a distinct phoneme, aspiration) is deliberately never folded into ہ. Urdu bari ye ے
+// (almost always word-final) also folds to ی at a word boundary, so a masculine/feminine
+// pair spelled with ے vs ی (بڑے/بڑی) search as one: a known, accepted tradeoff — an
+// exact-glyph reveal still shows the pack's own spelling, only search is lenient.
 // Anything without an Arabic-script letter is left exactly as normalizeTyped folds it.
 // Order matters: stripping a carrier's hamza can expose a letter normalizeTyped already
 // unified on the typed side (ئ = Arabic ي + hamza), so the keyboard-variant map
 // (ARABIC_VARIANTS: ي -> ی, ك -> ک) is applied again last: one canonical yeh and kaf.
 // ٲ ٳ ٵ / ٶ ٷ / ٸ (hamza/wavy-hamza letters with no canonical decomposition) map directly.
 const AR_SEARCH_MAP = { "ٱ":"ا", "ٲ":"ا", "ٳ":"ا", "ٵ":"ا", "ٶ":"و", "ٷ":"و", "ٸ":"ی",
-  "ة":"ه", "ى":"ی", "ۀ":"ه" };
+  "ة":"ہ", "ى":"ی", "ۀ":"ہ", "ۃ":"ہ", "ه":"ہ" };
+// Devanagari (hi): search is more lenient than typed-answer checking (normalizeTyped
+// leaves nukta and chandrabindu alone there — नुक्ता makes a distinct letter and ँ/ं are
+// a real phonemic contrast for typed answers, on purpose). A search key folds nukta
+// away (जरूर finds ज़रूर, लडका finds लड़का) — decomposing first (NFD) so a precomposed
+// nukta letter (क़ ख़ ग़ ज़ ड़ ढ़ फ़ य़, U+0958-095F) is caught the same as a bare base+nukta
+// pair — and unifies chandrabindu ँ into anusvara ं (हैँ finds हैं), a common informal
+// spelling swap. ZWJ/ZWNJ are already dropped for every script by foldAccents.
+function foldDevanagari(f){
+  return f.normalize("NFD").replace(/़/g, "").replace(/ँ/g, "ं").normalize("NFC");
+}
 function searchFold(s){
-  const f = normalizeTyped(s, { foldAccents: true });
+  // Nasal tildes over a romanised vowel (kahā̃) are how this pack's roman pron marks
+  // nasalisation; loose ASCII typing spells that with a trailing n (kahan), so convert
+  // the combining tilde (U+0303) to a literal "n" before foldAccents would otherwise
+  // just discard it. A hyphen is folded to a space so a reduplicated/hyphenated lemma
+  // (धीरे-धीरे) and its unhyphenated spelling (धीरे धीरे) search as the same phrase.
+  const pre = String(s == null ? "" : s).normalize("NFD").replace(/̃/g, "n").normalize("NFC").replace(/-/g, " ");
+  let f = normalizeTyped(pre, { foldAccents: true });
+  if(/[ऀ-ॿ]/.test(f)) f = foldDevanagari(f);
   if(!/[؀-ۿ]/.test(f)) return f;
-  return f.replace(/[ٱ-ٳٵ-ٸةىۀ]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "")
-    .replace(/[كي]/g, c => ARABIC_VARIANTS[c]).normalize("NFC");
+  return f.replace(/[ٱ-ٳٵ-ٸةىۀۃه]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "")
+    .replace(/[كي]/g, c => ARABIC_VARIANTS[c]).replace(/ے(?=\s|$)/g, "ی").normalize("NFC");
 }
 // The Arabic definite article: a word-initial ال before at least two more letters is
 // optional in search (كتاب finds الكتاب, and الكتاب finds كتاب). Applied to folded text.
@@ -2012,6 +2035,13 @@ function scriptUnitNote(unit){
   const n = unit && unit.note != null ? String(unit.note) : "";
   return n && normKey(n) !== normKey(String((unit && unit.roman) || "")) ? n : "";
 }
+// A unit's name as shown on its teach card head and reveal ("name | roman"): none when
+// it only repeats the roman ("ka" | "ka", "kṣa" | "kṣa"), compared the same way as
+// scriptUnitNote (trimmed, case-insensitive normKey).
+function scriptUnitHeadName(unit){
+  const n = unit && unit.name != null ? String(unit.name) : "";
+  return n && normKey(n) !== normKey(String((unit && unit.roman) || "")) ? n : "";
+}
 // True when a word (its w or pron) contains any of the unit's glyphs (upper and lower).
 function scriptWordHas(unit, word){
   const gs = String((unit && unit.t) || "").trim().split(/\s+/).filter(Boolean);
@@ -2137,7 +2167,7 @@ function scriptItem(kind, unit, ctx){
   const exs = scriptExamples(unit, byId);
   const pickEx = () => exs[Math.floor(r() * exs.length)];
   const wordOf = e => { const w = byId[e.id] || {}; return { id: e.id, w: e.w, roman: e.roman, en: gloss(w) }; };
-  const reveal = { t: String(unit.t), glyph, name: unit.name != null ? String(unit.name) : "", roman, note: scriptUnitNote(unit), word: null };
+  const reveal = { t: String(unit.t), glyph, name: scriptUnitHeadName(unit), roman, note: scriptUnitNote(unit), word: null };
   const it = { kind: k, key: "x:" + unit.id, unitId: unit.id, show: null, hint: null, form: null, audio: null, say: null, audioUrl: null,
     wordId: null, options: null, answer: null, accept: null, reveal };
   const unitSound = when => { if(unitAudio){ it.audio = when; it.say = unitSay; it.audioUrl = unitUrl; } };
@@ -2591,7 +2621,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   SCRIPT_PROG_VERSION, SCRIPT_MASTERED, SCRIPT_SETS_PER_SESSION, REVIEW_SIZE_SCRIPT, SCRIPT_KINDS, scriptConfig,
   defaultScriptProg, validateScriptShape, normalizeScriptProg, ensureScript, scriptRecs, scriptSkipped, setScriptSkipped, answerScriptChoice,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
-  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, graphemes, shapingClusters, scriptUnitNote, searchFold, scriptSecondRight,
+  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, graphemes, shapingClusters, scriptUnitNote, scriptUnitHeadName, searchFold, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
   tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };

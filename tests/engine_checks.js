@@ -1725,6 +1725,56 @@ async function swChecks(){
   finally{ fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
+// ------------------------------------------------------------ [25] hi/ur searchFold classes + script head dedupe
+(function(){
+  console.log("\n[25] Devanagari + Urdu search fold, roman nasal tilde, script head dedupe");
+  const HW = [
+    { id:"zaroor", w:"ज़रूर", en:"surely" },
+    { id:"ladka", w:"लड़का", en:"boy" },
+    { id:"hain", w:"हैं", en:"are" },
+    { id:"dhire", w:"धीरे-धीरे", en:"slowly (redup.)" },
+  ];
+  const hids = q => VC.searchWords(HW, q).map(v => v.id);
+  check("hi search: nukta folds both ways (जरूर finds ज़रूर, लडका finds लड़का)",
+    hids("जरूर").includes("zaroor") && hids("लडका").includes("ladka"));
+  check("hi search: chandrabindu folds to anusvara (हैँ finds हैं)", hids("हैँ").includes("hain"));
+  check("hi search: hyphen/space-insensitive reduplication (धीरे धीरे finds धीरे-धीरे, and धीरे alone still finds it)",
+    hids("धीरे धीरे").includes("dhire") && hids("धीरे").includes("dhire"));
+  check("typed-answer checking is untouched: nukta stays a distinct letter there (normalizeTyped does not fold it)",
+    VC.normalizeTyped("जरूर", { foldAccents: true }) !== VC.normalizeTyped("ज़रूर", { foldAccents: true }));
+
+  const UW = [
+    { id:"madrasa", w:"مدرسہ", en:"school" },
+    { id:"bade", w:"بڑے", en:"big (m.)" },
+    { id:"badi", w:"بڑی", en:"big (f.)" },
+    { id:"phool", w:"پھول", en:"flower (aspirated do-chashmi)" },
+    { id:"pahool", w:"پہول", en:"synthetic control (plain heh, not aspirated)" },
+  ];
+  const uids = q => VC.searchWords(UW, q).map(v => v.id);
+  check("ur search: teh marbuta goal folds to heh goal (مدرسۃ finds مدرسہ)", uids("مدرسۃ").includes("madrasa"));
+  check("ur search: roman nasal tilde (kahan-style typing finds kahā̃)",
+    VC.searchWords([{ id:"kahan", w:"کہاں", pron:"kahā̃", en:"where" }], "kahan").map(v => v.id).includes("kahan"));
+  check("ur search: bari ye/ye fold together at word end (known tradeoff: بڑے and بڑی search as one word, documented in core.js)",
+    VC.searchFold("بڑے") === VC.searchFold("بڑی") && uids("بڑے").includes("badi") && uids("بڑی").includes("bade"));
+  check("ur search: the ے→ی fold only applies at a word boundary, so it does not wrongly fold a non-final occurrence",
+    VC.searchFold("بڑےگا") === "بڑےگا");
+  check("ur search: do-chashmi ھ stays distinct from ہ (پھول does not fold to پہول)",
+    VC.searchFold("پھول") !== VC.searchFold("پہول") && !uids("پہول").includes("phool"));
+
+  // Script primer head dedupe (class 4): a unit whose name repeats its roman shows no
+  // head name, in both the teach card and the reveal, via the shared helper.
+  check("scriptUnitHeadName: suppressed when name==roman (ka | ka, kṣa | kṣa), kept when they differ",
+    VC.scriptUnitHeadName({ name:"ka", roman:"ka" }) === "" && VC.scriptUnitHeadName({ name:"kṣa", roman:"kṣa" }) === "" &&
+    VC.scriptUnitHeadName({ name:"alef", roman:"a" }) === "alef");
+  check("scriptItem reveal.name is deduped the same way as reveal.note",
+    (() => {
+      const unit = { id:"u1", t:"क", roman:"ka", name:"ka", say:null, kind:"symSound" };
+      const ctx = { units:[unit, { id:"u2", t:"ख", roman:"kha", name:"kha", kind:"symSound" }, { id:"u3", t:"ग", roman:"ga", name:"ga", kind:"symSound" }, { id:"u4", t:"घ", roman:"gha", name:"gha", kind:"symSound" }], words:[], tts:false };
+      const it = VC.scriptItem("symSound", unit, ctx);
+      return it.reveal.name === "";
+    })());
+})();
+
 appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; })
   .then(() => swChecks().catch(e => { console.error("service worker checks crashed:", e); fails++; })).then(() => {
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);

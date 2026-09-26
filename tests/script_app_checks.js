@@ -450,6 +450,17 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     const rn = FX.fa(); const ru2 = rn.script.units.find(u => u.id === "fa-be"); ru2.note = "as in boy";
     const rb2 = await boot(rn);
     check("... a note that says more is kept on both", /<span class="en">as in boy<\/span>/.test(rb2.api.scriptTeachHTML(ru2)) && VC.scriptItem("symSound", ru2, { units: rn.script.units, words: rn.words }).reveal.note === "as in boy");
+    // Head name equal to the roman is not shown twice ("ka | ka"); a real name still is.
+    const dupN = FX.fa(); const nu = dupN.script.units.find(u => u.id === "fa-be"); nu.name = String(nu.roman);
+    const dbN = await boot(dupN);
+    const dhN = dbN.api.scriptTeachHTML(nu);
+    const nItem = VC.scriptItem("symSound", nu, { units: dupN.script.units, words: dupN.words });
+    check("teach card and answer screen drop a head name that only repeats the roman",
+      !/class="xnm"/.test(dhN.match(/<div class="xhead"[\s\S]*?<\/div>/)[0]) && nItem.reveal.name === "");
+    const rnN = FX.fa(); const ru3 = rnN.script.units.find(u => u.id === "fa-be"); ru3.name = "be";
+    const rbN = await boot(rnN);
+    check("... a head name that differs from the roman is kept on both",
+      /class="xnm"[^<]*<bdi[^>]*>be<\/bdi>/.test(rbN.api.scriptTeachHTML(ru3)) && VC.scriptItem("symSound", ru3, { units: rnN.script.units, words: rnN.words }).reveal.name === "be");
     // RTL answer block: one edge for every line (root flag + rule), LTR packs untouched.
     check("rtl pack: root carries data-tlrtl, and .reveal/.rvb align right under it", fb.document.documentElement._attrs["data-tlrtl"] === "" && /:root\[data-tlrtl\] \.reveal,:root\[data-tlrtl\] \.rvb\{text-align:right\}/.test(appHtml));
     check("ltr pack (ko): no data-tlrtl on the root", kb.document.documentElement._attrs["data-tlrtl"] === undefined);
