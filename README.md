@@ -4,7 +4,7 @@ A language-agnostic vocabulary trainer that builds to one self-contained HTML fi
 
 The app has these tabs:
 
-- **Today** runs one session: review 15 items with at least 40% production, learn the next set, listen 12, recall 8, then 8 sentences.
+- **Today** runs one session: review 15 items with at least 40% production, learn the next set, listen 12, recall 8, 8 sentences, then read 1 passage. Each stage skips itself when its pool is too small. The Read stage appears only when the pack has passages and one is due (docs/PACK_SCHEMA.md "passages.json", Today): the first not-done passage at an unlocked level, else a spaced re-read. It has a "Skip today" button.
 - **Words** is a browser with search and per-set drills.
 - **Sounds** shows pack lessons. It appears only when the pack has lessons.
 - **Test** has placement plus free tests.

@@ -771,6 +771,7 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
         const btn = btns.find(b => b.dataset.v === it.a); if(!btn) throw new Error("no answer option " + it.key);
         btn.click(); seen.push({ where: it.key + " reveal", html: api.html("rv") }); api.el("nx").click(); continue;
       }
+      if(/id="rskip"/.test(P)){ api.el("rskip").click(); continue; } // Today Read stage: skipped (engine_checks covers it)
       seen.push({ where: "screen", html: P });
       if(stopAt && stopAt.test(P)) return seen;
       if(/id="ok"/.test(P)){ api.el("ok").click(); continue; }
@@ -783,9 +784,9 @@ const stripTags = h => h.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "").replace(/<[^>]+
     const { api } = await boot({ pack: PF_ZH });
     check("PRON_FIRST on for zh, show-written capture listener attached", api.pronFirst() && api.panelListeners().length === 2);
     api.setProg(seedPF()); api.today();
-    // The Read hint names a passage by its title, which has no reading data (reported residual).
-    const todayH = api.html("panel").replace(/<div class="stmt" id="readHintBox">[\s\S]*?<\/div>/, "");
-    check(`Today: no written form besides the stage label and the Read hint's passage title (${visHan(todayH)})`, onlyLabel(todayH));
+    // The plan's Read row names a passage by its title, which has no reading data here (reported residual).
+    const todayH = api.html("panel").replace(/<tr><td>6\. Read<\/td><td>[\s\S]*?<\/td><\/tr>/, "");
+    check(`Today: no written form besides the stage label and the Read row's passage title (${visHan(todayH)})`, onlyLabel(todayH));
     api.el("go").click();
     let seen = [], err = null;
     try{ seen = walk(api, /id="again"/); }catch(e){ err = e; }
