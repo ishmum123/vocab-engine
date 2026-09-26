@@ -33,7 +33,7 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `articleAgreement` | `{article: [article]}` | no | Cloze distractor agreement. Each key is an article that can appear right before a blank, including contractions (`la`, `l'`, `den`, `del`). Its value lists the citation articles of the words it agrees with (`"den": ["der"]`). Distractors cited with an agreeing article are offered first, so the visible article never gives the answer away. Defaults exist for fr, es, it and de (core.js `ARTICLE_AGREEMENT`), picked by `langTag` or the `tts` language. A key missing from the table agrees only with itself. |
 | `typing` | object, `"pron"` or `null` | no (`null`, validator warns when absent) | `null` turns off typed production. Recall items are used instead, so review still keeps at least 40% production. Object fields are listed below. `"pron"` types the word's reading instead of its written form; see "Pronunciation aids" below. |
 | `typing.caseSensitive` | bool | no (false) | When false, both sides are lowercased before comparing. |
-| `typing.accents` | `"lenient"` or `"strict"` | no (`"lenient"`) | With lenient, optional marks are folded on both sides: Latin accents (`perche` = `perché`), stress marks (`молоко́`), Arabic-script harakat and tatweel, Hebrew points, and ZWNJ/ZWJ (`میروم` = `می‌روم`). Lenient also folds optional spelling variants in Arabic script and Devanagari (hamza carriers, ء, ة, ى, ھ, nukta, chandrabindu; see "Lenient typing letter folds" below), guarded against exact other pack words. Marks that make a different letter are kept: Cyrillic й and ї, Devanagari vowel signs, and kana voicing marks. Strict never folds them. Arabic kaf and yeh always equal their Persian/Urdu forms (ک, ی), in both modes, because keyboards produce either. |
+| `typing.accents` | `"lenient"` or `"strict"` | no (`"lenient"`) | With lenient, optional marks are folded on both sides: Latin accents (`perche` = `perché`), stress marks (`молоко́`), Arabic-script harakat and tatweel, Hebrew points, and ZWNJ/ZWJ (`میروم` = `می‌روم`). Lenient also folds optional spelling variants in Arabic script and Devanagari (hamza carriers, ء, ة, ى, ھ, nukta, chandrabindu; see "Lenient typing letter folds" below). Every lenient fold is guarded: an answer that matches only after folding is wrong when it is exactly another pack word (`si` for `sí`). Marks that make a different letter are kept: Cyrillic й and ї, Devanagari vowel signs, and kana voicing marks. Strict never folds them. Arabic kaf and yeh always equal their Persian/Urdu forms (ک, ی), in both modes, because keyboards produce either. |
 | `typing.strictFromLevel` | levelId or `null` | no | With lenient accents, folding stops at this level and every later one. `null` means lenient at every level. |
 | `showPron` | bool | yes | Whether words and sentences carry `pron`. It sets the learner's default for the "Show pronunciation" toggle. When false, the toggle is hidden. |
 | `hasLessons` | bool | yes | Shows the Sounds tab and the Today lesson hint. |
@@ -62,40 +62,73 @@ With `typing.accents: "lenient"` (at levels before `strictFromLevel`), typed ans
 
 Not folded: a leading ال (it changes the word; `كتاب` ≠ `الكتاب` when typing), and ه vs ہ (each pack spells with one).
 
-**Collision guard.** Some distinct words become one typed key under these folds (ماء "water" and ما "what"). An answer that matches only because of a letter fold is rejected when the typed text, in strict form, is exactly another pack word's `w` or `alt` (core.js `acceptTyped`, its `words` argument; the app passes `WORDS`). So ما is wrong for ماء, and ماء is wrong for ما, but امس is right for أمس. The guard covers only these letter folds. Plain accent folds (Spanish `si`/`sí`, `el`/`él`) are not guarded (TODO.md).
+**Collision guard (every lenient fold).** Folding can make distinct words one typed key: Spanish `si`/`sí`, Arabic ما "what"/ماء "water". core.js `acceptTyped` first compares strict forms (no accent or letter folding; case, whitespace, apostrophes and kaf/yeh unified as always). An exact match to the target always passes. Otherwise, in lenient mode, an answer that matches only after folding (Latin/Greek/Cyrillic accents and stress, Arabic marks, joiners, the letter folds above) is rejected when its strict form is another pack entry's `w` or `alt`. The guard needs the pack word list (`acceptTyped`'s `words` argument; the app passes `WORDS`); without it the fold alone decides. So `si` is wrong for `sí` and `ماء` for `ما`, while `perche` for `perché`, `еж` for `ёж` and `امس` for `أمس` are right. Strict mode is unchanged.
 
-Colliding pairs at the time of writing (arabic 25, persian 1, urdu 2, hindi 0), each rejected both ways by the guard:
+Colliding pairs in the typing packs at the time of writing, counting pairs where at least one word is at a lenient level (italian 8, spanish 15, french 8, german 2, russian 0, indonesian 0, korean 0, arabic 25, persian 1, urdu 2, hindi 0). Each is rejected both ways by the guard. Indonesian types strictly; Russian, Korean and Hindi have no pair.
 
-| pack | typed | word (id) | also folds to | word (id) |
+| pack | typed | word (id, level) | also folds to | word (id, level) |
 |---|---|---|---|---|
-| arabic | أن | أن (w0001) | إن | إن (w0010) |
-| arabic | كان | كان (w0005) | كأن | كأن (w0362) |
-| arabic | إلى | إلى (w0008) | آلي | آلي (w1707) |
-| arabic | ما | ما (w0009) | ماء | ماء (w0206) |
-| arabic | رأى | رأى (w0053) | رأي | رأي (w0381) |
-| arabic | يرى | رأى (w0053) | يري | أرى (w1858) |
-| arabic | بدأ | بدأ (w0112) | بدا | بدا (w0128) |
-| arabic | إلا | إلا (w0135) | ألا | ألا (w0170) |
-| arabic | أمن | أمن (w0411) | آمن | آمن (w0802) |
-| arabic | أمن | أمن (w0411) | آمن | آمن (w1073) |
-| arabic | رجا | رجا (w0420) | رجاء | رجاء (w0813) |
-| arabic | إله | إله (w0425) | آلة | آلة (w0856) |
-| arabic | آسف | آسف (w0448) | أسف | أسف (w0992) |
-| arabic | غدا | غدا (w0453) | غداء | غداء (w0550) |
-| arabic | موسيقى | موسيقى (w0466) | موسيقي | موسيقي (w1743) |
-| arabic | بني | بني (w0543) | بنى | بنى (w0779) |
-| arabic | أذن | أذن (w0589) | إذن | إذن (w0659) |
-| arabic | أذن | أذن (w0589) | إذن | إذن (w0828) |
-| arabic | أخطاء | خطأ (w0644) | أخطأ | أخطأ (w1985) |
-| arabic | كرة | كرة (w0650) | كره | كره (w0861) |
-| arabic | آثار | أثر (w0717) | أثار | أثار (w1100) |
-| arabic | أما | أما (w0724) | إما | إما (w0786) |
-| arabic | سوى | سوى (w0775) | سوي | سوي (w1546) |
-| arabic | غني | غني (w1454) | غنى | غنى (w1548) |
-| arabic | بري | بري (w1551) | بريء | بريء (w1823) |
-| persian | جز | جز (w0686) | جزء | جزء (w1496) |
-| urdu | پھر | پھر (w0067) | پہر | پہر (w1964) |
-| urdu | کھلانا | کھلانا (w2016) | کہلانا | کہلانا (w1743) |
+| italian | la | il (w0001, A1) | là | là (w0559, A1) |
+| italian | la | la (w2021, A1) | là | là (w0559, A1) |
+| italian | si | si (w0011, A1) | sì | sì (w2029, A1) |
+| italian | e | e (w2005, A1) | è | è (w2138, A1) |
+| italian | se | se (w0022, A1) | sé | sé (w1237, A1) |
+| italian | ne | ne (w0050, A1) | né | né (w0621, A2) |
+| italian | te | te (w0056, A1) | tè | il tè (w2050, A1) |
+| italian | li | li (w2028, A1) | lì | lì (w0291, A1) |
+| spanish | el | el (w0001, A1) | él | él (w0024, A1) |
+| spanish | que | que (w0009, A1) | qué | qué (w0023, A1) |
+| spanish | te | te (w0027, A1) | té | el té (w0444, A1) |
+| spanish | mi | mi (w0028, A1) | mí | mí (w0144, A1) |
+| spanish | si | si (w0029, A1) | sí | sí (w0078, A1) |
+| spanish | si | si (w0029, A1) | sí | sí (w0133, A1) |
+| spanish | como | como (w0033, A1) | cómo | cómo (w0048, A1) |
+| spanish | tu | tu (w0040, A1) | tú | tú (w0088, A1) |
+| spanish | cuando | cuando (w0053, A1) | cuándo | cuándo (w0171, A1) |
+| spanish | porque | porque (w0063, A1) | porqué | el porqué (w1324, B1) |
+| spanish | dónde | dónde (w0077, A1) | donde | donde (w0229, A1) |
+| spanish | quién | quién (w0092, A1) | quien | quien (w0220, A1) |
+| spanish | aún | aún (w0170, A1) | aun | aun (w1775, B1) |
+| spanish | cuánto | cuánto (w0612, A2) | cuanto | cuanto (w1276, A2) |
+| spanish | sonar | sonar (w0709, A2) | soñar | soñar (w1462, B1) |
+| french | la | le (w0002, A1) | là | là (w0067, A1) |
+| french | la | le (w0024, A1) | là | là (w0067, A1) |
+| french | sur | sur (w0035, A1) | sûr | sûr (w0212, A1) |
+| french | où | où (w0050, A1) | ou | ou (w0068, A1) |
+| french | côté | le côté (w0224, A1) | côte | la côte (w1288, A2) |
+| french | marché | le marché (w0477, A1) | marche | la marche (w0824, A2) |
+| french | élève | l'élève (w0517, A1) | élevé | élevé (w1082, A2) |
+| french | âge | l'âge (w0639, A2) | âgé | âgé (w1807, B1) |
+| german | schon | schon (w0054, A1) | schön | schön (w0109, A1) |
+| german | zahlen | zahlen (w0671, A2) | zählen | zählen (w0706, A2) |
+| arabic | أن | أن (w0001, A1) | إن | إن (w0010, A1) |
+| arabic | كان | كان (w0005, A1) | كأن | كأن (w0362, A1) |
+| arabic | إلى | إلى (w0008, A1) | آلي | آلي (w1707, B1) |
+| arabic | ما | ما (w0009, A1) | ماء | ماء (w0206, A1) |
+| arabic | رأى | رأى (w0053, A1) | رأي | رأي (w0381, A1) |
+| arabic | يرى | رأى (w0053, A1) | يري | أرى (w1858, B1) |
+| arabic | بدأ | بدأ (w0112, A1) | بدا | بدا (w0128, A1) |
+| arabic | إلا | إلا (w0135, A1) | ألا | ألا (w0170, A1) |
+| arabic | أمن | أمن (w0411, A1) | آمن | آمن (w0802, A2) |
+| arabic | أمن | أمن (w0411, A1) | آمن | آمن (w1073, A2) |
+| arabic | رجا | رجا (w0420, A1) | رجاء | رجاء (w0813, A2) |
+| arabic | إله | إله (w0425, A1) | آلة | آلة (w0856, A2) |
+| arabic | آسف | آسف (w0448, A1) | أسف | أسف (w0992, A2) |
+| arabic | غدا | غدا (w0453, A1) | غداء | غداء (w0550, A1) |
+| arabic | موسيقى | موسيقى (w0466, A1) | موسيقي | موسيقي (w1743, B1) |
+| arabic | بني | بني (w0543, A1) | بنى | بنى (w0779, A2) |
+| arabic | أذن | أذن (w0589, A1) | إذن | إذن (w0659, A2) |
+| arabic | أذن | أذن (w0589, A1) | إذن | إذن (w0828, A2) |
+| arabic | أخطاء | خطأ (w0644, A2) | أخطأ | أخطأ (w1985, B1) |
+| arabic | كرة | كرة (w0650, A2) | كره | كره (w0861, A2) |
+| arabic | آثار | أثر (w0717, A2) | أثار | أثار (w1100, A2) |
+| arabic | أما | أما (w0724, A2) | إما | إما (w0786, A2) |
+| arabic | سوى | سوى (w0775, A2) | سوي | سوي (w1546, B1) |
+| arabic | غني | غني (w1454, B1) | غنى | غنى (w1548, B1) |
+| arabic | بري | بري (w1551, B1) | بريء | بريء (w1823, B1) |
+| persian | جز | جز (w0686, A2) | جزء | جزء (w1496, B1) |
+| urdu | پھر | پھر (w0067, A1) | پہر | پہر (w1964, B1) |
+| urdu | کھلانا | کھلانا (w2016, A2) | کہلانا | کہلانا (w1743, B1) |
 
 ### Script display
 

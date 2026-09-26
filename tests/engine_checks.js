@@ -1876,7 +1876,7 @@ async function swChecks(){
 
 // [26] Lenient typing letter folds (LENIENT_LETTERS) + collision guard.
 (() => {
-  console.log("\n[26] lenient typing letter folds (hamza, ة, ى, ھ, nukta, chandrabindu) + collision guard");
+  console.log("\n[26] lenient typing letter folds (hamza, ة, ى, ھ, nukta, chandrabindu) + collision guard (all lenient folds)");
   const LEN = { typing:{ accents:"lenient" } }, STR = { typing:{ accents:"strict" } };
   const ok = (typed, w, P) => VC.acceptTyped(typed, { id:"t", w }, P || LEN);
   // Each fold accepts both ways in lenient mode, and strict rejects the same input.
@@ -1895,10 +1895,10 @@ async function swChecks(){
     VC.searchWords([{ id:"k", w:"الكتاب", en:"the book" }], "كتاب").length === 1);
   check("non-Arabic/Devanagari text: foldLenientLetters is the identity (Latin, Cyrillic, Hebrew, CJK, kana)",
     ["perché", "ёж", "שָׁלוֹם", "你好", "が", "안녕"].every(x => VC.foldLenientLetters(x) === x));
-  // Collision guard: real colliding pairs from ar/fa/ur packs (words.json at the time of
-  // writing): [pack, idX, wX, typedX, idY, wY, typedY]. typedY is another word's exact
+  // Collision guard: real colliding pairs from every lenient typing pack (words.json at
+  // the time of writing): [pack, idX, wX, typedX, idY, wY, typedY]. typedY is another word's exact
   // spelling, so it is rejected for X (and vice versa) though it folds to the same key.
-  const PAIRS = [["arabic", "w0001", "أن", "أن", "w0010", "إن", "إن"], ["arabic", "w0005", "كان", "كان", "w0362", "كأن", "كأن"], ["arabic", "w0008", "إلى", "إلى", "w1707", "آلي", "آلي"], ["arabic", "w0009", "ما", "ما", "w0206", "ماء", "ماء"], ["arabic", "w0053", "رأى", "رأى", "w0381", "رأي", "رأي"], ["arabic", "w0053", "رأى", "يرى", "w1858", "أرى", "يري"], ["arabic", "w0112", "بدأ", "بدأ", "w0128", "بدا", "بدا"], ["arabic", "w0135", "إلا", "إلا", "w0170", "ألا", "ألا"], ["arabic", "w0411", "أمن", "أمن", "w0802", "آمن", "آمن"], ["arabic", "w0411", "أمن", "أمن", "w1073", "آمن", "آمن"], ["arabic", "w0420", "رجا", "رجا", "w0813", "رجاء", "رجاء"], ["arabic", "w0425", "إله", "إله", "w0856", "آلة", "آلة"], ["arabic", "w0448", "آسف", "آسف", "w0992", "أسف", "أسف"], ["arabic", "w0453", "غدا", "غدا", "w0550", "غداء", "غداء"], ["arabic", "w0466", "موسيقى", "موسيقى", "w1743", "موسيقي", "موسيقي"], ["arabic", "w0543", "بني", "بني", "w0779", "بنى", "بنى"], ["arabic", "w0589", "أذن", "أذن", "w0659", "إذن", "إذن"], ["arabic", "w0589", "أذن", "أذن", "w0828", "إذن", "إذن"], ["arabic", "w0644", "خطأ", "أخطاء", "w1985", "أخطأ", "أخطأ"], ["arabic", "w0650", "كرة", "كرة", "w0861", "كره", "كره"], ["arabic", "w0717", "أثر", "آثار", "w1100", "أثار", "أثار"], ["arabic", "w0724", "أما", "أما", "w0786", "إما", "إما"], ["arabic", "w0775", "سوى", "سوى", "w1546", "سوي", "سوي"], ["arabic", "w1454", "غني", "غني", "w1548", "غنى", "غنى"], ["arabic", "w1551", "بري", "بري", "w1823", "بريء", "بريء"], ["persian", "w0686", "جز", "جز", "w1496", "جزء", "جزء"], ["urdu", "w0067", "پھر", "پھر", "w1964", "پہر", "پہر"], ["urdu", "w2016", "کھلانا", "کھلانا", "w1743", "کہلانا", "کہلانا"]];
+  const PAIRS = [["italian", "w0001", "il", "la", "w0559", "là", "là"], ["italian", "w2021", "la", "la", "w0559", "là", "là"], ["italian", "w0011", "si", "si", "w2029", "sì", "sì"], ["italian", "w2005", "e", "e", "w2138", "è", "è"], ["italian", "w0022", "se", "se", "w1237", "sé", "sé"], ["italian", "w0050", "ne", "ne", "w0621", "né", "né"], ["italian", "w0056", "te", "te", "w2050", "il tè", "tè"], ["italian", "w2028", "li", "li", "w0291", "lì", "lì"], ["spanish", "w0001", "el", "el", "w0024", "él", "él"], ["spanish", "w0009", "que", "que", "w0023", "qué", "qué"], ["spanish", "w0027", "te", "te", "w0444", "el té", "té"], ["spanish", "w0028", "mi", "mi", "w0144", "mí", "mí"], ["spanish", "w0029", "si", "si", "w0078", "sí", "sí"], ["spanish", "w0029", "si", "si", "w0133", "sí", "sí"], ["spanish", "w0033", "como", "como", "w0048", "cómo", "cómo"], ["spanish", "w0040", "tu", "tu", "w0088", "tú", "tú"], ["spanish", "w0053", "cuando", "cuando", "w0171", "cuándo", "cuándo"], ["spanish", "w0063", "porque", "porque", "w1324", "el porqué", "porqué"], ["spanish", "w0077", "dónde", "dónde", "w0229", "donde", "donde"], ["spanish", "w0092", "quién", "quién", "w0220", "quien", "quien"], ["spanish", "w0170", "aún", "aún", "w1775", "aun", "aun"], ["spanish", "w0612", "cuánto", "cuánto", "w1276", "cuanto", "cuanto"], ["spanish", "w0709", "sonar", "sonar", "w1462", "soñar", "soñar"], ["french", "w0002", "le", "la", "w0067", "là", "là"], ["french", "w0024", "le", "la", "w0067", "là", "là"], ["french", "w0035", "sur", "sur", "w0212", "sûr", "sûr"], ["french", "w0050", "où", "où", "w0068", "ou", "ou"], ["french", "w0224", "le côté", "côté", "w1288", "la côte", "côte"], ["french", "w0477", "le marché", "marché", "w0824", "la marche", "marche"], ["french", "w0517", "l'élève", "élève", "w1082", "élevé", "élevé"], ["french", "w0639", "l'âge", "âge", "w1807", "âgé", "âgé"], ["german", "w0054", "schon", "schon", "w0109", "schön", "schön"], ["german", "w0671", "zahlen", "zahlen", "w0706", "zählen", "zählen"], ["arabic", "w0001", "أن", "أن", "w0010", "إن", "إن"], ["arabic", "w0005", "كان", "كان", "w0362", "كأن", "كأن"], ["arabic", "w0008", "إلى", "إلى", "w1707", "آلي", "آلي"], ["arabic", "w0009", "ما", "ما", "w0206", "ماء", "ماء"], ["arabic", "w0053", "رأى", "رأى", "w0381", "رأي", "رأي"], ["arabic", "w0053", "رأى", "يرى", "w1858", "أرى", "يري"], ["arabic", "w0112", "بدأ", "بدأ", "w0128", "بدا", "بدا"], ["arabic", "w0135", "إلا", "إلا", "w0170", "ألا", "ألا"], ["arabic", "w0411", "أمن", "أمن", "w0802", "آمن", "آمن"], ["arabic", "w0411", "أمن", "أمن", "w1073", "آمن", "آمن"], ["arabic", "w0420", "رجا", "رجا", "w0813", "رجاء", "رجاء"], ["arabic", "w0425", "إله", "إله", "w0856", "آلة", "آلة"], ["arabic", "w0448", "آسف", "آسف", "w0992", "أسف", "أسف"], ["arabic", "w0453", "غدا", "غدا", "w0550", "غداء", "غداء"], ["arabic", "w0466", "موسيقى", "موسيقى", "w1743", "موسيقي", "موسيقي"], ["arabic", "w0543", "بني", "بني", "w0779", "بنى", "بنى"], ["arabic", "w0589", "أذن", "أذن", "w0659", "إذن", "إذن"], ["arabic", "w0589", "أذن", "أذن", "w0828", "إذن", "إذن"], ["arabic", "w0644", "خطأ", "أخطاء", "w1985", "أخطأ", "أخطأ"], ["arabic", "w0650", "كرة", "كرة", "w0861", "كره", "كره"], ["arabic", "w0717", "أثر", "آثار", "w1100", "أثار", "أثار"], ["arabic", "w0724", "أما", "أما", "w0786", "إما", "إما"], ["arabic", "w0775", "سوى", "سوى", "w1546", "سوي", "سوي"], ["arabic", "w1454", "غني", "غني", "w1548", "غنى", "غنى"], ["arabic", "w1551", "بري", "بري", "w1823", "بريء", "بريء"], ["persian", "w0686", "جز", "جز", "w1496", "جزء", "جزء"], ["urdu", "w0067", "پھر", "پھر", "w1964", "پہر", "پہر"], ["urdu", "w2016", "کھلانا", "کھلانا", "w1743", "کہلانا", "کہلانا"]];
   const byPack = {};
   PAIRS.forEach(([p, ix, wx, fx, iy, wy, fy]) => {
     const W = byPack[p] || (byPack[p] = []);
@@ -1914,15 +1914,25 @@ async function swChecks(){
       !VC.acceptTyped(fy, X, LEN, null, W) && !VC.acceptTyped(fx, Y, LEN, null, W) &&
       VC.acceptTyped(fx, X, LEN, null, W) && VC.acceptTyped(fy, Y, LEN, null, W) && VC.acceptTyped(fy, X, LEN));
   });
-  check("guard: 25 arabic, 1 persian, 2 urdu collision pairs covered",
-    ["arabic", "persian", "urdu"].map(p => PAIRS.filter(x => x[0] === p).length).join() === "25,1,2");
+  const PACKS = ["italian", "spanish", "french", "german", "russian", "korean", "arabic", "persian", "urdu", "hindi"];
+  check("guard: collision pairs covered per pack (it 8, es 15, fr 8, de 2, ru 0, ko 0, ar 25, fa 1, ur 2, hi 0)",
+    PACKS.map(p => PAIRS.filter(x => x[0] === p).length).join() === "8,15,8,2,0,0,25,1,2,0");
   // Hamza-less typings that are not another pack word stay accepted with the guard on.
   const AR = [{ id:"w0017", w:"أنا", en:"I" }, { id:"w0025", w:"أنت", en:"you" }, { id:"w0008", w:"إلى", en:"to" }, { id:"w0009", w:"ما", en:"what" }];
   check("guard: non-colliding hamza-less انا/انت/الى accepted for أنا/أنت/إلى",
     VC.acceptTyped("انا", AR[0], LEN, null, AR) && VC.acceptTyped("انت", AR[1], LEN, null, AR) && VC.acceptTyped("الى", AR[2], LEN, null, AR));
-  check("guard only covers letter folds: plain accent folds unchanged (si for sí accepted with el/él, si/sí in the list)",
-    (() => { const ES = [{ id:"si", w:"si" }, { id:"si2", w:"sí" }, { id:"el", w:"el" }, { id:"el2", w:"él" }];
-      return VC.acceptTyped("si", ES[1], LEN, null, ES) && VC.acceptTyped("el", ES[3], LEN, null, ES); })());
+  check("guard covers plain accent folds: si/sí, el/él, tu/tú rejected for each other; exact and capitalised accepted; perche for perché still accepted",
+    (() => { const ES = [{ id:"si", w:"si" }, { id:"si2", w:"sí" }, { id:"el", w:"el" }, { id:"el2", w:"él" }, { id:"tu", w:"tu" }, { id:"tu2", w:"tú" }, { id:"pq", w:"perché" }];
+      return !VC.acceptTyped("si", ES[1], LEN, null, ES) && !VC.acceptTyped("sí", ES[0], LEN, null, ES) &&
+        !VC.acceptTyped("el", ES[3], LEN, null, ES) && !VC.acceptTyped("él", ES[2], LEN, null, ES) &&
+        !VC.acceptTyped("tu", ES[5], LEN, null, ES) && !VC.acceptTyped("tú", ES[4], LEN, null, ES) &&
+        VC.acceptTyped("sí", ES[1], LEN, null, ES) && VC.acceptTyped("Sí", ES[1], LEN, null, ES) && VC.acceptTyped("el", ES[2], LEN, null, ES) &&
+        VC.acceptTyped("perche", ES[6], LEN, null, ES) && VC.acceptTyped("si", ES[1], LEN); })());
+  check("guard covers Cyrillic ё/stress (synthetic: the ru pack has no colliding pair): все rejected for всё and back; еж for ёж and stress-less делать still accepted",
+    (() => { const RU = [{ id:"vse", w:"все" }, { id:"vsyo", w:"всё" }, { id:"ezh", w:"ёж" }, { id:"del", w:"де́лать" }, { id:"zamok1", w:"за́мок" }, { id:"zamok2", w:"замо́к" }];
+      return !VC.acceptTyped("все", RU[1], LEN, null, RU) && !VC.acceptTyped("всё", RU[0], LEN, null, RU) &&
+        VC.acceptTyped("еж", RU[2], LEN, null, RU) && VC.acceptTyped("делать", RU[3], LEN, null, RU) &&
+        !VC.acceptTyped("замо́к", RU[4], LEN, null, RU) && VC.acceptTyped("замок", RU[4], LEN, null, RU); })());
   check("guard: strict mode unchanged (exact accepted, folded rejected, with and without words)",
     VC.acceptTyped("ما", AR[3], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR));
 })();

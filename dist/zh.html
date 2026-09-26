@@ -542,8 +542,8 @@ const ARABIC_VARIANTS = { "\u0643":"\u06a9", "\u064a":"\u06cc" };
 //    Not folded: a leading ال (it changes the word), ه vs ہ (each pack uses one).
 //  - Devanagari: nukta dropped (ज़ -> ज, incl. precomposed क़..य़ U+0958-095F via NFD);
 //    chandrabindu ँ -> anusvara ं (माँ = मां).
-// Tradeoff: distinct words can become one typed answer (ماء "water" = ما "what"). The
-// per-pack collision lists are in docs/PACK_SCHEMA.md (typing section).
+// Folding can make distinct words one key (ماء "water" = ما "what", si = sí); acceptTyped's
+// collision guard rejects an exact other pack word. Per-pack lists: docs/PACK_SCHEMA.md.
 // Words search does not use this layer (searchFold passes lenientLetters:false): it has
 // its own, different folds (ال optional, ھ kept, ء kept).
 const LENIENT_LETTERS = { "\u0671":"\u0627", "\u0672":"\u0627", "\u0673":"\u0627", "\u0675":"\u0627",
@@ -600,25 +600,25 @@ function strictFormIndex(words, caseSensitive){
 }
 // Accepts entry.w or any entry.alt (plus any `extra` surfaces, e.g. the literal form a
 // cloze blank had in its sentence), compared after normalising both sides.
-// words (optional, the pack's WORDS): collision guard for LENIENT_LETTERS. An answer that
-// matches only because of those letter folds (not already strictly or by plain accent
-// folding) is rejected when it is exactly another pack word's w/alt (strict form): typing
-// ماء "water" for ما "what" is wrong, typing امس for أمس is fine. Plain accent folds
-// (Spanish si/sí) are not guarded.
+// words (optional, the pack's WORDS): collision guard for lenient folding. An exact
+// (strict-form) match to the target always passes. An answer that matches only after
+// folding (any lenient fold: accents, stress, pointing, joiners, LENIENT_LETTERS) is
+// rejected when its strict form is another pack entry's w/alt: typing ماء "water" for
+// ما "what", or si for sí, is wrong; امس for أمس or perche for perché is fine.
 function acceptTyped(input, entry, pack, extra, words){
   const t = (pack && pack.typing) || {};
   const cs = !!t.caseSensitive, lenient = typingLenientFor(entry, pack);
   const targets = [entry.w, ...(entry.alt||[]), ...(extra||[])];
-  const base = { caseSensitive: cs, foldAccents: lenient, lenientLetters: false };
-  const got = normalizeTyped(input, base);
+  const strict = { caseSensitive: cs };
+  const got = normalizeTyped(input, strict);
   if(!got) return false;
-  if(targets.some(x => normalizeTyped(x, base) === got)) return true;
+  if(targets.some(x => normalizeTyped(x, strict) === got)) return true;
   if(!lenient) return false;
   const full = { caseSensitive: cs, foldAccents: true };
   const gotL = normalizeTyped(input, full);
   if(!gotL || !targets.some(x => normalizeTyped(x, full) === gotL)) return false;
   if(!Array.isArray(words)) return true;
-  const hits = strictFormIndex(words, cs).get(normalizeTyped(input, { caseSensitive: cs })) || [];
+  const hits = strictFormIndex(words, cs).get(got) || [];
   return !hits.some(e => e !== entry && !(e.id != null && e.id === entry.id));
 }
 
@@ -5274,4 +5274,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:473506220-1543367-->
+<!--ve-build:3229891446-1543345-->
