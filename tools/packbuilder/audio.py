@@ -30,9 +30,12 @@ and regenerates the pack .js files. Items and rules:
   --limit: dev use) links what it rendered but leaves pack.audio unset.
 - Words and script carriers render slower with silence padding (spec.AUDIO short_*);
   sentences at normal speed.
-- Every clip is peak-normalised before Opus encoding: ffmpeg's `volumedetect` measures the raw
-  synth's true peak, then `-af volume=<gain>dB` brings it to spec.AUDIO `peak` (default -1.0
-  dBFS, never > 0). `peak` is part of the clip key, so changing it re-renders every clip.
+- Every clip is peak-normalised before Opus encoding, to spec.AUDIO `peak` (default -1.0 dBFS
+  true peak, never > 0): ffmpeg's `volumedetect` gives a starting gain from the raw synth, then
+  each `-af volume=<gain>dB` encode is re-measured on the *encoded* file and re-encoded with a
+  corrected gain until it lands at or under the target (libopus 24k voip overshoots the PCM peak
+  by ~1 dB after decode, a fixed codec artefact -- a single pass targeting the raw peak ships
+  clips up to 0 dBFS). `peak` is part of the clip key, so changing it re-renders every clip.
 
 Options: --check (report missing / stale / orphan clips, dangling URLs and stale overrides, plus notes
 for foreign URLs and unowned files;
@@ -146,6 +149,8 @@ class PiperRenderer:
     """Piper (piper-tts) + ffmpeg libopus. Needs `pip install piper-tts` and ffmpeg on PATH;
     the voice .onnx (+ .onnx.json) is read from <repo>/.cache/voices/<voice>.onnx."""
 
+    MAX_PEAK_ITERS = 8   # empirically converges in 2-3 (see docs/AUDIO.md "Encoding")
+
     def __init__(self, repo, cfg):
         try:
             from piper import PiperVoice, SynthesisConfig
@@ -167,28 +172,36 @@ class PiperRenderer:
             self.voice.synthesize_wav(text, wf, syn_config=self.SC(
                 length_scale=cfg["short_length_scale"] if short else cfg["length_scale"]))
         wav_bytes = buf.getvalue()
-        gain = self.peak_gain(wav_bytes, cfg["peak"])
         pad = cfg["short_pad_ms"] if short else [0, 0]
-        filters = []
-        if short:
-            filters.append(f"adelay={pad[0]},apad=pad_dur={pad[1] / 1000}")
-        filters.append(f"volume={gain:.2f}dB")
-        af = ["-af", ",".join(filters)]
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "wav", "-i", "pipe:0", *af, "-ac", "1",
-                        "-ar", str(cfg["rate"]), "-c:a", "libopus", "-b:a", cfg["bitrate"],
-                        "-application", "voip", str(out)], input=wav_bytes, check=True)
+        base_filters = [f"adelay={pad[0]},apad=pad_dur={pad[1] / 1000}"] if short else []
+        target = cfg["peak"]
+        gain = target - self.measure_peak(wav_bytes)
+        tmp = Path(out).parent / (".tmp-peak-" + Path(out).name)
+        for _ in range(self.MAX_PEAK_ITERS):
+            self.encode(wav_bytes, base_filters + [f"volume={gain:.2f}dB"], cfg, tmp)
+            measured = self.measure_peak(tmp)
+            if measured <= target:
+                break
+            gain += target - measured   # the codec overshot the target: attenuate further and re-encode
+        tmp.replace(out)
 
     @staticmethod
-    def peak_gain(wav_bytes, target_dbfs):
-        """Gain (dB) to apply so the clip's true peak lands at `target_dbfs` (<= 0). Measures the
-        raw synth's peak with ffmpeg's volumedetect filter; never returns a gain that would push
-        the peak above 0 dBFS, since `target_dbfs` itself is validated <= 0 (config())."""
-        p = subprocess.run(["ffmpeg", "-v", "info", "-f", "wav", "-i", "pipe:0",
-                            "-af", "volumedetect", "-f", "null", "-"],
-                           input=wav_bytes, capture_output=True)
+    def measure_peak(source):
+        """True peak (dBFS) of raw wav bytes or an encoded file, via ffmpeg's volumedetect."""
+        if isinstance(source, bytes):
+            cmd = ["ffmpeg", "-v", "info", "-f", "wav", "-i", "pipe:0", "-af", "volumedetect", "-f", "null", "-"]
+            p = subprocess.run(cmd, input=source, capture_output=True)
+        else:
+            cmd = ["ffmpeg", "-v", "info", "-i", str(source), "-af", "volumedetect", "-f", "null", "-"]
+            p = subprocess.run(cmd, capture_output=True)
         m = VOLUME_RE.search(p.stderr.decode("utf-8", "replace"))
-        measured = float(m.group(1)) if m else 0.0
-        return target_dbfs - measured
+        return float(m.group(1)) if m else 0.0
+
+    @staticmethod
+    def encode(wav_bytes, filters, cfg, out):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "wav", "-i", "pipe:0", "-af", ",".join(filters),
+                        "-ac", "1", "-ar", str(cfg["rate"]), "-c:a", "libopus", "-b:a", cfg["bitrate"],
+                        "-application", "voip", str(out)], input=wav_bytes, check=True)
 
 
 def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=None, now=None, out=print):

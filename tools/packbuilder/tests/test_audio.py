@@ -403,10 +403,15 @@ class AudioBuild(unittest.TestCase):
 
 class PiperRendererFfmpegCommand(unittest.TestCase):
     """PiperRenderer.render's ffmpeg invocations, without Piper or a real ffmpeg: a stub voice
-    writes silence to the wav, and subprocess.run is stubbed to report a measured peak so the
-    encode command's -af filter can be checked directly."""
+    writes silence to the wav, and subprocess.run is stubbed to report peaks so the correction
+    loop (docs/AUDIO.md "Encoding": libopus overshoots the PCM peak by a roughly fixed amount
+    after decode, so the *encoded* file is re-measured and re-encoded until compliant) and the
+    final -af filter can be checked without needing real audio."""
 
-    def render_with_measured_peak(self, measured_dbfs, peak_cfg=-1.0, short=True):
+    def render_with_stub_ffmpeg(self, raw_dbfs, overshoot_db=0.0, peak_cfg=-1.0, short=True):
+        """Simulates: measuring the raw synth's peak returns `raw_dbfs`; each encode's decoded
+        peak comes back as (raw_dbfs + gain applied + overshoot_db), mimicking a codec that adds
+        a roughly constant overshoot regardless of level. Returns (encode_cmds, final_gain_str)."""
         renderer = audio.PiperRenderer.__new__(audio.PiperRenderer)
         renderer.cfg = dict(audio.DEFAULTS, voice="xx", version=1, licence="CC0", peak=peak_cfg)
         renderer.SC = lambda **kw: kw
@@ -419,40 +424,67 @@ class PiperRendererFfmpegCommand(unittest.TestCase):
                 wf.writeframes(b"\x00\x00" * 100)
         renderer.voice = FakeVoice()
 
-        calls = []
+        encode_cmds = []
+        last_gain = [None]
 
         def fake_run(cmd, **kw):
-            calls.append(cmd)
             if "volumedetect" in cmd:
-                return SimpleNamespace(
-                    stderr=f"[Parsed_volumedetect_0] max_volume: {measured_dbfs} dB\n".encode())
+                if "pipe:0" in cmd:                      # raw synth measurement
+                    dbfs = raw_dbfs
+                else:                                     # re-measuring the just-encoded file
+                    dbfs = raw_dbfs + last_gain[0] + overshoot_db
+                return SimpleNamespace(stderr=f"[Parsed_volumedetect_0] max_volume: {dbfs} dB\n".encode())
+            # an encode call: pull its gain out of -af, and actually create the output file so
+            # render()'s final tmp.replace(out) has something to rename
+            af = cmd[cmd.index("-af") + 1]
+            last_gain[0] = float(re.search(r"volume=(-?[\d.]+)dB", af).group(1))
+            encode_cmds.append(cmd)
+            Path(cmd[-1]).write_bytes(b"")
             return SimpleNamespace(returncode=0)
 
         with tempfile.TemporaryDirectory() as d, \
              unittest.mock.patch("packbuilder.audio.subprocess.run", side_effect=fake_run):
-            renderer.render("hello", short, Path(d) / "clip.opus")
-        return calls
+            out = Path(d) / "clip.opus"
+            renderer.render("hello", short, out)
+            self.assertTrue(out.exists())
+        return encode_cmds
 
-    def test_encode_command_includes_measured_peak_gain(self):
-        detect_cmd, encode_cmd = self.render_with_measured_peak("-6.0")
-        self.assertIn("volumedetect", detect_cmd)
-        af = encode_cmd[encode_cmd.index("-af") + 1]
-        # target -1.0 dBFS - measured -6.0 dBFS = +5.0 dB of gain
-        self.assertIn("volume=5.00dB", af)
-        self.assertIn("adelay=150,apad=pad_dur=0.25", af)   # short-item padding still applied
+    def test_converges_in_one_pass_with_no_codec_overshoot(self):
+        cmds = self.render_with_stub_ffmpeg(raw_dbfs=-6.0, overshoot_db=0.0)
+        self.assertEqual(len(cmds), 1)
+        af = cmds[-1][cmds[-1].index("-af") + 1]
+        self.assertIn("volume=5.00dB", af)                # target -1.0 - raw -6.0 = +5.0 dB
+        self.assertIn("adelay=150,apad=pad_dur=0.25", af)  # short-item padding still applied
 
-    def test_never_boosts_past_0_dbfs(self):
-        # Already louder than target (the +0.9 dBFS finding this class covers): gain is negative,
-        # so the encoded peak lands at target, never above 0 dBFS.
-        _, encode_cmd = self.render_with_measured_peak("0.9")
-        af = encode_cmd[encode_cmd.index("-af") + 1]
-        self.assertIn("volume=-1.90dB", af)
+    def test_corrects_for_codec_overshoot_across_two_passes(self):
+        # Reproduces the category this fix addresses: a single pass targeting the raw peak
+        # shipped clips up to 0 dBFS because libopus overshoots the PCM peak by ~1 dB on decode
+        # (measured on shipped Persian audio 2026-09-26: 25/30 sampled clips above -1.0 dBFS).
+        cmds = self.render_with_stub_ffmpeg(raw_dbfs=-6.0, overshoot_db=1.0)
+        self.assertEqual(len(cmds), 2)
+        first_af = cmds[0][cmds[0].index("-af") + 1]
+        second_af = cmds[1][cmds[1].index("-af") + 1]
+        self.assertIn("volume=5.00dB", first_af)           # naive gain: overshoots to 0.0 dBFS
+        self.assertIn("volume=4.00dB", second_af)          # corrected: lands exactly at -1.0 dBFS
+
+    def test_never_ships_a_clip_above_0_dbfs(self):
+        # Already louder than target (the +0.9 dBFS finding this class covers), plus codec
+        # overshoot: the correction loop still lands at or under 0 dBFS.
+        cmds = self.render_with_stub_ffmpeg(raw_dbfs=0.9, overshoot_db=1.0)
+        final_measured = 0.9 + last_gain_of(cmds) + 1.0
+        self.assertLessEqual(final_measured, -1.0)
+        self.assertLessEqual(final_measured, 0.0)
 
     def test_sentence_gets_no_padding_filter_but_still_normalises(self):
-        _, encode_cmd = self.render_with_measured_peak("-3.0", short=False)
-        af = encode_cmd[encode_cmd.index("-af") + 1]
+        cmds = self.render_with_stub_ffmpeg(raw_dbfs=-3.0, overshoot_db=0.0, short=False)
+        af = cmds[-1][cmds[-1].index("-af") + 1]
         self.assertNotIn("adelay", af)
         self.assertIn("volume=2.00dB", af)
+
+
+def last_gain_of(cmds):
+    af = cmds[-1][cmds[-1].index("-af") + 1]
+    return float(re.search(r"volume=(-?[\d.]+)dB", af).group(1))
 
 
 if __name__ == "__main__":

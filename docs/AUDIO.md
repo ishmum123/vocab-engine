@@ -38,11 +38,16 @@ Pronunciation (espeak-ng `fa` + unvocalised input):
   `length_scale` 1.25 plus 150 ms lead and 250 ms tail silence ("slow" column on the samples page).
 
 Encoding: Opus via ffmpeg libopus, 24 kbps mono, resampled 22.05 → 24 kHz, `-application voip`.
-Every clip is peak-normalised before encoding (default on, all languages): ffmpeg's `volumedetect`
-measures the raw synth's true peak, then `-af volume=<gain>dB` brings it to `spec.AUDIO.peak`
-(default −1.0 dBFS; validated ≤ 0, so the filter can dampen but never boost a clip past 0 dBFS).
-`peak` is part of the clip key (below) and recorded in the manifest, so changing it re-renders
-every clip under new names.
+Every clip is peak-normalised before encoding (default on, all languages) to `spec.AUDIO.peak`
+(default −1.0 dBFS true peak; validated ≤ 0, so a clip is never boosted past 0 dBFS). One
+`volumedetect` pass on the raw synth gives a starting gain, but libopus at 24 kbps voip
+consistently **overshoots the PCM peak by ~0.8-1.1 dB after decode** (a fixed codec artefact,
+not proportional to level): a single `-af volume=<gain>dB` pass targeting the raw peak ships
+clips up to 0 dBFS (measured on shipped audio 2026-09-26, before this fix: 25/30 sampled clips
+above −1.0 dBFS, several at −0.0). The renderer instead measures the *encoded* file's peak after
+each pass and re-encodes with a corrected gain until it lands at or under the target (converges
+in 2-3 passes; capped at 8). `peak` is part of the clip key (below) and recorded in the manifest,
+so changing it re-renders every clip under new names.
 Measured ~3.1–3.4 KB per second of speech. Timing on this Mac (M-series, one process): synth 0.08–0.11 s per
 sentence, 0.15–0.18 s per passage sentence, 0.02–0.03 s per word; ffmpeg encode 0.058 s per file.
 
