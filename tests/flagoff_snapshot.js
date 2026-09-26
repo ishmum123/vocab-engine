@@ -127,11 +127,19 @@ function stripFlagOnFields(packJson, wordsJson, sentencesJson) {
     // Script primer (docs/SCRIPT_PRIMER.md): pack.script is new. script.json / script.js
     // need nothing here: only pack.json, words.json and sentences.json are hashed.
     delete pack.script;
+    // Recorded audio (docs/AUDIO.md): pack.audio, words[].audio and the builder's own
+    // relative sentence clips are new. An absolute sentence URL (Tatoeba) predates it
+    // and stays hashed.
+    delete pack.audio;
   }
+  const generated = u => typeof u === "string" && !/^[a-z][a-z0-9+.-]*:/i.test(u);
+  const words = Array.isArray(wordsJson)
+    ? wordsJson.map(w => { if(!w || !("audio" in w)) return w; const c = Object.assign({}, w); delete c.audio; return c; })
+    : wordsJson;
   const sentences = Array.isArray(sentencesJson)
-    ? sentencesJson.map(s => { const c = Object.assign({}, s); delete c.ruby; return c; })
+    ? sentencesJson.map(s => { const c = Object.assign({}, s); delete c.ruby; if(generated(c.audio)) delete c.audio; return c; })
     : sentencesJson;
-  return { pack, words: wordsJson, sentences };
+  return { pack, words, sentences };
 }
 function flagOffSnapshotOf(dir) {
   return stripFlagOnFields(

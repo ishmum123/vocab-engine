@@ -610,6 +610,10 @@ class Persian(LanguageSpec):
     spacy_model = None
     tagger = "stanza"
     stanza_lang = "fa"
+    # Recorded audio (docs/AUDIO.md, `packbuilder audio`). Voice pending the user's ear on
+    # the phase 1 samples; ganji_adabi is the default. Bump version to re-render every clip.
+    AUDIO = {"voice": "fa_IR-ganji_adabi-medium", "version": 1, "engine": "piper-tts 1.8.0",
+             "licence": "CC0 (voice dataset tts.datacula.com; rhasspy/piper-voices MODEL_CARD)"}
     tagger_attribution = {
         "source": "Stanza (Apache-2.0) with its Persian default model, trained on UD Persian-Seraji",
         "licence": "Apache-2.0 (code); CC BY-SA 4.0 (UD Persian-Seraji model data)",

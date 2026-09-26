@@ -25,6 +25,7 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `name` | string | yes | Display name and page title, e.g. `"Mandarin (HSK 1–4)"`. |
 | `tts` | string | yes | BCP-47 locale for speech synthesis, e.g. `"zh-CN"`, `"it-IT"`. A voice with the exact locale is preferred, then any voice for the same language. |
 | `ttsRate` | number 0.1–3 | no (0.9) | Speech rate. |
+| `audio` | `{voice, version}` | no | The pack ships recorded clips (docs/AUDIO.md, written by `packbuilder audio`). `voice` is a non-empty string, `version` an integer ≥ 1 that names the service worker's audio cache, so a new version never plays a stale cached clip. With it, the no-voice notices are not shown. Clips play with or without it. |
 | `levels` | `[{id, label}]` | yes | Ordered levels. `id` is a string (`"1"`, `"A1"`), `label` is shown in the UI. The order drives set unlocking and "past this level" logic. |
 | `setSize` | positive int | no (10) | Words per learn set. |
 | `placement` | `[[levelId, bucketCount], …]` | yes | Placement-test buckets, in level order. Each level's sets are split into `bucketCount` contiguous buckets. Buckets alternate 2 and 3 test items, so 16 buckets give a 40-item test. Every bucket needs at least 3 words. Levels before the first listed level count as known once the first bucket passes. |
@@ -197,7 +198,7 @@ Required when `pack.script` is set, absent otherwise. `{units, notes?}`.
 
 ## words.json
 
-`[{ id, w, en, lv, pos?, rank?, pron?, alt? }]`, in teaching order within each level. Sets are consecutive runs of `setSize` words of one level, in file order.
+`[{ id, w, en, lv, pos?, rank?, pron?, alt?, audio? }]`, in teaching order within each level. Sets are consecutive runs of `setSize` words of one level, in file order.
 
 | field | type | meaning |
 |---|---|---|
@@ -208,6 +209,7 @@ Required when `pack.script` is set, absent otherwise. `{units, notes?}`.
 | `pos` | string | Optional part of speech. Recall and cloze distractors prefer the same `pos` and level. |
 | `rank` | number | Optional frequency rank. It is validated but not yet used, and set order is file order. |
 | `pron` | string | Optional pronunciation (pinyin, IPA). It is display-only and never drilled or typed. |
+| `audio` | URL string | Optional recorded clip of `w`, with the same rules as `sentences.json` `audio`. Every place the app speaks the word plays it instead of TTS, and a word with a clip can be heard with no voice (Listen items, taps, placement, the script primer's example words; app.html `sayWord`/`canHearWord`). |
 | `alt` | `[string]` | Optional accepted alternative typed answers, such as a feminine form or other spelling. It is also used to find the word in a sentence for cloze when `w` itself does not appear, as with inflected forms. **Convention:** when `w` carries an article or clitic (`il gioco`, `l'anno`, `le/la médecin`), put the bare lemma first (`alt[0]` = `gioco`). The engine treats `alt[0]` as the word's bare form only when it is a whole trailing token of `w`, after a space or apostrophe (core.js `bareForm`). Without such an alt, a leading article from the pack's `pos:"art"` words (their `w` and alts, including a/b pairs like `le/la`) is stripped instead. **Cloze article rule:** the blank never includes an article. When the matched form carries one (`l'église`, `la iglesia`, an alt such as `l'acqua`), the article stays visible and only the bare rest is blanked (`allons à l'____`, `Bevo l'____.`). Every multiple-choice option, answer and distractors alike, is shown by its bare form (`église / gare / fruit`), never `la gare`. Prefer alts that are the word alone. Examples for a taught word prefer sentences where `w`, then an alt, is visible. |
 
 ## sentences.json
@@ -222,7 +224,7 @@ Required when `pack.script` is set, absent otherwise. `{units, notes?}`.
 | `lv` | levelId | Level. A sentence becomes available once all its `words` are learned, or once the learner is past this level. |
 | `words` | `[wordId]` | Word ids used in the sentence, resolved at pack-build time with no runtime lookup. A cloze candidate must pass four rules. It is at the sentence's own level. It is not a function word. It is not repeated in `words`. Its forms (`w` plus every `alt`) appear exactly once in `t` overall, where overlapping hits count as one. That occurrence must also not sit inside a longer pack word or compound, such as 为 inside 为什么. |
 | `pron` | string | Optional display-only pronunciation of the whole sentence. |
-| `audio` | URL string | Optional recorded audio. When present it plays instead of TTS. Relative URLs resolve against the built HTML file's location, not the pack directory, so ship audio beside the built page or use absolute URLs. |
+| `audio` | URL string | Optional recorded audio. When present it plays instead of TTS. Relative URLs resolve against the built HTML file's location, not the pack directory, so ship audio beside the built page or use absolute URLs. A clip that fails to play (offline and not cached, a 404) falls back to TTS when a voice exists, else a short hint is shown. `packbuilder audio` writes relative content-addressed `audio/…/<id>.<sha8>.opus` URLs and never changes an absolute (Tatoeba) one or a relative one it did not write. |
 | `ruby` | `[[start, end, reading, wordId]]` | Optional, only meaningful with `pack.characters`. Per-token readings for characters tiering: each tuple is a UTF-16 offset range into `t` (`end` exclusive, same convention as `passages.json` `spans`), the reading text for that range, and the `characters.json` unit's `words[0]` id that range belongs to (so 这个 maps to its base word), or `null` for a token of no unit word (a name, a word the sentence does not link or that has no unit): it follows streak 0, so it shows its reading under `pronFirst` and the ruby tier otherwise. ja writes a token for every kanji (langs/ja.py `sentence_ruby`), so every sentence can show every kanji with a reading. Tuples are sorted, non-overlapping, and each covers non-blank text without splitting a surrogate pair. A sentence with `ruby` renders `<ruby>t<rt>reading</rt></ruby>` per token below the `bare` tier and `<ruby class="bare">t<rt>reading</rt></ruby>` at or above it, with that `<rt>` hidden (`visibility:hidden`), so a token's width and the line's wrapping never change across tiers. With pron hidden or the mix preference off the sentence renders as plain text, as without characters. |
 
 ## lessons.json
@@ -247,7 +249,7 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 
 ```
 [{ id, lv, title, titleRuby?, text, src?,
-   sentences: [{ t, en, words: [wordId], spans?: [[start, end, wordId]], ruby?: [[start, end, reading, wordId|null]] }],
+   sentences: [{ t, en, words: [wordId], spans?: [[start, end, wordId]], ruby?: [[start, end, reading, wordId|null]], audio? }],
    questions: [{ q, en?, type: "mc"|"tf", options: [4 strings] | null, answer, words: [wordId], sentence,
                  ruby?, optionsRuby?: [ruby per option] }] }]
 ```
@@ -266,6 +268,7 @@ Optional. When present and non-empty, the app shows a **Read** tab. Without it n
 | `titleRuby` | ruby list | Optional, same tuple format for `title` (wordId `null` or a characters.json unit's `words[0]`; no words list applies). Rendered under `pronFirst` (app.html `pfRubyText`): the passage list button, the Today read hint, the passage heading and the results heading show the title by the sentence tier rules, readings tone-coloured with `tones`, a `null` token by its reading. The heading and hint get a show-written tap; list buttons do not. Without `pronFirst` (or without `titleRuby`) the title shows as written. |
 | `questions[].ruby` | ruby list | Optional, same format for `q`. Rendered under `pronFirst` like `titleRuby`, on the question screen and the results screen, with a show-written tap. No word taps. |
 | `questions[].optionsRuby` | `[ruby list]` | Optional, mc only: one ruby list per `options` entry, same index (a list may be empty). Rendered under `pronFirst` like `titleRuby` inside each option button, with no show-written tap and no word taps (the button is the tap target). An empty list shows the option as written. |
+| `sentences[].audio` | URL string | Optional recorded clip of the sentence, with the same rules as `sentences.json` `audio`. The Read tab's per-sentence read-aloud plays it, also with no voice. |
 | `sentences[].spans` | `[[start, end, wordId, gloss?]]` | Optional. Where each linked word sits in `t`, as written by the builder from its tagger tokens (`packbuilder passages`), so inflected forms (mele, compra, va) are tappable in place. Offsets are UTF-16 code units (JavaScript string indices; equal to character indices for text without characters above U+FFFF), `end` exclusive. Spans are sorted and do not overlap, each `wordId` is in `words`, and a word may have several spans (one per occurrence). A multi-token unit the builder links as one word (per favore) is one span. `words` stays the full list: a word without a span falls back to surface matching, and packs without `spans` render exactly as before. Invalid spans are ignored by the app. Optional 4th element `gloss`: a non-empty display-only string shown in the tap-to-gloss popover instead of the word's `en` (fallback: span gloss, then the word's gloss). zh uses it for phrase units linked to a head word (越来越 -> 越 "more and more", 开车 -> 开 "to drive") and for the pack's display glosses (`packs/zh/gloss_display.json`, a sense list per headword). It never changes `words`, drills, weak words or progress; a span without it, and a pack without it, render exactly as before. |
 | `questions[].q` | string | Target-language question. |
 | `questions[].en` | string | Optional English translation of `q`, shown under it. |
@@ -324,6 +327,7 @@ An object with up to three optional keys, each a map from an old-app string key 
 - `sentences[].ruby` (and `passages.json` `sentences[].ruby`), when present: same offset rules as `passages.json` `spans` (sorted, non-overlapping, in-bounds, no split surrogate pairs, non-blank), plus a non-empty `reading` and a `wordId` that is either `null` or both in the sentence's `words` and some `characters.json` unit's `words[0]`.
 - `passages.json` `titleRuby`, `questions[].ruby` and `questions[].optionsRuby` (one ruby list per option, same length as `options`), when present: the same offset and reading rules against `title`, `q` and each option, with `wordId` `null` or some `characters.json` unit's `words[0]`. Without `pack.characters` they are a warning.
 - `pack.script` and `script.json`, when present: see "Script primer" above.
+- Recorded audio: `pack.audio`, when present, is `{voice, version}` with a non-empty `voice` and an integer `version` ≥ 1 (other keys are a warning). `audio` on words, sentences and passage sentences is a non-empty string when present. `pack.audio` with no clip anywhere (words, sentences, passage sentences or script units), relative clips without `pack.audio`, and relative clips with no file beside the site page (resolved against the pack directory's parent, where a language repo's `index.html` sits) are warnings. `packbuilder audio --check` checks that the files exist (docs/AUDIO.md).
 - `pack.legacy` and `legacy.json` must exist together, and every value in `legacy.json`'s `w`/`s`/`c` maps is a real `words.json`/`sentences.json`/`characters.json` id (duplicate values across one map are a warning).
 - The generated `.js` files are in sync.
 

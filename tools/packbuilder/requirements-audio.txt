@@ -1,0 +1,4 @@
+# `python3 -m packbuilder audio` only (docs/AUDIO.md). ffmpeg (with libopus) must be on PATH.
+# Voice models go in <language repo>/.cache/voices/<voice>.onnx (+ .onnx.json), from
+# huggingface.co/rhasspy/piper-voices; never commit them.
+piper-tts==1.8.0

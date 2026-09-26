@@ -126,12 +126,55 @@ def check_pack(pack, rep):
             rep.err("pack.legacy must be {key: non-empty string, format: non-empty string}")
     char_levels = check_characters_pack(pack, ids, rep)
     check_pron_aids_pack(pack, rep)
+    check_audio_pack(pack, rep)
     if "pronFirst" in pack:
         if not is_bool(pack["pronFirst"]):
             rep.err("pack.pronFirst must be a boolean")
         elif pack["pronFirst"] and "characters" not in pack:
             rep.warn("pack.pronFirst is true but pack.characters is absent: it has no effect")
     return idset, char_levels
+
+
+def check_audio_pack(pack, rep):
+    """pack.audio (docs/AUDIO.md): {voice, version} declares shipped recordings."""
+    if "audio" not in pack:
+        return
+    a = pack["audio"]
+    if not isinstance(a, dict):
+        rep.err("pack.audio must be an object {voice, version}")
+        return
+    if not is_str(a.get("voice")):
+        rep.err("pack.audio.voice must be a non-empty string")
+    v = a.get("version")
+    if not (isinstance(v, int) and not isinstance(v, bool) and v >= 1):
+        rep.err("pack.audio.version must be an integer >= 1")
+    extra = set(a) - {"voice", "version"}
+    if extra:
+        rep.warn(f"pack.audio has unknown keys {sorted(extra)} (only voice, version are used)")
+
+
+def check_audio_data(pack, words, sents, passages, script, rep, site_dir=None):
+    """Cross-file audio notes: pack.audio with no clip anywhere, relative clips with no
+    pack.audio (they play, but the no-voice notices still show), and relative clips whose file
+    is missing. Relative URLs resolve against the built page, which sits beside pack/ in a
+    language repo, so files are looked up under site_dir (packdir/..)."""
+    urls = [x.get("audio") for x in (words or []) + (sents or []) if isinstance(x, dict)]
+    for p in passages or []:
+        if isinstance(p, dict) and isinstance(p.get("sentences"), list):
+            urls += [s.get("audio") for s in p["sentences"] if isinstance(s, dict)]
+    if isinstance(script, dict) and isinstance(script.get("units"), list):
+        urls += [u.get("audio") for u in script["units"] if isinstance(u, dict)]
+    urls = [u for u in urls if is_str(u)]
+    declared = isinstance(pack, dict) and isinstance(pack.get("audio"), dict)
+    if declared and not urls:
+        rep.warn("pack.audio is set but no word, sentence or script unit has audio")
+    rel = [u for u in urls if not re.match(r"^[a-z][a-z0-9+.-]*:", u, re.I) and not u.startswith("/")]
+    if rel and not declared:
+        rep.warn(f"{len(rel)} relative audio URLs but pack.audio is not set: the no-voice notices still show")
+    if rel and site_dir is not None:
+        gone = [u for u in rel if not os.path.isfile(os.path.join(site_dir, u.split("?")[0].split("#")[0]))]
+        if gone:
+            rep.warn(f"{len(gone)} relative audio URLs have no file beside the site page ({site_dir}), e.g. {gone[:3]}")
 
 
 CHAR_KINDS = ("charRead", "charSound", "charPick", "charRecall")
@@ -297,7 +340,7 @@ def check_words(words, levels, rep):
                 rep.err(f"{where}.{f} must be a non-empty string")
         if w.get("lv") not in levels:
             rep.err(f"{where}.lv {w.get('lv')!r} not in pack.levels")
-        for f in ("pos", "pron"):
+        for f in ("pos", "pron", "audio"):
             if f in w and not is_str(w[f]):
                 rep.err(f"{where}.{f} must be a non-empty string when present")
         if "rank" in w and not is_num(w["rank"]):
@@ -566,6 +609,8 @@ def check_passages(passages, levels, by_id, rep, char_word0=None):
                     missing = [w for w in ws if w not in by_id]
                     if missing:
                         rep.err(f"{sw}.words has unknown ids {missing}")
+                if "audio" in s and not is_str(s["audio"]):
+                    rep.err(f"{sw}.audio must be a non-empty string when present")
                 if "spans" in s:
                     check_spans(s["spans"], s.get("t"), ws, sw, rep)
                 if "ruby" in s:
@@ -976,6 +1021,9 @@ def validate(packdir):
     check_lessons(pack, lessons, rep)
     check_pron_aids_data(pack, words, lessons, rep)
     check_passages(passages, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
+    check_audio_data(pack, words if isinstance(words, list) else [], sents if isinstance(sents, list) else [],
+                     passages if isinstance(passages, list) else [], script, rep,
+                     site_dir=os.path.dirname(os.path.abspath(packdir.rstrip("/\\"))))
     has_pack_script, has_script_file = isinstance(pack, dict) and "script" in pack, script is not None
     if has_pack_script and not has_script_file:
         rep.err("pack.script is set but script.json is missing")

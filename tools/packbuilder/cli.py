@@ -9,6 +9,8 @@
     script  <repo>: the script primer only -- pack/script.json (+ script.js) and the
             "script" key of pack/pack.json (+ pack.js) from the shipped pack/words.json;
             touches no other file
+    audio   recorded audio (docs/AUDIO.md): <repo>/audio/{w,s,p,x}/*.opus + manifest.json,
+            item `audio` URLs and pack.json audio; --check/--prune/--only/--limit
 """
 import argparse
 
@@ -44,7 +46,16 @@ def main(argv=None):
     sc = sub.add_parser("script", help="script primer: pack/script.json + pack.json script key")
     sc.add_argument("repo", help="language repo root (holds pack/)")
     sc.add_argument("--lang", required=True, help="language code (packbuilder/langs/<code>.py)")
+    au = common(sub.add_parser("audio", help="recorded audio: <repo>/audio/*.opus + pack audio URLs (docs/AUDIO.md)"))
+    au.add_argument("--check", action="store_true", help="report missing/stale/orphan clips and stale overrides; write nothing")
+    au.add_argument("--prune", action="store_true", help="delete clips no pack item wants")
+    au.add_argument("--only", help="render only these kinds: w,s,p,x")
+    au.add_argument("--limit", type=int, help="render at most N clips this run")
     args = ap.parse_args(argv)
+
+    if args.cmd == "audio":
+        from .audio import main as audio_main
+        return audio_main(args.lang, args.repo, args.check, args.prune, args.only, args.limit)
 
     if args.cmd == "passages":
         from .passages import main as passages_main
