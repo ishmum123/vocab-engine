@@ -17,6 +17,7 @@ sys.path.insert(0, str(TOOLS))   # vocab-engine/tools
 
 from packbuilder.core.script import build_script, _prune_syll  # noqa: E402
 from packbuilder.core.script_opts import option_counts  # noqa: E402
+from packbuilder.core.util import strip_audio  # noqa: E402
 from packbuilder.langs import get_spec  # noqa: E402
 from packbuilder.langs.ja import romaji  # noqa: E402
 
@@ -232,7 +233,11 @@ class ShippedPacks(unittest.TestCase):
 
     def test_validator_clean_on_shipped(self):
         """The shipped pack/ (written by `packbuilder script`) validates with 0 errors
-        and matches what the emitter makes now."""
+        and matches what the emitter makes now. `packbuilder script` knows nothing about
+        recorded audio (docs/AUDIO.md; `packbuilder audio` runs after it and re-links
+        units[].audio from its manifest), so both sides are compared with audio fields
+        stripped -- this is a staleness check on the emitter's own output, not a check
+        that audio is still linked (packbuilder/tests/test_audio.py covers that)."""
         n = 0
         for code, sp, words in self.each():
             pack = SIBLINGS / REPOS[code] / "pack"
@@ -240,7 +245,8 @@ class ShippedPacks(unittest.TestCase):
                 continue
             doc, _ = build_script(sp, words)
             shipped = json.loads((pack / "script.json").read_text(encoding="utf-8"))
-            self.assertEqual(shipped, doc, f"{code}: pack/script.json is stale (rerun packbuilder script)")
+            self.assertEqual(strip_audio(shipped), strip_audio(doc),
+                             f"{code}: pack/script.json is stale (rerun packbuilder script)")
             r = subprocess.run([sys.executable, str(TOOLS / "validate_pack.py"), str(pack)],
                                capture_output=True, text=True)
             # script-primer errors only: another pack file being mid-edit (a stale

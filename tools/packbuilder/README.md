@@ -73,8 +73,19 @@ python3 -m packbuilder sample --lang it --repo . --seed 303
 python3 -m packbuilder passages . [--lang it] [--check]    # reading passages, see below
 python3 -m packbuilder passages ../packs/zh [--check]      # a flat pack dir (zh, from vocab-engine/tools), see "Chinese (zh) passages"
 python3 -m packbuilder script --lang ko .                  # script primer only, see below
+python3 -m packbuilder audio  --lang fa --repo .            # recorded audio, see docs/AUDIO.md; run LAST
 python3 -m unittest discover -s engine/tools/packbuilder/tests -t engine/tools
 ```
+
+`build`/`passages`/`script` know nothing about recorded audio (docs/AUDIO.md) and rewrite
+`words.json`/`sentences.json`/`passages.json`/`script.json` from scratch, so any of them dropping a
+previously-shipped `audio` field is expected, not a regression: run `packbuilder audio` last after any
+rebuild. It re-links every item's clip from `<repo>/audio/manifest.json` (untouched by the other
+commands) with 0 renders, since the manifest and the clip files on disk never moved
+(`tools/packbuilder/tests/test_audio.py::AudioBuild::test_rebuild_strip_then_audio_restores_links_with_nothing_rerendered`).
+A test or code comparing a freshly regenerated `words.json`/`sentences.json`/`passages.json`/`script.json`
+to the shipped one must strip `audio` fields first (`core/util.strip_audio`, mirrored on the JS side by
+`tests/flagoff_snapshot.js`'s `stripFlagOnFields`) -- the emitter not carrying `audio` is correct, not stale.
 
 ### Script primer
 

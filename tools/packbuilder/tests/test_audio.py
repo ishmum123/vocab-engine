@@ -134,6 +134,50 @@ class AudioBuild(unittest.TestCase):
         self.assertEqual((rc, stub.calls), (0, []))
         self.assertEqual(snapshot(self.root), before)
 
+    def test_rebuild_strip_then_audio_restores_links_with_nothing_rerendered(self):
+        """A stale-emitter rebuild (packbuilder build/passages/script) overwrites words.json,
+        passages.json and script.json from scratch and knows nothing about recorded audio, so
+        it drops every relative `audio` field the builder had written (docs/AUDIO.md: audio
+        runs last and re-links from the manifest). Simulate that here by stripping those
+        fields directly, leaving the manifest and audio/*.opus files untouched, and check that
+        a plain rerun relinks everything with 0 renders -- the manifest's own recovery path."""
+        self.run_audio()
+        before = self.manifest()
+
+        def strip(name, holders):
+            doc = self.pack(name)
+            for h in holders(doc):
+                if isinstance(h.get("audio"), str) and not audio.ABSOLUTE.match(h["audio"]):
+                    del h["audio"]
+            (self.root / "pack" / name).write_text(
+                json.dumps(doc, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+
+        strip("words.json", lambda d: d)
+        strip("sentences.json", lambda d: d)   # s2's Tatoeba absolute URL survives (ABSOLUTE guard)
+        strip("passages.json", lambda d: [s for p in d for s in (p.get("sentences") or [])])
+        doc = self.pack("script.json")
+        for u in doc.get("units") or []:
+            u.pop("audio", None)
+        (self.root / "pack" / "script.json").write_text(
+            json.dumps(doc, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+        subprocess.run([sys.executable, str(TOOLS / "jsonify_pack.py"), str(self.root / "pack")],
+                       check=True, capture_output=True)
+
+        self.assertIsNone(self.url("words.json", 0))
+        self.assertIsNone(self.url("script.json", "xx-te"))
+
+        rc, stub = self.run_audio()
+        self.assertEqual((rc, stub.calls), (0, []))              # 0 rendered: nothing was actually lost
+        self.assertEqual(self.manifest()["files"], before["files"])
+        self.assertEqual([self.url("words.json", k) for k in range(3)],
+                         ["audio/" + before["files"][f"w/w{k}"] for k in (1, 2, 3)])
+        self.assertEqual(self.url("sentences.json", 0), "audio/" + before["files"]["s/s1"])
+        self.assertEqual(self.url("sentences.json", 1), TATOEBA)
+        self.assertEqual([self.url("passages.json", (0, n)) for n in (0, 1)],
+                         ["audio/" + before["files"]["p/p1-0"], "audio/" + before["files"]["p/p1-1"]])
+        self.assertEqual(self.url("script.json", "xx-te"), "audio/" + before["files"]["x/xx-te"])
+        self.assertEqual(self.pack("pack.json")["audio"], {"voice": "xx-test-medium", "version": 1})
+
     def test_version_bump_rerenders_everything(self):
         self.run_audio()
         old = set(self.manifest()["files"].values())

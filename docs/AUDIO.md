@@ -145,6 +145,22 @@ Service worker (`sw.template.js`):
 ## Builder: `python3 -m packbuilder audio --lang fa --repo <repo> [--check] [--prune] [--only w,s,p,x] [--limit N]`
 
 Implemented in `tools/packbuilder/audio.py` (tests: `packbuilder/tests/test_audio.py`, stub synthesiser).
+
+**Run order: `audio` runs last, after any rebuild.** `build`/`passages`/`script` (and their tests
+comparing a freshly regenerated pack file to the shipped one) know nothing about recorded audio and
+rewrite `words.json`/`sentences.json`/`passages.json`/`script.json` from scratch, so any of them
+dropping a previously-shipped `audio` field is expected. It is not a defect in those emitters and they
+should not be changed to carry a field they do not own; `packbuilder audio` re-links every wanted item
+from `<repo>/audio/manifest.json` (which the other commands never touch), and since the manifest and the
+`audio/*.opus` files on disk are unaffected by a words/sentences/passages/script rebuild, this recovery
+is a no-op render: 0 clips synthesised, every field just relinked (proven by
+`packbuilder/tests/test_audio.py::AudioBuild::test_rebuild_strip_then_audio_restores_links_with_nothing_rerendered`,
+which strips every relative `audio` field the way a rebuild would and reruns `audio` alone). A
+staleness comparison between a regenerated doc and its shipped file (e.g. `tools/packbuilder/tests/test_script.py`'s
+`ShippedPacks.test_validator_clean_on_shipped`) must therefore strip `audio` fields from both sides before
+comparing (`core/util.strip_audio`; mirrored on the JS side, for `pack.json`/`words.json`/`sentences.json`,
+by `tests/flagoff_snapshot.js`'s `stripFlagOnFields`), rather than requiring the emitter to reproduce
+fields only `packbuilder audio` writes.
 - Config: `spec.AUDIO` in the language spec (`langs/fa.py`: voice, version, engine, licence), merged over
   defaults (Opus 24 kbps, 24 kHz, words/carriers `length_scale` 1.25 + 150/250 ms padding, sentences 1.0).
   The builder writes `pack.json` `audio: {voice, version}` **only when every wanted clip is current**
