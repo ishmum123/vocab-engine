@@ -30,8 +30,14 @@ function fixture(){
     questions: [{ q: "q", type: "tf", options: null, answer: true, words: [w0.id], sentence: 0 }] }];
   return fx;
 }
-function mkPack(fx){
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ve_audiopack_")); tmpDirs.push(dir);
+// A language-repo layout: <tmp>/pack/*.json, and every relative clip URL in the fixture
+// written as a file under <tmp>/ (the built page's directory) unless noFiles lists it.
+function mkPack(fx, noFiles){
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ve_audiopack_")); tmpDirs.push(repo);
+  const dir = path.join(repo, "pack"); fs.mkdirSync(dir);
+  const urls = [...fx.words, ...fx.sentences, ...fx.passages.flatMap(p => p.sentences), ...fx.script.units]
+    .map(x => x && x.audio).filter(u => typeof u === "string" && u && !/^[a-z][a-z0-9+.-]*:/i.test(u));
+  urls.filter(u => !(noFiles || []).includes(u)).forEach(u => { const f = path.join(repo, u); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, "clip"); });
   const w = (stem, data) => fs.writeFileSync(path.join(dir, stem + ".json"), JSON.stringify(data));
   w("pack", fx.pack); w("words", fx.words); w("sentences", fx.sentences); w("passages", fx.passages); w("script", fx.script);
   return dir;
@@ -82,8 +88,17 @@ expectError("words[].audio empty string", fx => { fx.words[2].audio = ""; }, /wo
 expectError("words[].audio not a string", fx => { fx.words[2].audio = 7; }, /word \S+\.audio must be a non-empty string/);
 expectError("sentences[].audio empty string", fx => { fx.sentences[0].audio = ""; }, /sentence\S*\.audio must be a non-empty string|\.audio must be a non-empty string/);
 expectError("passages[].sentences[].audio not a string", fx => { fx.passages[0].sentences[0].audio = ["x"]; }, /passage p1\.sentences\[0\]\.audio must be a non-empty string/);
-expectWarn("pack.audio set but no clip anywhere", fx => { fx.pack.audio = { voice: "v", version: 1 }; }, /pack\.audio is set but no word or sentence has audio/);
+expectWarn("pack.audio set but no clip anywhere", fx => { fx.pack.audio = { voice: "v", version: 1 }; }, /pack\.audio is set but no word, sentence or script unit has audio/);
 expectWarn("relative clips without pack.audio", fx => { withClips(fx); delete fx.pack.audio; }, /relative audio URLs but pack\.audio is not set/);
+{
+  const fx = fixture(); withClips(fx);
+  const r = runValidate(mkPack(fx, [fx.words[0].audio, "audio/s/s1.opus"]));
+  check("relative clips whose file is missing beside the site page: passes with one warning naming them",
+    r.status === 0 && audioLines(r.out).length === 1 && /2 relative audio URLs have no file beside the site page/.test(r.out) && r.out.includes(fx.words[0].audio), r.out);
+  const fx2 = fixture(); fx2.pack.audio = { voice: "v", version: 1 }; fx2.script.units[0].audio = `audio/x/${fx2.script.units[0].id}.0123abcd.opus`;
+  const r2 = runValidate(mkPack(fx2));
+  check("pack.audio with only script-unit clips (an x-only render): no 'no clip' warning", r2.status === 0 && audioLines(r2.out).length === 0, r2.out);
+}
 
 // Shipped sibling packs: the new rules add nothing (none ships generated audio yet).
 for(const name of ["italian", "spanish", "french", "german", "russian", "persian", "indonesian", "korean", "japanese"]){

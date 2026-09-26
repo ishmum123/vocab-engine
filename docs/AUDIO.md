@@ -58,10 +58,15 @@ File layout in the language repo (beside `index.html`, so relative URLs work on 
 
 ```
 audio/manifest.json
-audio/w/<wordId>.opus        audio/s/<sentenceId>.opus
-audio/p/<passageId>-<n>.opus  (n = 0-based sentence index)
-audio/x/<unitId>.opus        (script primer carriers)
+audio/w/<wordId>.<sha8>.opus        audio/s/<sentenceId>.<sha8>.opus
+audio/p/<passageId>-<n>.<sha8>.opus  (n = 0-based sentence index)
+audio/x/<unitId>.<sha8>.opus        (script primer carriers)
 ```
+
+File names are content-addressed: `<sha8>` is the first 8 hex digits of the clip's key (below). The
+service worker caches per URL, so a re-rendered clip (an override fix, a text edit) must get a new URL,
+or listeners who played the old one keep hearing it from their cache. The builder deletes the superseded
+file. Bumping `version` is only for voice or codec changes.
 
 `audio/manifest.json`:
 
@@ -69,8 +74,10 @@ audio/x/<unitId>.opus        (script primer carriers)
 { "voice": "fa_IR-ganji_adabi-medium", "engine": "piper-tts 1.8.0", "version": 1,
   "codec": "opus", "bitrate": "24k", "rate": 24000, "count": 5610,
   "generated": "2026-10-01T12:00:00Z", "licence": "CC0 (voice dataset tts.datacula.com)",
-  "files": { "w/w0001.opus": "<sha1 of key>", "...": "..." } }
+  "files": { "w/w0001": "w/w0001.1a2b3c4d.opus", "...": "..." } }
 ```
+
+`files` maps item id (`<kind>/<id>`) to its clip file, and is the list of files the builder owns.
 
 Cost of explicit per-item URLs: ~30 bytes × 5610 items ≈ 170 KB raw in the built page (1.5 MB today),
 far less gzipped. Explicit fields keep partial coverage and Tatoeba mixing trivial.
@@ -87,10 +94,13 @@ const PACK_AUDIO = VC.packAudio(PACK);             // pack.json audio {voice: no
 ```
 
 Fallback order in `speak(text, btn, url)`: the clip; if it fails to load (a 404, or offline and not
-cached), TTS of the same text when a voice is usable; else a short toast ("Offline: this recording isn't
-saved on this device yet." / "This recording couldn't be played."). An interrupted clip (AbortError, a
-later `speak` replaced it) and a blocked autoplay (NotAllowedError) are not failures; a generation counter
-drops failures of replaced clips.
+cached), TTS of the same text when a voice is usable (script units: their `say` carrier when the script is
+voiced); else a short toast. Offline, a same-site clip says "Offline: this recording isn't saved on this
+device yet."; a cross-origin clip (Tatoeba, never cached by sw.js) says "Recording needs a connection.";
+online, "This recording couldn't be played.". An interrupted clip (AbortError, a later `speak` replaced
+it) and a blocked autoplay (NotAllowedError) are not failures; a generation counter drops failures and
+late ends of replaced clips, so a reused button keeps its "speaking" state. Packs with Tatoeba clips gain
+this fallback too (before, a failed clip was silent).
 
 Call-site audit: every place that speaks a pack word, with its verdict (all migrated; tests/audio_checks.js).
 
@@ -137,21 +147,31 @@ Service worker (`sw.template.js`):
 Implemented in `tools/packbuilder/audio.py` (tests: `packbuilder/tests/test_audio.py`, stub synthesiser).
 - Config: `spec.AUDIO` in the language spec (`langs/fa.py`: voice, version, engine, licence), merged over
   defaults (Opus 24 kbps, 24 kHz, words/carriers `length_scale` 1.25 + 150/250 ms padding, sentences 1.0).
-  The builder writes `pack.json` `audio: {voice, version}` when any clip exists; codec details go in the
-  manifest only. Bump `version` to re-render everything.
-- Items: words `w` → `audio/w/<id>.opus`, sentences `t` → `audio/s/`, passage sentences `t` →
-  `audio/p/<passageId>-<n>.opus`, script units `say` (skipping `sound: false`) → `audio/x/`. Items that
-  already carry an absolute URL (Tatoeba) are never rendered and never changed.
+  The builder writes `pack.json` `audio: {voice, version}` **only when every wanted clip is current**
+  (nothing missing or stale) and removes it otherwise, so the no-voice notices never hide over a partial
+  render. `--only`/`--limit` runs are for development: they link what they render but leave `pack.audio`
+  unset until a full run completes. Codec details go in the manifest only. Bump `version` for voice or
+  codec changes (it re-renders everything under new names).
+- Items: words `w` → `audio/w/<id>.<sha8>.opus`, sentences `t` → `audio/s/`, passage sentences `t` →
+  `audio/p/<passageId>-<n>.<sha8>.opus`, script units `say` (skipping `sound: false`) → `audio/x/`. Items
+  that already carry an absolute URL (Tatoeba) are never rendered and never changed.
+- Ownership: the builder owns exactly the files the manifest lists. A relative URL that is not one of them
+  is foreign (a hand recording): never rendered over, relinked or removed, and logged as a note. Files on
+  disk that the manifest does not list are never deleted.
 - Overrides: `<repo>/tools/audio_say.json` = `{pack text: spoken text}`, keyed by the item's exact pack text
   (so one fix covers every item with that text). Spoken text only; pack text never changes. `--check` fails
   on stale keys (no item has that text) and notes overrides that change letters rather than only marks.
-- Key = sha1(spoken text, voice, version, codec, bitrate, rate, speed, padding), stored per file in
-  `audio/manifest.json`. A file whose key matches is skipped: reruns are idempotent (byte-identical
-  repo, `generated` unchanged) and a text or override edit re-renders only that item.
-- URLs: the builder owns relative `audio/…` URLs: set where the clip is current, removed where it is not.
+- Key = sha1(spoken text, voice, version, codec, bitrate, rate, speed, padding); its first 8 hex digits
+  name the file. An item whose manifest file has the current name is skipped: reruns are idempotent
+  (byte-identical repo, `generated` unchanged) and a text or override edit re-renders only that item,
+  under a new name, deleting the old file.
+- URLs: each wanted item links its owned clip (a stale one stays linked until re-rendered); an item with
+  no clip has its builder URL removed.
   Pack JSON keeps its layout; the .js consts are regenerated (`jsonify_pack.py`).
 - `--check` (writes nothing): missing, stale, orphan clips, dangling relative URLs, stale override keys; exit 1
-  on any. `--prune` deletes orphans. `--only` limits rendering to kinds; `--limit N` renders at most N.
+  on any. Notes (not failures): foreign URLs, unowned files, overrides that change letters. `--prune`
+  deletes owned clips of items no longer in the pack (never unowned files). `--only` limits rendering to
+  kinds; `--limit N` renders at most N.
 - Dependencies (`tools/packbuilder/requirements-audio.txt`): piper-tts 1.8.0, ffmpeg with libopus on PATH.
   Voice model at `<repo>/.cache/voices/<voice>.onnx` (+ `.onnx.json`), never committed.
 - Smoke-tested 2026-09-26 on a copy of the Persian pack (`--limit 3`, real Piper): 3 Opus clips, URLs,

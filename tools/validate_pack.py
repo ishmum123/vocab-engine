@@ -153,20 +153,28 @@ def check_audio_pack(pack, rep):
         rep.warn(f"pack.audio has unknown keys {sorted(extra)} (only voice, version are used)")
 
 
-def check_audio_data(pack, words, sents, passages, rep):
-    """Cross-file audio notes: pack.audio with no clip anywhere, or relative clips with no
-    pack.audio (they play, but the no-voice notices still show)."""
+def check_audio_data(pack, words, sents, passages, script, rep, site_dir=None):
+    """Cross-file audio notes: pack.audio with no clip anywhere, relative clips with no
+    pack.audio (they play, but the no-voice notices still show), and relative clips whose file
+    is missing. Relative URLs resolve against the built page, which sits beside pack/ in a
+    language repo, so files are looked up under site_dir (packdir/..)."""
     urls = [x.get("audio") for x in (words or []) + (sents or []) if isinstance(x, dict)]
     for p in passages or []:
         if isinstance(p, dict) and isinstance(p.get("sentences"), list):
             urls += [s.get("audio") for s in p["sentences"] if isinstance(s, dict)]
+    if isinstance(script, dict) and isinstance(script.get("units"), list):
+        urls += [u.get("audio") for u in script["units"] if isinstance(u, dict)]
     urls = [u for u in urls if is_str(u)]
     declared = isinstance(pack, dict) and isinstance(pack.get("audio"), dict)
     if declared and not urls:
-        rep.warn("pack.audio is set but no word or sentence has audio")
-    rel = [u for u in urls if not re.match(r"^[a-z][a-z0-9+.-]*:", u, re.I)]
+        rep.warn("pack.audio is set but no word, sentence or script unit has audio")
+    rel = [u for u in urls if not re.match(r"^[a-z][a-z0-9+.-]*:", u, re.I) and not u.startswith("/")]
     if rel and not declared:
         rep.warn(f"{len(rel)} relative audio URLs but pack.audio is not set: the no-voice notices still show")
+    if rel and site_dir is not None:
+        gone = [u for u in rel if not os.path.isfile(os.path.join(site_dir, u.split("?")[0].split("#")[0]))]
+        if gone:
+            rep.warn(f"{len(gone)} relative audio URLs have no file beside the site page ({site_dir}), e.g. {gone[:3]}")
 
 
 CHAR_KINDS = ("charRead", "charSound", "charPick", "charRecall")
@@ -1014,7 +1022,8 @@ def validate(packdir):
     check_pron_aids_data(pack, words, lessons, rep)
     check_passages(passages, levels, by_id, rep, char_word0=char_word0 if has_pack_chars else None)
     check_audio_data(pack, words if isinstance(words, list) else [], sents if isinstance(sents, list) else [],
-                     passages if isinstance(passages, list) else [], rep)
+                     passages if isinstance(passages, list) else [], script, rep,
+                     site_dir=os.path.dirname(os.path.abspath(packdir.rstrip("/\\"))))
     has_pack_script, has_script_file = isinstance(pack, dict) and "script" in pack, script is not None
     if has_pack_script and not has_script_file:
         rep.err("pack.script is set but script.json is missing")
