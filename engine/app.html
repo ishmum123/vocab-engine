@@ -113,8 +113,9 @@
   .hear-stage{display:flex;justify-content:center;margin:14px 0 22px}
   .speaker{width:92px;height:92px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:36px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
   @keyframes speakerPulse{0%{transform:scale(1)}50%{transform:scale(1.12)}100%{transform:scale(1)}}
-  .speaker.speaking{animation:speakerPulse 0.9s ease-in-out infinite}
-  @media (prefers-reduced-motion: reduce){ .speaker.speaking{animation:none} }
+  .speaker.speaking,.replay.speaking{animation:speakerPulse 0.9s ease-in-out infinite}
+  @media (prefers-reduced-motion: reduce){ .speaker.speaking,.replay.speaking{animation:none} }
+  .rvsay{display:flex;justify-content:center;margin:10px 0 0}
   .reveal{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:none;font-size:15px}
   .reveal .rw{font-size:22px;margin-bottom:2px;font-family:var(--wfont)}
   .reveal .rp{color:var(--mute);margin-bottom:2px}
@@ -553,22 +554,34 @@ let speakingBtn = null;
 // same text; with no voice it shows a short hint instead. speakGen drops the failure of a
 // clip that a later speak() already replaced (its pause rejects play() with AbortError),
 // and a blocked autoplay (NotAllowedError) is not a failure of the clip.
-let speakGen = 0;
+// TTS goes through VC.ttsDriver (docs/AUDIO.md "Playback reliability"): cancel only when
+// something is speaking/pending and then speak a moment later (Chrome drops an utterance
+// spoken right after cancel), resume a paused engine, one retry of an utterance that never
+// starts, and the current utterance kept referenced until it ends.
+const TIMERS = { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: t => clearTimeout(t) };
+const tts = SS ? VC.ttsDriver(SS, TIMERS) : null;
+let speakGen = 0, clipDisarm = () => {};
 function speak(text, btn, audioUrl){
   const gen = ++speakGen;
+  clipDisarm(); clipDisarm = () => {};
   audioOut.stop();
-  if(SS){ try{ SS.cancel(); }catch(e){} }
+  if(tts) tts.stop();
   if(speakingBtn){ speakingBtn.classList.remove("speaking"); speakingBtn = null; }
   if(audioUrl){
     try{
       const a = audioOut.play(audioUrl);
       a.onended = a.onerror = null;
+      if("onplaying" in a) a.onplaying = null;
       if(btn){ speakingBtn = btn; btn.classList.add("speaking"); }
       // done() is generation-guarded too: a replaced clip's late end/abort must not strip
       // "speaking" from a button the newer speak() reuses.
-      const done = () => { if(btn && gen === speakGen) btn.classList.remove("speaking"); };
+      const done = () => { disarm(); if(btn && gen === speakGen) btn.classList.remove("speaking"); };
       let settled = false;
       const failed = () => { if(settled || gen !== speakGen) return; settled = true; done(); clipFailed(text, btn, audioUrl); };
+      // A clip that never fires "playing" (hung load, stalled start) falls back like a
+      // failed one, once, after its player is stopped so it cannot start late on top.
+      const disarm = VC.clipStartWatch(a, VC.CLIP_START_MS, () => { if(settled || gen !== speakGen) return; audioOut.stop(); failed(); }, TIMERS);
+      clipDisarm = disarm;
       a.onended = done; a.onerror = failed;
       const pr = a.play();
       if(pr && pr.catch) pr.catch(err => { if(err && (err.name === "NotAllowedError" || err.name === "AbortError")) done(); else failed(); });
@@ -595,15 +608,22 @@ function audioHint(msg){
   document.body.appendChild(t);
   setTimeout(() => { if(t.parentNode) t.remove(); }, 3500);
 }
+// The voice is re-checked per utterance (VC.liveVoice): the one picked at the last
+// voiceschanged when still listed, else a fresh pick, else none (lang only).
 function speakTTS(text, btn){
-  if(!hasSpeech) return;
+  if(!hasSpeech || !tts) return;
   try{
-    const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; if(ttsVoice) u.voice = ttsVoice; u.rate = TTS_RATE;
-    if(btn){
-      u.onstart = () => btn.classList.add("speaking");
-      u.onend = u.onerror = () => btn.classList.remove("speaking");
-    }
-    SS.speak(u);
+    tts.say(() => {
+      const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; u.rate = TTS_RATE;
+      let v = ttsVoice;
+      try{ v = VC.liveVoice(ttsVoice, SS.getVoices(), TTS_LANG); }catch(e){}
+      if(v) u.voice = v;
+      if(btn){
+        u.onstart = () => btn.classList.add("speaking");
+        u.onend = u.onerror = () => btn.classList.remove("speaking");
+      }
+      return u;
+    });
   }catch(e){}
 }
 const say = t => speak(t);
@@ -647,6 +667,9 @@ function speakerSVG(size){
 const SPEAKER_SVG = speakerSVG(38);
 const REPLAY_SVG = speakerSVG(18);
 const TEACH_PLAY_SVG = speakerSVG(14);
+// The Replay button of an item that autoplays beside shown text (read items), as
+// writtenTypeItem's: the text stays the stimulus, the button replays what played.
+const REPLAY_STAGE = `<div class="listen-stage"><button class="replay" id="rpa" aria-label="Replay">${REPLAY_SVG}</button></div>`;
 
 // ===================== display helpers =====================
 // pron is display-only: shown beside a word/sentence when the learner has it on.
@@ -755,6 +778,19 @@ function showReveal(html){
   if(html){ rv.style.opacity = "0"; requestAnimationFrame(()=>{ rv.style.opacity = "1"; }); }
   announce(html);
 }
+// Replay rule (docs/AUDIO.md "Playback reliability"): every drill item that plays audio
+// on its own shows a Replay button for it. Items that play at mount carry it in their html;
+// items that play on reveal (onReveal) and can be heard (revealHear) get this one appended
+// to the reveal by the runner, so it only exists once the item is answered (a gap item's
+// sentence audio never leaks the blank). onReveal(btn) plays with the button pulsing.
+const REVEAL_REPLAY = `<div class="rvsay"><button type="button" class="replay" id="rvp" aria-label="Replay">${REPLAY_SVG}</button></div>`;
+const revealHTML = (it, html) => it.onReveal && it.revealHear ? html + REVEAL_REPLAY : html;
+function playReveal(it){
+  if(!it.onReveal) return;
+  const b = it.revealHear ? $("rvp") : null;
+  if(b) b.onclick = () => it.onReveal(b);
+  it.onReveal(b || undefined);
+}
 function dnext(){
   if(!D) return;
   const P = $("panel");
@@ -791,8 +827,8 @@ function renderMcItem(it){
       if(!ok) b.classList.add("bad");
       D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
       if(it.onAnswer) it.onAnswer(ok);
-      showReveal(it.reveal || "");
-      if(it.onReveal) it.onReveal();
+      showReveal(revealHTML(it, it.reveal || ""));
+      playReveal(it);
       showNext(); setScore(D.seen, D.seen + D.q.length);
     };
     b.dataset.v = o;
@@ -821,8 +857,8 @@ function renderTypeItem(it){
     const ok = it.check(input.value);
     D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
     if(it.onAnswer) it.onAnswer(ok);
-    showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.feedback ? it.feedback(input.value) : "") + (it.reveal||""));
-    if(it.onReveal) it.onReveal();
+    showReveal(revealHTML(it, (ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.feedback ? it.feedback(input.value) : "") + (it.reveal||"")));
+    playReveal(it);
     showNext(); setScore(D.seen, D.seen + D.q.length);
   }
   $("submit").onclick = submit;
@@ -1079,11 +1115,13 @@ function hearItem(entry){
     mount: () => { const btn = $("sp"); sayWord(entry, btn); btn.onclick = ()=>sayWord(entry, btn); },
     };
 }
-// read — word shown; pick the meaning. Audio auto-plays.
+// read — word shown; pick the meaning. Audio auto-plays, with a Replay button when the
+// word can be heard (built without one, it still tries: a voice may have arrived since).
 function readItem(entry){
+  const hear = canHearWord(entry);
   return { kind:"mc", key:"w:"+entry.id, label:"What does it mean?", optsClass:"opts-hero",
-    html: bigWordHTML(entry), opts: meaningChoices(entry), a: VC.gloss(entry), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), mount: () => sayWord(entry), };
+    html: bigWordHTML(entry) + (hear ? REPLAY_STAGE : ""), opts: meaningChoices(entry), a: VC.gloss(entry), reveal: revealBlock(entry),
+    onAnswer: ok=>markWord(entry.id, ok), mount: () => { const b = hear ? $("rpa") : null; sayWord(entry, b || undefined); if(b) b.onclick = () => sayWord(entry, b); }, };
 }
 // recall — meaning shown; pick the word (wordOpts: same pos/level first, never a
 // distractor that would also be a right answer).
@@ -1095,7 +1133,7 @@ function recallItem(entry){
   return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
     html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
     opts: [entry.id, ...ds.map(d=>d.id)], a: entry.id, optHtml: wordOptHtml(byId, o => byId[o].w), optsT: true, reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: b => sayWord(entry, b), revealHear: canHearWord(entry) };
 }
 // type — meaning shown; type the word (normalised per pack.typing, alt forms and any
 // affix-bare/slash-alternative forms from VC.affixAlts accepted, e.g. 이 or 가 for -이/가).
@@ -1103,7 +1141,7 @@ function typeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:"Type the word",
     html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
     check: val => VC.acceptTyped(val, entry, PACK, VC.affixAlts(entry.w), WORDS), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: b => sayWord(entry, b), revealHear: canHearWord(entry) };
 }
 // pack.typing "pron": the word's production slot (kindMix "type", the slot recall also
 // fills) is one of two typed items, alternating in plan order (VC.typeSlotKind), each
@@ -1130,7 +1168,7 @@ function pronTypeItem(entry){
     placeholder: TONES ? `${PRON_NOUN}, tones optional…` : `${PRON_NOUN}…`, inputTA: LATIN_PRON.test(entry.pron) ? ' lang="en"' : undefined,
     check: val => VC.checkPronTyped(val, entry.pron, PACK) !== "wrong",
     feedback: val => { const v = VC.checkPronTyped(val, entry.pron, PACK); return v === "tones" || v === "tonesDiff" ? `<div class="diff">tones: <span class="tpron">${readingHTML(entry.pron)}</span></div>` : ""; },
-    reveal: revealBlock(entry), onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
+    reveal: revealBlock(entry), onAnswer: ok=>markWord(entry.id, ok), onReveal: b => sayWord(entry, b), revealHear: canHearWord(entry) };
 }
 function writtenTypeItem(entry){
   const hear = canHearWord(entry);
@@ -1144,7 +1182,7 @@ function writtenTypeItem(entry){
     placeholder: "characters…",
     mount: () => { if(hear){ const b = $("rp2"); sayWord(entry, b); b.onclick = () => sayWord(entry, b); } },
     check: val => VC.acceptTyped(foldTyped(val), entry, PACK, VC.affixAlts(entry.w), WORDS), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: b => sayWord(entry, b), revealHear: canHearWord(entry) };
 }
 // The characters item only for a word whose written form is on display (dispWord: under
 // pronFirst, a word below its character tier shows its reading only, so its characters
@@ -1182,14 +1220,15 @@ function sentenceRevealBlock(s){
 }
 const sentenceChoices = s => [s.en, ...VC.sentenceOpts(s, SENTENCES).map(d=>d.en)];
 function readSentence(s){
+  const hear = canHearSentence(s);
   const pf = pfSentence(s);
   const rt = pf ? null : sentenceRuby(s);
   const p = rt || pf ? "" : pronOf(s);
   return { kind:"mc", key:"s:"+s.id, label:"What does it mean?", optsClass:"opts-hero",
-    html: pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div>`
-      : `<div class="med wd${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}</div>${p ? `<div class="q cue">${readingHTML(p)}</div>` : ""}`,
+    html: (pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div>`
+      : `<div class="med wd${rt ? " hasruby" : ""}"${TA}>${rt ? rubyTextHTML(s, rt) : escapeHtml(s.t)}</div>${p ? `<div class="q cue">${readingHTML(p)}</div>` : ""}`) + (hear ? REPLAY_STAGE : ""),
     opts: sentenceChoices(s), a: s.en, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
-    mount: () => saySentence(s), };
+    mount: () => { const b = hear ? $("rpa") : null; saySentence(s, b || undefined); if(b) b.onclick = () => saySentence(s, b); }, };
 }
 function hearSentence(s){
   if(!canHearSentence(s)) return Object.assign(readSentence(s), { needsNotice: true });
@@ -1216,7 +1255,7 @@ function gapSentence(s, typed){
   const html = pf ? `<div class="med wd${pf.ruby ? " hasruby" : ""}"${TA}>${pf.html}${pfWrittenTap(pf)}</div><div class="q cue">${ui(s.en)}</div>`
     : `<div class="med wd"${TA}>${escapeHtml(b.before)}<span class="blank">____</span>${escapeHtml(b.after)}</div><div class="q cue">${ui(s.en)}</div>`;
   const base = { key:"s:"+s.id, reveal: sentenceRevealBlock(s), onAnswer: ok=>markSentence(s.id, ok),
-    onReveal: () => saySentence(s) };
+    onReveal: b => saySentence(s, b), revealHear: canHearSentence(s) };
   if(typed && TYPING){
     return Object.assign(base, { kind:"type", label:"Type the missing word", html,
       check: val => VC.acceptTyped(val, entry, PACK, [match.text], WORDS) });
@@ -1247,7 +1286,7 @@ function charRevealBlock(it){
 function charDrillItem(kind, unit){
   const it = VC.charItem(kind, unit, CHAR_CTX);
   const base = { kind:"mc", key: it.key, opts: it.options, a: it.answer, reveal: charRevealBlock(it),
-    onAnswer: ok => markChar(it.unitId, ok), onReveal: () => sayUnit(it) };
+    onAnswer: ok => markChar(it.unitId, ok), onReveal: b => sayUnit(it, b), revealHear: canHearUnit(it) };
   const form = `<div class="big wd"${TA}>${escapeHtml(it.t)}</div>`;
   const formOpts = { optsClass:"opts-hero opts-w", optHtml: o => tw(o), optsT: true };
   if(kind === "charRead") return Object.assign(base, { label:"What does it mean?", optsClass:"opts-hero", html: form });
@@ -1290,7 +1329,7 @@ function scriptRevealBlock(it){
 function scriptDrillItem(kind, unit, ctx){
   const it = VC.scriptItem(kind, unit, ctx || scriptCtx());
   const base = { kind:"mc", key: it.key, opts: it.options, a: it.answer, reveal: scriptRevealBlock(it),
-    onAnswer: ok => markScriptRec(it.unitId, ok), onReveal: it.audio === "after" ? () => sayScript(it) : null };
+    onAnswer: ok => markScriptRec(it.unitId, ok), onReveal: it.audio === "after" ? b => sayScript(it, b) : null, revealHear: it.audio === "after" };
   const glyphOpts = { optsClass:"opts-hero opts-w opts-g", optHtml: o => tw(o), optsT: true };
   const wordOpts = { optsClass:"opts-hero opts-w", optHtml: o => tw(o), optsT: true };
   const romanOpts = { optsClass:"opts-hero", optHtml: o => `<bdi>${escapeHtml(o)}</bdi>` };
@@ -1304,7 +1343,7 @@ function scriptDrillItem(kind, unit, ctx){
   if(k === "symType"){
     const accept = (it.accept || [it.answer]).map(VC.normKey);
     return { kind:"type", key: it.key, label:"Type how it sounds", html: big(it.show), inputTA: "", placeholder: "type the sound",
-      check: v => accept.includes(VC.normKey(v)), reveal: base.reveal, onAnswer: base.onAnswer, onReveal: base.onReveal };
+      check: v => accept.includes(VC.normKey(v)), reveal: base.reveal, onAnswer: base.onAnswer, onReveal: base.onReveal, revealHear: base.revealHear };
   }
   if(k === "compose") return Object.assign(base, glyphOpts, { label:"Put them together", html: big(it.show) });
   if(k === "formFind") return Object.assign(base, wordOpts, { label:"Which word has this letter?", html: big(it.show) + sub(it.hint) });
@@ -1406,7 +1445,7 @@ function lessonItem(it, key, mode){
     ? (it.say ? `<div class="listen-stage"><button class="replay" id="rpl" aria-label="Replay">${REPLAY_SVG}</button></div>` : "")
     : (mode === "text" ? `<div class="big wd"${TA}>${escapeHtml(it.say)}</div>` : "");
   return { kind:"mc", key, label: it.q, html,
-    mount: () => { if(mode === "audio" && it.say){ say(it.say); $("rpl").onclick = ()=>say(it.say); } },
+    mount: () => { if(mode === "audio" && it.say){ const b = $("rpl"); speak(it.say, b); b.onclick = ()=>speak(it.say, b); } },
     opts: it.opts, a: it.a, reveal: `<div>${escapeHtml(it.rv||"")}</div>` };
 }
 

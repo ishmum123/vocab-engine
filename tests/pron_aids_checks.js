@@ -916,7 +916,14 @@ function walk(api, stopAt){
       const cases = [["zh, BP2 fields + ruby + pronFirst absent", offPack, offSent, offPass]];
       for(const [name, pk, ss, ps] of cases){
         const a = await screens(mainHtml, mainCore, pk, ss, ps, 11);
-        const b = await screens(CUR_HTML, VC, pk, ss, ps, 11);
+        const b0 = await screens(CUR_HTML, VC, pk, ss, ps, 11);
+        // The Replay buttons (docs/AUDIO.md "Playback reliability": read items' #rpa stage,
+        // the reveal's #rvp row) postdate main; exactly that markup is dropped before the
+        // compare, and it must have been there to drop (walk).
+        const REPLAY_RE = /<div class="(?:rvsay|listen-stage)"><button (?:type="button" )?class="replay" id="(?:rvp|rpa)" aria-label="Replay"><svg[\s\S]*?<\/svg><\/button><\/div>/g;
+        const b = {}; let dropped = 0;
+        for(const k of Object.keys(b0)) b[k] = b0[k].replace(REPLAY_RE, () => { dropped++; return ""; });
+        check(`${name}: replay buttons present in the current walk (${dropped} dropped before the compare)`, dropped > 0);
         // Intended since the Today Read stage: main's Read hint box became the plan's Read
         // row; both are cut before comparing (the walk skips the stage, see walk()).
         a.today = a.today.replace(/<div class="stmt" id="readHintBox">[\s\S]*?<\/button><\/div>/, "");
@@ -931,6 +938,55 @@ function walk(api, stopAt){
       }
     }
   }
+
+  // ---------------------------------------------------------------- [12] replay rule
+  console.log("\n[12] replay rule (docs/AUDIO.md \"Playback reliability\"): every autoplay site shows a Replay button");
+  try{
+    const { rtlAudit } = require("./fixtures/rtl_audit.js");
+    const { api, spoken } = await boot({ seed: 5 });
+    api.setProg(seedPF());
+    const w = WORDS.find(x => x.lv === "1" || x.lv === 1) || WORDS[0];
+    const RPA = /<button class="replay" id="rpa" aria-label="Replay">/, RVP = /<button type="button" class="replay" id="rvp" aria-label="Replay">/;
+    // read word: autoplays at mount, Replay on the item from the start
+    let k = spoken.length; api.drill1(api.readItem(w));
+    check("readItem: Replay button (#rpa) on the item, the word autoplays once at mount", RPA.test(api.html("panel")) && spoken.slice(k).join() === w.w);
+    k = spoken.length; api.el("rpa").click();
+    check("readItem: Replay speaks the word again", spoken.slice(k).join() === w.w);
+    // read sentence
+    const s0 = SENTENCES[3];
+    k = spoken.length; api.drill1(api.readSentence(s0));
+    check("readSentence: Replay button (#rpa) on the item, the sentence autoplays once at mount", RPA.test(api.html("panel")) && spoken.slice(k).join() === s0.t);
+    k = spoken.length; api.el("rpa").click();
+    check("readSentence: Replay speaks the sentence again", spoken.slice(k).join() === s0.t);
+    // gap: nothing before the answer, Replay only in the reveal
+    let gi = null; for(const s of SENTENCES){ const it = api.gapSentence(s); if(it && it.kind === "mc"){ gi = [s, it]; break; } }
+    check("setup: a zh sentence with a choice gap item", !!gi);
+    if(gi){
+      const [gs, it] = gi;
+      k = spoken.length; api.drill1(it);
+      check("gap item before answering: no Replay button anywhere, nothing spoken (the blank is not given away)", !/id="rvp"|id="rpa"|id="sp"/.test(api.html("panel")) && spoken.length === k);
+      api.el("o").children.find(b => b.dataset.v === it.a).click();
+      check("gap item answered: Replay (#rvp) in the reveal, the sentence spoken once", RVP.test(api.html("rv")) && spoken.slice(k).join() === gs.t);
+      k = spoken.length; api.el("rvp").click();
+      check("gap reveal Replay speaks the sentence again", spoken.slice(k).join() === gs.t);
+      { const all = rtlAudit(api.html("rv")), base = rtlAudit(it.reveal); console.log("    rtlAudit reveal+replay:", all.length, "reveal alone:", base.length, all.slice(0,2).join(" / ")); check("gap reveal: the Replay row adds no bidi/font violations", all.length === base.length); }
+    }
+    // word reveal (recall): Replay after answering only
+    const rit = api.recallItem(w);
+    k = spoken.length; api.drill1(rit);
+    check("recallItem before answering: no Replay, nothing spoken", !/id="rvp"/.test(api.html("panel")) && spoken.length === k);
+    api.el("o").children.find(b => b.dataset.v === rit.a).click();
+    check("recallItem answered: Replay (#rvp) in the reveal, the word spoken once", RVP.test(api.html("rv")) && spoken.slice(k).join() === w.w);
+    // the stored reveal (Missed summary) never carries the runner's button
+    check("item.reveal itself has no #rvp (the Missed summary repeats reveals; ids stay unique)", !/id="rvp"/.test(rit.reveal));
+    // no voice: nothing plays, no buttons
+    const nv = await boot({ seed: 5, voices: [{ lang: "en-US", name: "en" }] });
+    nv.api.setProg(seedPF());
+    const r2 = nv.api.readItem(w);
+    check("no voice for the language: readItem has no Replay", !RPA.test(r2.html));
+    const rc = nv.api.recallItem(w); nv.api.drill1(rc); nv.api.el("o").children.find(b => b.dataset.v === rc.a).click();
+    check("no voice: recall reveal has no Replay and nothing is spoken", !/id="rvp"/.test(nv.api.html("rv")) && nv.spoken.length === 0);
+  }catch(e){ check(`replay rule section threw: ${e.stack}`, false); }
 
   Math.random = REAL_RANDOM;
   console.log(`\n${fails === 0 ? "ALL PASSED" : "FAILED"}: ${passes} passed, ${fails} failed`);

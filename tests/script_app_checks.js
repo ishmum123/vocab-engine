@@ -739,6 +739,9 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     answer(api, true); sites.meaningReveal = api.html("rv");
     api.drill([api.recallItem(bk)], () => {});
     sites.recallItem = api.html("panel") + optsMarkup(api);
+    answer(api, true); sites.recallReveal = api.html("rv");
+    check("rtl pack: the read item carries its Replay (#rpa) and the recall reveal its Replay (#rvp); both audited below",
+      /id="rpa" aria-label="Replay"/.test(sites.meaningItem) && /id="rvp" aria-label="Replay"/.test(sites.recallReveal));
     api.drill([api.typeItem(bk)], () => {});
     sites.typeItem = api.html("panel");
     // A sentence whose translation embeds an RTL phrase with an ellipsis (one run).

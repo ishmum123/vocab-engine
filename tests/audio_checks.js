@@ -157,6 +157,8 @@ async function boot(data, opts){
   const o = opts || {};
   const document = makeFakeDom();
   const f = fakes(o.voices || [{ lang: "en-US", name: "en" }], o.online);
+  if(o.ss) Object.assign(f.window.speechSynthesis, o.ss);
+  if(o.Audio) f.Audio = o.Audio(f.log);
   const fnBody = appSrc + `
 return {
   html: id => { const e = document.getElementById(id); return e ? e.innerHTML : null; },
@@ -171,7 +173,7 @@ return {
     f.Audio, () => true, () => {}, data.pack, data.words, data.sentences, [], data.passages, data.script];
   const api = new Function(...names, fnBody)(...args);
   await tick(); await tick();
-  return { api, document, log: f.log };
+  return { api, document, log: f.log, ss: f.window.speechSynthesis };
 }
 
 // ------------------------------------------------------------------ [1] core.js
@@ -492,10 +494,78 @@ async function swChecks(){
   finally{ fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
+// ------------------------------------------------------------------ [6] playback reliability (app)
+// The app's speak() through VC.ttsDriver, with a stub engine that reports speaking/pending
+// as booleans (a real browser): the cancel race, the no-start retry, and the clip start
+// watchdog. Real timers (TTS_TIMING / CLIP_START_MS are short enough to wait out).
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function reliabilityChecks(){
+  if(!fs.existsSync(path.join(FA, "pack.js"))){ console.log("\nNOTE  ../persian/pack missing: reliability checks skipped"); return; }
+  console.log("\n[6] playback reliability in the app: cancel race, no-start retry, clip start watchdog");
+  const T = VC.TTS_TIMING;
+  const D = faData(false);
+  { // cancel race: engine busy -> cancel once, speak deferred, exactly once; a newer speak wins
+    let cancels = 0;
+    const { api, log, ss } = await boot(D, { voices: FAVOICE, ss: { speaking: true, pending: false, paused: false, cancel(){ cancels++; ss.speaking = false; } } });
+    log.spoken.length = 0;
+    api.speak("اول");
+    check("app, engine speaking: speak() cancels once and does not speak in the same tick (Chrome drops that utterance)", cancels === 1 && log.spoken.length === 0);
+    await sleep(T.deferMs + 30);
+    check("app, engine speaking: the utterance is spoken exactly once after the defer", log.spoken.join() === "اول");
+    ss.speaking = true; log.spoken.length = 0;
+    api.speak("یک"); api.speak("دو");
+    await sleep(T.deferMs + 30);
+    check("app: two quick speaks while busy -> only the newer is spoken", log.spoken.join() === "دو");
+  }
+  { // no onstart, never speaking: exactly one retry
+    const { api, log } = await boot(D, { voices: FAVOICE, ss: { speaking: false, pending: false, paused: false } });
+    log.spoken.length = 0;
+    api.speak("سلام");
+    check("app, idle engine: spoken synchronously (happy path)", log.spoken.join() === "سلام");
+    await sleep(T.watchMs + T.pollMs + T.deferMs + 100);
+    check("app, utterance never started (!speaking && !pending): retried exactly once", log.spoken.join() === "سلام,سلام");
+    await sleep(T.watchMs + T.pollMs + 100);
+    check("app: no second retry", log.spoken.length === 2);
+  }
+  { // paused engine: resume before speak
+    const order = [];
+    const { api, log, ss } = await boot(D, { voices: FAVOICE, ss: { speaking: false, pending: false, paused: true, resume(){ order.push("resume"); ss.paused = false; } } });
+    const sp = ss.speak; ss.speak = u => { order.push("speak"); sp(u); ss.speaking = true; };
+    api.speak("باز");
+    check("app, paused engine: resume() before speak()", order.join() === "resume,speak");
+  }
+  { // clip that never fires "playing": falls back to TTS once, the clip stopped first
+    const DA = faData(true);
+    const c1 = DA.byId[DA.clipIds[0]];
+    let pauses = 0;
+    const mk = log => function Audio(){ const a = { src: "", onended: null, onerror: null, onplaying: null, pause(){ pauses++; },
+      play(){ log.played.push(a.src); return Promise.resolve(); } }; return a; };
+    const { api, log } = await boot(DA, { voices: FAVOICE, Audio: mk });
+    log.played.length = 0; log.spoken.length = 0;
+    api.sayWord(c1);
+    await sleep(VC.CLIP_START_MS - 500);
+    check("app, clip not playing yet: no fallback before CLIP_START_MS", log.spoken.length === 0 && log.played.join() === c1.audio);
+    const p0 = pauses;
+    await sleep(700);
+    check("app, clip never fired 'playing': clip stopped, TTS of the word once", log.spoken.join() === c1.w && pauses > p0);
+    await sleep(VC.CLIP_START_MS + 200);
+    check("app: the clip watchdog fires once", log.spoken.length === 1);
+    // A clip that does start: no fallback.
+    log.spoken.length = 0;
+    const holder = {}; const mk2 = lg => function Audio(){ const a = { src: "", onended: null, onerror: null, onplaying: null, pause(){},
+      play(){ lg.played.push(a.src); holder.a = a; return Promise.resolve(); } }; return a; };
+    const b2 = await boot(DA, { voices: FAVOICE, Audio: mk2 });
+    b2.api.sayWord(c1); holder.a.onplaying({});
+    await sleep(VC.CLIP_START_MS + 200);
+    check("app, clip fired 'playing': no TTS fallback", b2.log.spoken.length === 0);
+  }
+}
+
 (async function main(){
   console.log("Checking recorded audio (docs/AUDIO.md)");
   coreChecks();
   await appChecks();
+  await reliabilityChecks();
   await swChecks();
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
   process.exit(fails ? 1 : 0);
