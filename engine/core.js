@@ -1015,6 +1015,21 @@ function lessonSayMode(item, speechOK){
 function todayGates(learnedCount, hasNextSet, availSentCount, scriptCount){
   return { review: learnedCount >= 5 || (scriptCount || 0) > 0, learn: !!hasNextSet, listen: learnedCount >= 4, recall: learnedCount >= 4, sentences: availSentCount >= 8 };
 }
+// How many of the Listen step's 12 words will actually be served as a Listen item, so
+// the Today plan line agrees with the session: app.html's hearItem() falls back to a
+// Read item (canHearWord false — no TTS voice and no recorded clip for that word), so a
+// word that can't be heard is not a Listen item even though the same 12 words are
+// drilled either way. canHear(word) is the caller's canHearWord.
+// Deliberately not weakFirst(learned, 12): app.html calls weakFirst(lw,12) with no recs,
+// so its "weakest first" is really an unweighted jitter shuffle that draws from the
+// global Math.random — calling it again here, purely to render a plan line, would burn
+// extra draws on every Today render and shift every later shuffle/weakFirst call in the
+// same session (the review/recall word picks, seeded-RNG test goldens, ...). A plain
+// slice is just as representative a sample of the unweighted pool, with no such
+// side effect.
+function listenPlanCount(learned, canHear){
+  return (learned || []).slice(0, 12).filter(canHear).length;
+}
 // Test tab: free word tests need TEST_MIN_WORDS learned words; the sentence test needs
 // 8 available sentences. The "learn first" notice depends on learned words only
 // (placement itself needs no sentences); the sentence button simply stays hidden.
@@ -2664,7 +2679,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,
-  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable, isSamsungBrowser, wordAudio, packAudio,
+  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, listenPlanCount, pickVoice, speechUsable, isSamsungBrowser, wordAudio, packAudio,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,

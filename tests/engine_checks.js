@@ -486,6 +486,24 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     VC.TEST_MIN_WORDS === 8 && VC.testGates(8, 0).needPlacement === false && VC.testGates(10, 0).needPlacement === false &&
     VC.testGates(7, 50).needPlacement === true && VC.testGates(10, 0).sentences === false && VC.testGates(10, 8).sentences === true && VC.testGates(10, 0).words === true);
 
+  // The Today plan's Listen line must count the same 12 words hearItem() actually drills
+  // as Listen (app.html's canHearWord: hasSpeech, or a per-word recorded clip), not just
+  // assume all 12 will be — a word canHearWord rejects becomes a Read item instead.
+  {
+    const listenPool = WORDS.slice(0, 20);
+    check("listenPlanCount: no voice and no pack audio -> none of the 12 weakest resolve to a Listen item",
+      VC.listenPlanCount(listenPool, () => false) === 0);
+    check("listenPlanCount: speech available -> every one of the 12 weakest can be heard",
+      VC.listenPlanCount(listenPool, () => true) === Math.min(12, listenPool.length));
+    check("listenPlanCount: per-word recorded clips (no voice) -> only the clipped words count",
+      VC.listenPlanCount(listenPool, w => w.audio === "clip.mp3") === 0); // fixture WORDS carry no .audio
+    // A small pool (< 12) so weakFirst's jitter can't drop any word: the count is exactly
+    // the clipped subset, agreeing with hearItem's per-word canHearWord.
+    const smallPool = WORDS.slice(0, 3).map((w, i) => i < 2 ? Object.assign({}, w, { audio: "clip.mp3" }) : w);
+    check("listenPlanCount: a pack that ships clips for some weak words counts exactly those clipped",
+      VC.listenPlanCount(smallPool, w => !!w.audio) === 2);
+  }
+
   // speech
   const voices = [{lang:"en-US"}, {lang:"zh_TW"}, {lang:"it-IT"}];
   check("pickVoice: exact locale, else same language, else null", VC.pickVoice(voices, "it-IT").lang === "it-IT" && VC.pickVoice(voices, "zh-CN").lang === "zh_TW" && VC.pickVoice(voices, "es-ES") === null);
@@ -1321,6 +1339,7 @@ const appBootChecks = (async function(){
     const navigator = (env && env.navigator) || { userAgent: "EngineChecks/1.0" };
     const location = env ? env.location : undefined;
     const pack = (env && env.pack) || PACK;
+    const words = (env && env.words) || WORDS;
     const setItemCalls = [];
     const localStorage = { getItem(){ return null; }, setItem(k,v){ setItemCalls.push([k,v]); } };
     const matchMedia = () => ({ matches:false });
@@ -1338,10 +1357,12 @@ return {
   optsMarkup: () => { const o = document.getElementById("o"); return o ? o.children.map(b => \`<button\${b.dir ? \` dir="\${b.dir}"\` : ""}>\${b.innerHTML}</button>\`).join("") : ""; }, passageSentenceHTML, getRD:()=>RD, getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
   setHasSpeech: v => { hasSpeech = v; },
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
+  today: () => { tab = "today"; render(); },
+  getHtml: id => { const e = document.getElementById(id); return e ? e.innerHTML : ""; },
 };`;
     // PASSAGES only when env.passages is given (undefined -> no Read tab, as before).
     const fn = new Function("document","window","navigator","location","localStorage","matchMedia","requestAnimationFrame","PACK","WORDS","SENTENCES","LESSONS","PASSAGES", fnBody);
-    const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, pack, WORDS, SENTENCES, LESSONS, env && env.passages);
+    const api = fn(document, window, navigator, location, localStorage, matchMedia, requestAnimationFrame, pack, words, SENTENCES, LESSONS, env && env.passages);
     return { api, document, ss, setItemCalls, window };
   }
   async function bootApp(getVoicesResult, env){
@@ -1601,6 +1622,29 @@ return {
     const toast = upd.document.getElementById("swtoast");
     check("sw: controller change after a controlled load shows one reload toast", !!toast && /reload for the new version/.test(toast.textContent) && upd.document.body.children.length === 1);
   }catch(e){ check(`sw registration scenarios do not throw (got: ${e.message})`, false); }
+
+  // Today plan's Listen line (VC.listenPlanCount, above): must agree with what
+  // hearItem() will actually serve. Seed 4+ learned words via the "drilled ahead" flag
+  // (prog.w[id].d), which counts as learned regardless of completed sets.
+  const seedLearned = (prog, n) => WORDS.slice(0, n).forEach(w => { prog.w[w.id] = { d: true }; });
+  try{
+    const { api } = await bootApp([{ lang:"en-US", name:"x" }]); // no zh-CN voice -> hasSpeech false
+    seedLearned(api.getProg(), 6);
+    api.today();
+    const html = api.getHtml("panel");
+    check("Today plan: no voice and no pack audio (WORDS carry no .audio) -> Listen line has no item count",
+      /<td>3\. Listen<\/td><td>[^<]*<\/td>/.test(html) && !/<td>3\. Listen<\/td><td>\d+ items<\/td>/.test(html));
+  }catch(e){ check(`Today plan Listen-line (no voice, no audio) scenario does not throw (got: ${e.message})`, false); }
+  try{
+    const clipPack = Object.assign({}, PACK, { audio: { voice: "rec", version: 1 } });
+    const clipWords = WORDS.map((w, i) => i < 4 ? Object.assign({}, w, { audio: "clip.mp3" }) : w);
+    const { api } = await bootApp([{ lang:"en-US", name:"x" }], { pack: clipPack, words: clipWords }); // still no zh-CN voice
+    seedLearned(api.getProg(), 6);
+    api.today();
+    const html = api.getHtml("panel");
+    check("Today plan: no voice but the pack ships recorded clips for some weak words -> Listen line shows a count",
+      /<td>3\. Listen<\/td><td>\d+ items<\/td>/.test(html));
+  }catch(e){ check(`Today plan Listen-line (clips, no voice) scenario does not throw (got: ${e.message})`, false); }
 })();
 
 // ------------------------------------------------------------ [24] service worker
