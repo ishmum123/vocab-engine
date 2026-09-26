@@ -4,6 +4,7 @@ Tatoeba URLs untouched, spoken-text overrides and their stale keys, --check / --
 --only / --limit, and the validator clean on the result."""
 import datetime
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -85,35 +86,46 @@ class AudioBuild(unittest.TestCase):
     def pack(self, name):
         return json.loads((self.root / "pack" / name).read_text(encoding="utf-8"))
 
+    def url(self, name, i):
+        """The audio URL of item i in a pack file (words/sentences: index; passages: (p, n); script: id)."""
+        if name == "passages.json":
+            return self.pack(name)[i[0]]["sentences"][i[1]].get("audio")
+        if name == "script.json":
+            return {u["id"]: u for u in self.pack(name)["units"]}[i].get("audio")
+        return self.pack(name)[i].get("audio")
+
+    def manifest(self):
+        return json.loads((self.root / "audio" / "manifest.json").read_text())
+
     def test_first_run_renders_and_links(self):
         rc, stub = self.run_audio()
         self.assertEqual(rc, 0)
         # 3 words + 1 sentence (s2 is Tatoeba) + 2 passage sentences + 1 unit (mute and no-say skipped)
         self.assertEqual(len(stub.calls), 7)
-        self.assertEqual([w["audio"] for w in self.pack("words.json")],
-                         ["audio/w/w1.opus", "audio/w/w2.opus", "audio/w/w3.opus"])
-        s = self.pack("sentences.json")
-        self.assertEqual(s[0]["audio"], "audio/s/s1.opus")
-        self.assertEqual(s[1]["audio"], TATOEBA)
-        ps = self.pack("passages.json")[0]["sentences"]
-        self.assertEqual([x["audio"] for x in ps], ["audio/p/p1-0.opus", "audio/p/p1-1.opus"])
-        units = {u["id"]: u for u in self.pack("script.json")["units"]}
-        self.assertEqual(units["xx-te"]["audio"], "audio/x/xx-te.opus")
-        self.assertNotIn("audio", units["xx-mute"])
-        self.assertNotIn("audio", units["xx-nosay"])
+        m = self.manifest()
+        self.assertEqual(set(m["files"]), {"w/w1", "w/w2", "w/w3", "s/s1", "p/p1-0", "p/p1-1", "x/xx-te"})
+        for i, f in m["files"].items():   # content-addressed: <id>.<sha8>.opus
+            self.assertRegex(f, "^" + re.escape(i) + r"\.[0-9a-f]{8}\.opus$")
+            self.assertTrue((self.root / "audio" / f).exists())
+        self.assertEqual([self.url("words.json", k) for k in range(3)],
+                         ["audio/" + m["files"][f"w/w{k}"] for k in (1, 2, 3)])
+        self.assertEqual(self.url("sentences.json", 0), "audio/" + m["files"]["s/s1"])
+        self.assertEqual(self.url("sentences.json", 1), TATOEBA)
+        self.assertEqual([self.url("passages.json", (0, n)) for n in (0, 1)],
+                         ["audio/" + m["files"]["p/p1-0"], "audio/" + m["files"]["p/p1-1"]])
+        self.assertEqual(self.url("script.json", "xx-te"), "audio/" + m["files"]["x/xx-te"])
+        self.assertIsNone(self.url("script.json", "xx-mute"))
+        self.assertIsNone(self.url("script.json", "xx-nosay"))
         self.assertEqual(self.pack("pack.json")["audio"], {"voice": "xx-test-medium", "version": 1})
-        m = json.loads((self.root / "audio" / "manifest.json").read_text())
         self.assertEqual((m["voice"], m["version"], m["count"], m["generated"], m["licence"]),
                          ("xx-test-medium", 1, 7, "2026-09-26T12:00:00Z", "CC0"))
-        self.assertEqual(set(m["files"]), {"w/w1.opus", "w/w2.opus", "w/w3.opus", "s/s1.opus",
-                                           "p/p1-0.opus", "p/p1-1.opus", "x/xx-te.opus"})
         # short items (words, carriers) vs sentences
-        self.assertEqual((self.root / "audio/w/w1.opus").read_text(), "1|کتاب")
-        self.assertEqual((self.root / "audio/s/s1.opus").read_text(), "0|کتاب من")
+        self.assertEqual((self.root / "audio" / m["files"]["w/w1"]).read_text(), "1|کتاب")
+        self.assertEqual((self.root / "audio" / m["files"]["s/s1"]).read_text(), "0|کتاب من")
         # generated .js regenerated: words.js carries the URL, pack.js the audio key
-        self.assertIn('"audio":"audio/w/w1.opus"', (self.root / "pack/words.js").read_text())
+        self.assertIn(f'"audio":"audio/{m["files"]["w/w1"]}"', (self.root / "pack/words.js").read_text())
         self.assertIn('"audio":{"voice":"xx-test-medium","version":1}', (self.root / "pack/pack.js").read_text())
-        self.assertIn('"audio":"audio/p/p1-0.opus"', (self.root / "pack/sentences.js").read_text())
+        self.assertIn(f'"audio":"audio/{m["files"]["p/p1-0"]}"', (self.root / "pack/sentences.js").read_text())
 
     def test_rerun_is_idempotent(self):
         self.run_audio()
@@ -124,9 +136,13 @@ class AudioBuild(unittest.TestCase):
 
     def test_version_bump_rerenders_everything(self):
         self.run_audio()
+        old = set(self.manifest()["files"].values())
         _, stub = self.run_audio(sp=spec(version=2))
         self.assertEqual(len(stub.calls), 7)
         self.assertEqual(self.pack("pack.json")["audio"]["version"], 2)
+        new = set(self.manifest()["files"].values())
+        self.assertFalse(old & new)                                   # every clip has a new URL
+        self.assertFalse(any((self.root / "audio" / f).exists() for f in old))
 
     def test_text_edit_rerenders_only_that_item(self):
         self.run_audio()
@@ -136,15 +152,30 @@ class AudioBuild(unittest.TestCase):
         _, stub = self.run_audio()
         self.assertEqual(stub.calls, ["گلها"])
 
+    def test_rerender_gets_a_new_url_and_removes_the_superseded_clip(self):
+        # The phase 3 override pass re-renders single items: the service worker caches per URL,
+        # so the new clip must live at a new URL or listeners keep hearing the old one.
+        self.run_audio()
+        old = self.manifest()["files"]["p/p1-0"]
+        (self.root / "tools/audio_say.json").write_text(json.dumps(
+            {"پارک بزرگ شهر.": "پارکِ بزرگِ شهر."}, ensure_ascii=False))
+        _, stub = self.run_audio()
+        new = self.manifest()["files"]["p/p1-0"]
+        self.assertEqual(stub.calls, ["پارکِ بزرگِ شهر."])
+        self.assertNotEqual(old, new)
+        self.assertFalse((self.root / "audio" / old).exists())
+        self.assertEqual((self.root / "audio" / new).read_text(), "0|پارکِ بزرگِ شهر.")
+        self.assertEqual(self.url("passages.json", (0, 0)), "audio/" + new)
+        self.assertIn(f'"audio":"audio/{new}"', (self.root / "pack/sentences.js").read_text())
+
     def test_override_changes_spoken_text_only(self):
         self.run_audio()
-        words_before = (self.root / "pack/words.json").read_bytes()
+        words_text = [w["w"] for w in self.pack("words.json")]
         (self.root / "tools/audio_say.json").write_text(json.dumps(
             {"پارک بزرگ شهر.": "پارکِ بزرگِ شهر.", "کتاب": "کِتاب"}, ensure_ascii=False))
         _, stub = self.run_audio()
         self.assertEqual(sorted(stub.calls), sorted(["پارکِ بزرگِ شهر.", "کِتاب"]))
-        self.assertEqual((self.root / "audio/p/p1-0.opus").read_text(), "0|پارکِ بزرگِ شهر.")
-        self.assertEqual((self.root / "pack/words.json").read_bytes(), words_before)   # pack text unchanged
+        self.assertEqual([w["w"] for w in self.pack("words.json")], words_text)   # pack text unchanged
         self.assertEqual(self.pack("passages.json")[0]["sentences"][0]["t"], "پارک بزرگ شهر.")
 
     def test_check_flags_stale_override_keys_and_letter_changes(self):
@@ -169,39 +200,82 @@ class AudioBuild(unittest.TestCase):
         before = snapshot(self.root)
         self.assertEqual(self.run_audio(check=True)[0], 0)
         self.assertEqual(snapshot(self.root), before)          # --check writes nothing
-        (self.root / "audio/w/w2.opus").unlink()                # missing + its URL now dangles
-        (self.root / "audio/s/s99.opus").write_text("old")      # orphan
+        m = self.manifest()
+        (self.root / "audio" / m["files"]["w/w2"]).unlink()    # missing + its URL now dangles
+        words = self.pack("words.json")[:2]                    # w3 leaves the pack: its clip is an orphan
+        (self.root / "pack/words.json").write_text(json.dumps(words, ensure_ascii=False, separators=(",", ":")) + "\n")
         self.log.clear()
         self.assertEqual(self.run_audio(check=True)[0], 1)
         text = "\n".join(self.log)
-        self.assertIn("missing: w/w2.opus", text)
-        self.assertIn("orphan: s/s99.opus", text)
-        self.assertIn("dangling URL: w2: audio/w/w2.opus", text)
+        self.assertIn("missing: w/w2", text)
+        self.assertIn("orphan: w/w3", text)
+        self.assertIn(f"dangling URL: w2: audio/{m['files']['w/w2']}", text)
 
     def test_stale_clip_detected_and_rerendered(self):
         self.run_audio()
-        m = json.loads((self.root / "audio/manifest.json").read_text())
-        m["files"]["w/w1.opus"] = "0" * 40
-        (self.root / "audio/manifest.json").write_text(json.dumps(m))
+        words = self.pack("words.json")
+        words[0]["w"] = "کتابها"
+        (self.root / "pack/words.json").write_text(json.dumps(words, ensure_ascii=False, separators=(",", ":")) + "\n")
         self.log.clear()
         self.assertEqual(self.run_audio(check=True)[0], 1)
-        self.assertIn("stale: w/w1.opus", "\n".join(self.log))
+        self.assertIn("stale: w/w1", "\n".join(self.log))
         _, stub = self.run_audio()
-        self.assertEqual(stub.calls, ["کتاب"])
-
-    def test_prune_deletes_orphans_only_when_asked(self):
-        self.run_audio()
-        (self.root / "audio/s/s99.opus").write_text("old")
-        self.run_audio()
-        self.assertTrue((self.root / "audio/s/s99.opus").exists())
-        self.run_audio(prune=True)
-        self.assertFalse((self.root / "audio/s/s99.opus").exists())
+        self.assertEqual(stub.calls, ["کتابها"])
         self.assertEqual(self.run_audio(check=True)[0], 0)
+
+    def test_prune_deletes_owned_orphans_only(self):
+        self.run_audio()
+        m = self.manifest()
+        (self.root / "audio/s/hand-made.opus").write_text("mine")   # not in the manifest: never deleted
+        words = self.pack("words.json")[:2]
+        (self.root / "pack/words.json").write_text(json.dumps(words, ensure_ascii=False, separators=(",", ":")) + "\n")
+        self.run_audio()
+        self.assertTrue((self.root / "audio" / m["files"]["w/w3"]).exists())   # kept without --prune
+        self.log.clear()
+        self.run_audio(check=True)
+        self.assertIn("note: unowned file (not in the manifest; never deleted): s/hand-made.opus", "\n".join(self.log))
+        self.run_audio(prune=True)
+        self.assertFalse((self.root / "audio" / m["files"]["w/w3"]).exists())
+        self.assertNotIn("w/w3", self.manifest()["files"])
+        self.assertTrue((self.root / "audio/s/hand-made.opus").exists())
+        self.assertEqual(self.run_audio(check=True)[0], 0)
+
+    def test_foreign_relative_url_is_left_alone(self):
+        words = self.pack("words.json")
+        words[1]["audio"] = "audio/w/recorded-by-hand.mp3"      # a relative URL the builder did not write
+        (self.root / "audio/w").mkdir(parents=True)
+        (self.root / "audio/w/recorded-by-hand.mp3").write_text("human")
+        (self.root / "pack/words.json").write_text(json.dumps(words, ensure_ascii=False, separators=(",", ":")) + "\n")
+        _, stub = self.run_audio()
+        self.assertNotIn("خانه", stub.calls)
+        self.assertEqual(self.url("words.json", 1), "audio/w/recorded-by-hand.mp3")
+        self.assertNotIn("w/w2", self.manifest()["files"])
+        self.assertIn("note: foreign URL left alone (not in the manifest): w/w2: audio/w/recorded-by-hand.mp3", "\n".join(self.log))
+        self.run_audio(prune=True)
+        self.assertTrue((self.root / "audio/w/recorded-by-hand.mp3").exists())
+        self.assertEqual(self.url("words.json", 1), "audio/w/recorded-by-hand.mp3")
+
+    def test_pack_audio_only_when_complete(self):
+        self.run_audio(only=["w"])
+        self.assertEqual(self.url("words.json", 0), "audio/" + self.manifest()["files"]["w/w1"])
+        self.assertIsNone(self.url("sentences.json", 0))
+        self.assertNotIn("audio", self.pack("pack.json"))              # partial: notices stay on
+        self.run_audio(limit=2)
+        self.assertNotIn("audio", self.pack("pack.json"))
+        self.run_audio()
+        self.assertIn("audio", self.pack("pack.json"))                 # complete
+        words = self.pack("words.json")
+        words[0]["w"] = "کتابها"
+        (self.root / "pack/words.json").write_text(json.dumps(words, ensure_ascii=False, separators=(",", ":")) + "\n")
+        self.run_audio(only=["s"])                                     # w1 stale, not re-rendered
+        self.assertNotIn("audio", self.pack("pack.json"))
+        self.assertTrue(self.url("words.json", 0).startswith("audio/w/w1."))   # old clip still linked
+        self.run_audio()
+        self.assertIn("audio", self.pack("pack.json"))
 
     def test_only_and_limit(self):
         _, stub = self.run_audio(only=["w"])
         self.assertEqual(stub.calls, ["کتاب", "خانه", "گل"])
-        self.assertNotIn("audio", self.pack("sentences.json")[0])
         _, stub = self.run_audio(limit=2)
         self.assertEqual(len(stub.calls), 2)
         _, stub = self.run_audio()
@@ -214,12 +288,13 @@ class AudioBuild(unittest.TestCase):
         self.assertEqual(snapshot(self.root), before)
         self.assertFalse((self.root / "audio").exists())
 
-    def test_missing_clip_drops_its_url(self):
+    def test_lost_clip_drops_its_url(self):
         self.run_audio()
-        (self.root / "audio/w/w3.opus").unlink()
+        (self.root / "audio" / self.manifest()["files"]["w/w3"]).unlink()
         self.run_audio(limit=0)
-        self.assertNotIn("audio", self.pack("words.json")[2])
-        self.assertEqual(self.pack("sentences.json")[1]["audio"], TATOEBA)
+        self.assertIsNone(self.url("words.json", 2))
+        self.assertEqual(self.url("sentences.json", 1), TATOEBA)
+        self.assertNotIn("audio", self.pack("pack.json"))
 
     def test_no_audio_spec(self):
         rc = audio.run(self.root, SimpleNamespace(code="xx"), renderer=Stub(), out=self.log.append)

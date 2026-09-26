@@ -2,9 +2,13 @@
 (docs/AUDIO.md). Renders one clip per word, sentence, passage sentence and script-unit
 carrier with the language's offline voice (spec.AUDIO), writes them beside the site page:
 
-    <repo>/audio/w/<wordId>.opus         <repo>/audio/s/<sentenceId>.opus
-    <repo>/audio/p/<passageId>-<n>.opus  <repo>/audio/x/<unitId>.opus
-    <repo>/audio/manifest.json           voice, version, bitrate, count, generated, licence, files
+    <repo>/audio/w/<wordId>.<sha8>.opus         <repo>/audio/s/<sentenceId>.<sha8>.opus
+    <repo>/audio/p/<passageId>-<n>.<sha8>.opus  <repo>/audio/x/<unitId>.<sha8>.opus
+    <repo>/audio/manifest.json   voice, version, bitrate, count, generated, licence,
+                                 files {item id "w/w0001": its clip file}
+
+<sha8> is the first 8 hex digits of the clip's key, so a re-rendered clip gets a new URL and the
+service worker (cache-first per URL) can never serve the superseded one.
 
 then sets each item's `audio` to its relative URL, `pack.json` `audio` to {voice, version},
 and regenerates the pack .js files. Items and rules:
@@ -14,15 +18,19 @@ and regenerates the pack .js files. Items and rules:
   override changes what is spoken only, never the pack text. Keys that match no item are
   stale; `--check` fails on them.
 - A clip's key is sha1 of (spoken text, voice, version, synthesis params, codec settings).
-  A file whose manifest key matches is kept, so reruns are idempotent and a text or
-  override edit re-renders only that item.
-- An item that already has an absolute audio URL (Tatoeba recordings) is never rendered and
-  its URL is never changed. A relative URL is the builder's own: set when the clip exists,
-  removed when it does not.
+  An item whose manifest file carries the current key's sha8 is kept, so reruns are
+  idempotent and a text or override edit re-renders only that item (the superseded file is
+  deleted). Bump spec.AUDIO version only for voice/codec changes.
+- The builder owns only what the manifest lists. An absolute URL (Tatoeba) and a relative URL
+  not in the manifest (foreign) are never rendered, changed or removed; files not in the
+  manifest are never deleted (--prune deletes owned clips of items no longer in the pack).
+- pack.json audio is set only when every wanted clip is current; a partial run (--only,
+  --limit: dev use) links what it rendered but leaves pack.audio unset.
 - Words and script carriers render slower with silence padding (spec.AUDIO short_*);
   sentences at normal speed.
 
-Options: --check (report missing / stale / orphan clips, dangling URLs and stale overrides;
+Options: --check (report missing / stale / orphan clips, dangling URLs and stale overrides, plus notes
+for foreign URLs and unowned files;
 write nothing; exit 1 on any), --prune (delete orphan clips), --only w,s,p,x (render only
 these kinds), --limit N (render at most N clips this run).
 """
@@ -166,26 +174,39 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
     pack_dir, adir = repo / "pack", repo / "audio"
     mpath = adir / "manifest.json"
     manifest = load_json(mpath) if mpath.exists() else {}
-    files = dict(manifest.get("files") or {}) if manifest.get("voice") == cfg["voice"] else {}
+    # owned: item id ("w/w0001") -> its current clip file ("w/w0001.1a2b3c4d.opus"). Only files
+    # listed here are the builder's: it never deletes or relinks anything else.
+    owned = dict(manifest.get("files") or {})
+    owned_files = set(owned.values())
     overrides, problems = load_overrides(repo)
     its = items(pack_dir)
     stale_ov, letter_ov = override_notes(overrides, {t for _, _, t, _, _ in its})
 
-    want = {}     # rel path -> (key, spoken, short, holder); items whose URL the builder owns
+    want, foreign = {}, []   # want: id -> (file, spoken, short, holder)
     for kind, name, text, short, holder in its:
-        if isinstance(holder.get("audio"), str) and ABSOLUTE.match(holder["audio"]):
+        url = holder.get("audio")
+        if isinstance(url, str) and ABSOLUTE.match(url):
+            continue                                   # Tatoeba or other remote clip: never touched
+        if isinstance(url, str) and not (url.startswith("audio/") and url[len("audio/"):] in owned_files):
+            foreign.append(f"{kind}/{name}: {url}")    # a relative URL the builder did not write
             continue
         spoken = overrides.get(text, text)
-        want[f"{kind}/{name}.opus"] = (clip_key(spoken, short, cfg), spoken, short, holder)
+        key = clip_key(spoken, short, cfg)
+        want[f"{kind}/{name}"] = (f"{kind}/{name}.{key[:8]}.opus", spoken, short, holder)
 
-    def exists_ok(rel):
-        return (adir / rel).exists() and files.get(rel) == want[rel][0]
+    def current(i):
+        return owned.get(i) == want[i][0] and (adir / want[i][0]).exists()
 
+    def status():
+        stale = sorted(i for i in want if not current(i) and i in owned and (adir / owned[i]).exists())
+        missing = sorted(i for i in want if not current(i) and i not in stale)
+        return missing, stale
+
+    missing, stale = status()
+    orphans = sorted(i for i in owned if i not in want)
     on_disk = {p.relative_to(adir).as_posix() for k in KINDS if (adir / k).is_dir()
                for p in (adir / k).glob("*.opus")}
-    orphans = sorted(on_disk - set(want))
-    missing = sorted(r for r in want if not (adir / r).exists())
-    stale = sorted(r for r in want if (adir / r).exists() and files.get(r) != want[r][0])
+    unowned = sorted(on_disk - owned_files)
     dangling = sorted(f"{name}: {h['audio']}" for _, name, _, _, h in its
                       if isinstance(h.get("audio"), str) and not ABSOLUTE.match(h["audio"])
                       and not (repo / h["audio"]).exists())
@@ -198,11 +219,15 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
                 out(f"{label}: {x}")
             if len(xs) > 20:
                 out(f"{label}: ... {len(xs) - 20} more")
-        for k in letter_ov:
-            out(f"note: override changes letters, not just marks: {k!r}")
+        for label, xs in (("note: foreign URL (not in the manifest; left alone)", foreign),
+                          ("note: unowned file (not in the manifest; never deleted)", unowned),
+                          ("note: override changes letters, not just marks", [repr(k) for k in letter_ov])):
+            for x in xs[:20]:
+                out(f"{label}: {x}")
         bad = sum(map(len, (missing, stale, orphans, dangling, stale_ov, problems)))
         out(f"audio --check: {len(want)} clips wanted, {len(missing)} missing, {len(stale)} stale, "
-            f"{len(orphans)} orphan, {len(dangling)} dangling URLs, {len(stale_ov)} stale override keys")
+            f"{len(orphans)} orphan, {len(dangling)} dangling URLs, {len(stale_ov)} stale override keys, "
+            f"{len(foreign)} foreign URLs, {len(unowned)} unowned files")
         return 1 if bad else 0
 
     if problems:
@@ -211,43 +236,53 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
         return 1
     for k in stale_ov:
         out(f"warning: stale override key (no item has this text): {k!r}")
+    for f in foreign[:20]:
+        out(f"note: foreign URL left alone (not in the manifest): {f}")
 
     kinds = set(only) if only else set(KINDS)
-    todo = [r for r in want if r.split("/")[0] in kinds and not exists_ok(r)]
+    todo = [i for i in want if i.split("/")[0] in kinds and not current(i)]
     if limit is not None:
         todo = todo[:limit]
     if todo and renderer is None:
         renderer = PiperRenderer(repo, cfg)
-    for rel in todo:
-        key, spoken, short, _ = want[rel]
-        dst = adir / rel
+    for i in todo:
+        file, spoken, short, _ = want[i]
+        dst = adir / file
         dst.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dst.with_suffix(".tmp.opus")
+        tmp = dst.parent / (".tmp-" + dst.name)
         renderer.render(spoken, short, tmp)
         tmp.replace(dst)
-        files[rel] = key
+        old = owned.get(i)
+        if old and old != file and (adir / old).exists():
+            (adir / old).unlink()                      # superseded clip: a new name, so no stale cache
+        owned[i] = file
     pruned = 0
     if prune:
-        for rel in orphans:
-            (adir / rel).unlink()
-            files.pop(rel, None)
+        for i in orphans:
+            if (adir / owned[i]).exists():
+                (adir / owned[i]).unlink()
+            del owned[i]
             pruned += 1
-    files = {r: k for r, k in files.items() if (adir / r).exists()}
+    owned = {i: f for i, f in owned.items() if (adir / f).exists()}
 
-    # URLs: the builder's own (relative) URL on every wanted item whose clip is current.
-    for rel, (key, _, _, holder) in want.items():
-        if files.get(rel) == key and (adir / rel).exists():
-            holder["audio"] = f"audio/{rel}"
+    # URLs: each wanted item links its owned clip (current, or stale until re-rendered).
+    for i, (_, _, _, holder) in want.items():
+        if i in owned:
+            holder["audio"] = f"audio/{owned[i]}"
         else:
             holder.pop("audio", None)
+    missing_after, stale_after = status()
+    complete = bool(owned) and not missing_after and not stale_after
 
     changed = False
-    if (files or mpath.exists()) and (todo or pruned or not mpath.exists() or manifest.get("files") != dict(sorted(files.items()))):
+    files_sorted = dict(sorted(owned.items()))
+    if (owned or mpath.exists()) and (todo or pruned or not mpath.exists() or manifest.get("files") != files_sorted
+                                      or manifest.get("version") != cfg["version"] or manifest.get("voice") != cfg["voice"]):
         adir.mkdir(parents=True, exist_ok=True)
         ts = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
         doc = {"voice": cfg["voice"], "engine": cfg.get("engine", "piper-tts"), "version": cfg["version"],
-               "codec": cfg["codec"], "bitrate": cfg["bitrate"], "rate": cfg["rate"], "count": len(files),
-               "generated": ts, "licence": cfg["licence"], "files": dict(sorted(files.items()))}
+               "codec": cfg["codec"], "bitrate": cfg["bitrate"], "rate": cfg["rate"], "count": len(owned),
+               "generated": ts, "licence": cfg["licence"], "files": files_sorted}
         mpath.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         changed = True
 
@@ -272,8 +307,10 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
         sc["units"] = [umap.get(u["id"], u) for u in sc.get("units") or []]
         if write_like(pack_dir / "script.json", sc):
             wrote.append("script.json")
+    # pack.audio (hides the app's no-voice notices) only when every wanted clip is current: a
+    # partial --only/--limit run (dev use) links its clips but leaves the notices on.
     pack = load_json(pack_dir / "pack.json")
-    if files:
+    if complete:
         pack["audio"] = {"voice": cfg["voice"], "version": cfg["version"]}
     else:
         pack.pop("audio", None)
@@ -282,8 +319,9 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
     if wrote:
         jsonify = Path(__file__).resolve().parents[1] / "jsonify_pack.py"
         subprocess.run([sys.executable, str(jsonify), str(pack_dir)], check=True, capture_output=True)
-    out(f"audio: {len(todo)} rendered, {len(files)} clips, {pruned} pruned, {len(orphans) - pruned} orphan, "
-        f"{len(missing) - len([r for r in todo if r in missing])} still missing; "
+    out(f"audio: {len(todo)} rendered, {len(owned)} clips, {pruned} pruned, {len(orphans) - pruned} orphan, "
+        f"{len(missing_after)} missing, {len(stale_after)} stale, {len(foreign)} foreign; "
+        f"pack.audio {'set' if complete else 'not set (incomplete)'}; "
         f"wrote {', '.join(wrote) or 'no pack files'}{' + manifest' if changed else ''}")
     return 0
 
