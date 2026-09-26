@@ -33,7 +33,7 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `articleAgreement` | `{article: [article]}` | no | Cloze distractor agreement. Each key is an article that can appear right before a blank, including contractions (`la`, `l'`, `den`, `del`). Its value lists the citation articles of the words it agrees with (`"den": ["der"]`). Distractors cited with an agreeing article are offered first, so the visible article never gives the answer away. Defaults exist for fr, es, it and de (core.js `ARTICLE_AGREEMENT`), picked by `langTag` or the `tts` language. A key missing from the table agrees only with itself. |
 | `typing` | object, `"pron"` or `null` | no (`null`, validator warns when absent) | `null` turns off typed production. Recall items are used instead, so review still keeps at least 40% production. Object fields are listed below. `"pron"` types the word's reading instead of its written form; see "Pronunciation aids" below. |
 | `typing.caseSensitive` | bool | no (false) | When false, both sides are lowercased before comparing. |
-| `typing.accents` | `"lenient"` or `"strict"` | no (`"lenient"`) | With lenient, optional marks are folded on both sides: Latin accents (`perche` = `perché`), stress marks (`молоко́`), Arabic-script harakat and tatweel, Hebrew points, the Devanagari nukta, and ZWNJ/ZWJ (`میروم` = `می‌روم`). Marks that make a different letter are kept: Cyrillic й and ї, Devanagari vowel signs, and kana voicing marks. Strict never folds them. Arabic kaf and yeh always equal their Persian/Urdu forms (ک, ی), in both modes, because keyboards produce either. |
+| `typing.accents` | `"lenient"` or `"strict"` | no (`"lenient"`) | With lenient, optional marks are folded on both sides: Latin accents (`perche` = `perché`), stress marks (`молоко́`), Arabic-script harakat and tatweel, Hebrew points, and ZWNJ/ZWJ (`میروم` = `می‌روم`). Lenient also folds optional spelling variants in Arabic script and Devanagari (hamza carriers, ء, ة, ى, ھ, nukta, chandrabindu; see "Lenient typing letter folds" below), guarded against exact other pack words. Marks that make a different letter are kept: Cyrillic й and ї, Devanagari vowel signs, and kana voicing marks. Strict never folds them. Arabic kaf and yeh always equal their Persian/Urdu forms (ک, ی), in both modes, because keyboards produce either. |
 | `typing.strictFromLevel` | levelId or `null` | no | With lenient accents, folding stops at this level and every later one. `null` means lenient at every level. |
 | `showPron` | bool | yes | Whether words and sentences carry `pron`. It sets the learner's default for the "Show pronunciation" toggle. When false, the toggle is hidden. |
 | `hasLessons` | bool | yes | Shows the Sounds tab and the Today lesson hint. |
@@ -50,6 +50,52 @@ The `.js` files are generated with `python3 tools/jsonify_pack.py <packdir>`. Th
 | `tones` | `"pinyin"` | no | Readings carry tone marks: every displayed reading is coloured per syllable by tone; see "Pronunciation aids" below. The only accepted value is `"pinyin"`. |
 | `soundsReference` | `true` | no | The Sounds tab gets a Reference card built from the lesson rows; see "Pronunciation aids" below. Needs `hasLessons` (validator warning). |
 | `legacy` | `{key, format}` | no | Marks this pack as the successor to an old standalone app's saved progress, for a one-time migration. `key` is the old app's localStorage key (e.g. `"hsk_pinyin"`); `format` is a migration-function tag (e.g. `"hsk-v2"`). Requires `legacy.json`. |
+
+### Lenient typing letter folds
+
+With `typing.accents: "lenient"` (at levels before `strictFromLevel`), typed answers also fold these optional spelling variants, on both sides (core.js `LENIENT_LETTERS`, `foldLenientLetters`). Strict typing folds none of them.
+
+| script | folds |
+|---|---|
+| Arabic script (ar, fa, ur) | Hamza/madda on a carrier dropped: أ إ آ → ا, ؤ → و, ئ → ی, ۓ → ے, ۂ → ہ, ۀ → ه, and a loose hamza mark (خانهٔ → خانه). ٱ ٲ ٳ ٵ → ا, ٶ ٷ → و, ٸ → ی. Standalone ء dropped. ة → ه, ۃ → ہ. ى → ی. ھ → ہ (بھائی = بہائی). |
+| Devanagari (hi) | Nukta dropped (ज़ = ज, including precomposed क़–य़ U+0958–095F). Chandrabindu ँ → anusvara ं (माँ = मां). |
+
+Not folded: a leading ال (it changes the word; `كتاب` ≠ `الكتاب` when typing), and ه vs ہ (each pack spells with one).
+
+**Collision guard.** Some distinct words become one typed key under these folds (ماء "water" and ما "what"). An answer that matches only because of a letter fold is rejected when the typed text, in strict form, is exactly another pack word's `w` or `alt` (core.js `acceptTyped`, its `words` argument; the app passes `WORDS`). So ما is wrong for ماء, and ماء is wrong for ما, but امس is right for أمس. The guard covers only these letter folds. Plain accent folds (Spanish `si`/`sí`, `el`/`él`) are not guarded (TODO.md).
+
+Colliding pairs at the time of writing (arabic 25, persian 1, urdu 2, hindi 0), each rejected both ways by the guard:
+
+| pack | typed | word (id) | also folds to | word (id) |
+|---|---|---|---|---|
+| arabic | أن | أن (w0001) | إن | إن (w0010) |
+| arabic | كان | كان (w0005) | كأن | كأن (w0362) |
+| arabic | إلى | إلى (w0008) | آلي | آلي (w1707) |
+| arabic | ما | ما (w0009) | ماء | ماء (w0206) |
+| arabic | رأى | رأى (w0053) | رأي | رأي (w0381) |
+| arabic | يرى | رأى (w0053) | يري | أرى (w1858) |
+| arabic | بدأ | بدأ (w0112) | بدا | بدا (w0128) |
+| arabic | إلا | إلا (w0135) | ألا | ألا (w0170) |
+| arabic | أمن | أمن (w0411) | آمن | آمن (w0802) |
+| arabic | أمن | أمن (w0411) | آمن | آمن (w1073) |
+| arabic | رجا | رجا (w0420) | رجاء | رجاء (w0813) |
+| arabic | إله | إله (w0425) | آلة | آلة (w0856) |
+| arabic | آسف | آسف (w0448) | أسف | أسف (w0992) |
+| arabic | غدا | غدا (w0453) | غداء | غداء (w0550) |
+| arabic | موسيقى | موسيقى (w0466) | موسيقي | موسيقي (w1743) |
+| arabic | بني | بني (w0543) | بنى | بنى (w0779) |
+| arabic | أذن | أذن (w0589) | إذن | إذن (w0659) |
+| arabic | أذن | أذن (w0589) | إذن | إذن (w0828) |
+| arabic | أخطاء | خطأ (w0644) | أخطأ | أخطأ (w1985) |
+| arabic | كرة | كرة (w0650) | كره | كره (w0861) |
+| arabic | آثار | أثر (w0717) | أثار | أثار (w1100) |
+| arabic | أما | أما (w0724) | إما | إما (w0786) |
+| arabic | سوى | سوى (w0775) | سوي | سوي (w1546) |
+| arabic | غني | غني (w1454) | غنى | غنى (w1548) |
+| arabic | بري | بري (w1551) | بريء | بريء (w1823) |
+| persian | جز | جز (w0686) | جزء | جزء (w1496) |
+| urdu | پھر | پھر (w0067) | پہر | پہر (w1964) |
+| urdu | کھلانا | کھلانا (w2016) | کہلانا | کہلانا (w1743) |
 
 ### Script display
 
@@ -81,9 +127,9 @@ Tests check these rules on rendered markup with tests/fixtures/rtl_audit.js `rtl
 
 **Words search** matches the query against `w`, every `alt`, `pron` and the gloss. Both sides are lowercased and accent-folded as in lenient typing. Whitespace is also ignored, so `nihao` finds `nǐ hǎo`. A hyphen folds to a space, so a reduplicated or hyphenated lemma (`धीरे-धीरे`) matches its unhyphenated spelling (`धीरे धीरे`) too. A romanised nasal tilde (`kahā̃`) folds to a literal `n`, so plain ASCII typing (`kahan`) finds it, alongside the existing macron/dot-below folding (`ā`, `ṛ`). This is core.js `searchWords` (`searchFold`); typed-answer checking (`normalizeTyped`/`acceptTyped`) is unaffected by any of the folds below.
 
-Arabic-script text (ar/fa/ur) is folded further for search only (typed answers keep these letters distinct): hamza and madda on a carrier drop (`انا` finds `أنا`, `سوال` finds `سؤال`), ٱ is ا, ة/ه/ۃ/ۀ all fold to ہ, ى is ی/ي (`فى` finds `في`), and a leading ال is optional on both sides (`كتاب` finds `الكتاب`). Urdu spelling variants of the same letter are unified to Urdu heh goal ہ — Arabic heh ه, teh marbuta goal ۃ, and the Arabic-preset ۀ all fold to ہ (`مدرسۃ` finds `مدرسہ`) — while do-chashmi heh ھ (a distinct aspirated phoneme) is never folded into ہ. Bari ye ے folds to ی at a word boundary only (`بڑے` and `بڑی` search as the same word); this is a deliberate tradeoff, since ے is otherwise indistinguishable from ی for search — a reveal still shows the pack's own spelling.
+Arabic-script text (ar/fa/ur) has its own search folds, separate from the lenient typing letter folds above (search keeps ھ and ء, and makes ال optional): hamza and madda on a carrier drop (`انا` finds `أنا`, `سوال` finds `سؤال`), ٱ is ا, ة/ه/ۃ/ۀ all fold to ہ, ى is ی/ي (`فى` finds `في`), and a leading ال is optional on both sides (`كتاب` finds `الكتاب`). Urdu spelling variants of the same letter are unified to Urdu heh goal ہ — Arabic heh ه, teh marbuta goal ۃ, and the Arabic-preset ۀ all fold to ہ (`مدرسۃ` finds `مدرسہ`) — while do-chashmi heh ھ (a distinct aspirated phoneme) is never folded into ہ. Bari ye ے folds to ی at a word boundary only (`بڑے` and `بڑی` search as the same word); this is a deliberate tradeoff, since ے is otherwise indistinguishable from ی for search — a reveal still shows the pack's own spelling.
 
-Devanagari text (hi) is also folded further for search only (typed answers keep nukta and chandrabindu distinct, since they make a real phonemic contrast): nukta folds away (`जरूर` finds `ज़रूर`, `लडका` finds `लड़का`), including from a precomposed nukta letter (क़ ख़ ग़ ज़ ड़ ढ़ फ़ य़, U+0958–095F, decomposed first); chandrabindu ँ folds to anusvara ं (`हैँ` finds `हैं`), a common informal spelling swap. ZWJ/ZWNJ are dropped for every script.
+Devanagari text (hi) is also folded for search, the same two folds as lenient typing: nukta folds away (`जरूर` finds `ज़रूर`, `लडका` finds `लड़का`), including from a precomposed nukta letter (क़ ख़ ग़ ज़ ड़ ढ़ फ़ य़, U+0958–095F, decomposed first); chandrabindu ँ folds to anusvara ं (`हैँ` finds `हैं`), a common informal spelling swap. ZWJ/ZWNJ are dropped for every script.
 
 ## characters
 

@@ -508,10 +508,11 @@ function sentenceOpts(sentence, pool){
 //  - Latin/Greek/Cyrillic combining diacritics: folded (é -> e, ñ -> n, stress о́ -> о,
 //    ё -> е). Kept as letters: Cyrillic й, ї, ў (FOLD_KEEP).
 //  - Arabic script: harakat, Quranic marks, superscript alef and tatweel folded. The
-//    hamza marks U+0653-0655 are kept, so أ إ آ ؤ ئ ۀ never collapse to their base.
+//    hamza marks U+0653-0655 are kept here, so أ إ آ ؤ ئ ۀ keep their carrier in
+//    foldAccents itself; lenient typing drops them afterwards (LENIENT_LETTERS).
 //  - Hebrew: niqqud and cantillation folded.
-//  - Devanagari/Bengali etc.: nothing folded. Nukta (ज़ vs ज), virama and vowel signs
-//    make distinct letters or syllables.
+//  - Devanagari/Bengali etc.: nothing folded here. Virama and vowel signs make distinct
+//    syllables. (Nukta and chandrabindu are lenient-typing letter folds, LENIENT_LETTERS.)
 //  - Kana voicing marks (が vs か, ぱ vs は): never folded.
 //  - ZWNJ/ZWJ: dropped (Persian می‌روم = میروم).
 const FOLD_SCRIPTS = {
@@ -526,18 +527,45 @@ function foldAccents(s){
   return String(s).normalize("NFC").replace(/[^\u0000-\u007f]/gu, c => FOLD_KEEP.has(c) ? c : c.normalize("NFD").replace(FOLD_MARKS, "").normalize("NFC"));
 }
 // Arabic-script keyboard variants that look alike and are typed interchangeably:
-// Arabic kaf/yeh vs their Persian/Urdu forms. Always unified (both sides), like apostrophes.
-// Deliberately NOT unified or folded: ة (teh marbuta) vs ه, and ى (alef maksura) vs ي/ی.
-// These are distinct letters in Arabic spelling (على "on" vs علي "Ali"), not keyboard
-// variants, so ي maps to Persian ی but ى stays its own letter.
+// Arabic kaf/yeh vs their Persian/Urdu forms. Always unified (both sides, strict too),
+// like apostrophes. ة/ه and ى/ی are not keyboard variants; strict typing keeps them
+// apart (على "on" vs علي "Ali"). Lenient typing folds them (LENIENT_LETTERS).
 const ARABIC_VARIANTS = { "\u0643":"\u06a9", "\u064a":"\u06cc" };
-// opts: {caseSensitive, foldAccents}. Trims, collapses inner whitespace, unifies
-// typographic apostrophes, casefolds unless caseSensitive, accent-folds if asked.
+// Lenient typing only (opts.foldAccents; never strict): optional spelling variants a
+// literate writer commonly omits or swaps, folded on both sides after foldAccents.
+//  - Arabic script: hamza/madda on a carrier dropped (أ إ آ -> ا, ؤ -> و, ئ ۓ -> ی/ے,
+//    ۂ -> ہ, ۀ -> ه) by removing U+0653-0655 after NFD, which also drops a loose hamza
+//    above/below (خانهٔ); alef wasla and the rare hamza/wavy-hamza letters (ٱ ٲ ٳ ٵ ٶ ٷ ٸ)
+//    map to ا/و/ی; standalone hamza ء dropped; teh marbuta ة -> ه and Urdu ۃ -> ہ; alef
+//    maksura ى -> ی; do-chashmi heh ھ -> heh goal ہ (Urdu بھائی = بہائی). ARABIC_VARIANTS
+//    runs again last, so a carrier-stripped ئ (Arabic ي + hamza) lands on ی.
+//    Not folded: a leading ال (it changes the word), ه vs ہ (each pack uses one).
+//  - Devanagari: nukta dropped (ज़ -> ज, incl. precomposed क़..य़ U+0958-095F via NFD);
+//    chandrabindu ँ -> anusvara ं (माँ = मां).
+// Tradeoff: distinct words can become one typed answer (ماء "water" = ما "what"). The
+// per-pack collision lists are in docs/PACK_SCHEMA.md (typing section).
+// Words search does not use this layer (searchFold passes lenientLetters:false): it has
+// its own, different folds (ال optional, ھ kept, ء kept).
+const LENIENT_LETTERS = { "\u0671":"\u0627", "\u0672":"\u0627", "\u0673":"\u0627", "\u0675":"\u0627",
+  "\u0676":"\u0648", "\u0677":"\u0648", "\u0678":"\u06cc", "\u0621":"", "\u0629":"\u0647", "\u06c3":"\u06c1",
+  "\u0649":"\u06cc", "\u06be":"\u06c1", "\u06d5":"\u0647", "\u0901":"\u0902", "\u093c":"" };
+const LENIENT_RE = new RegExp("[" + Object.keys(LENIENT_LETTERS).join("") + "]", "g");
+function foldLenientLetters(s){
+  if(!/[\u0600-\u06ff\u0900-\u097f]/.test(s)) return s;
+  return s.normalize("NFD").replace(/[\u0653-\u0655]/g, "").replace(LENIENT_RE, c => LENIENT_LETTERS[c])
+    .replace(/[\u0643\u064a]/g, c => ARABIC_VARIANTS[c]).normalize("NFC");
+}
+// opts: {caseSensitive, foldAccents, lenientLetters}. Trims, collapses inner whitespace,
+// unifies typographic apostrophes, casefolds unless caseSensitive, accent-folds if asked;
+// with foldAccents also applies LENIENT_LETTERS unless lenientLetters === false.
 function normalizeTyped(s, opts){
   const o = opts || {};
   let out = String(s == null ? "" : s).normalize("NFC").replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/[\u0643\u064a]/g, c => ARABIC_VARIANTS[c]).replace(/\s+/g, " ").trim();
   if(!o.caseSensitive) out = out.toLowerCase();
-  if(o.foldAccents) out = foldAccents(out);
+  if(o.foldAccents){
+    out = foldAccents(out);
+    if(o.lenientLetters !== false) out = foldLenientLetters(out).replace(/\s+/g, " ").trim();
+  }
   return out;
 }
 function typingEnabled(pack){ return !!(pack && pack.typing); }
@@ -553,15 +581,45 @@ function typingLenientFor(entry, pack){
   const at = idx[String(entry.lv)];
   return at === undefined ? true : at < strictAt;
 }
+// Collision guard index: strict normal form (no accent or letter folds) of every pack
+// entry's w and alt -> the entries spelled that way. Built once per words array.
+const STRICT_FORMS = new WeakMap();
+function strictFormIndex(words, caseSensitive){
+  let byCase = STRICT_FORMS.get(words);
+  if(!byCase){ byCase = {}; STRICT_FORMS.set(words, byCase); }
+  const k = caseSensitive ? "cs" : "ci";
+  if(byCase[k]) return byCase[k];
+  const idx = new Map();
+  words.forEach(e => [e.w, ...(e.alt||[])].forEach(x => {
+    const f = normalizeTyped(x, { caseSensitive });
+    if(!f) return;
+    if(!idx.has(f)) idx.set(f, []);
+    idx.get(f).push(e);
+  }));
+  return (byCase[k] = idx);
+}
 // Accepts entry.w or any entry.alt (plus any `extra` surfaces, e.g. the literal form a
 // cloze blank had in its sentence), compared after normalising both sides.
-function acceptTyped(input, entry, pack, extra){
+// words (optional, the pack's WORDS): collision guard for LENIENT_LETTERS. An answer that
+// matches only because of those letter folds (not already strictly or by plain accent
+// folding) is rejected when it is exactly another pack word's w/alt (strict form): typing
+// ماء "water" for ما "what" is wrong, typing امس for أمس is fine. Plain accent folds
+// (Spanish si/sí) are not guarded.
+function acceptTyped(input, entry, pack, extra, words){
   const t = (pack && pack.typing) || {};
-  const opts = { caseSensitive: !!t.caseSensitive, foldAccents: typingLenientFor(entry, pack) };
-  const got = normalizeTyped(input, opts);
-  if(!got) return false;
+  const cs = !!t.caseSensitive, lenient = typingLenientFor(entry, pack);
   const targets = [entry.w, ...(entry.alt||[]), ...(extra||[])];
-  return targets.some(x => normalizeTyped(x, opts) === got);
+  const base = { caseSensitive: cs, foldAccents: lenient, lenientLetters: false };
+  const got = normalizeTyped(input, base);
+  if(!got) return false;
+  if(targets.some(x => normalizeTyped(x, base) === got)) return true;
+  if(!lenient) return false;
+  const full = { caseSensitive: cs, foldAccents: true };
+  const gotL = normalizeTyped(input, full);
+  if(!gotL || !targets.some(x => normalizeTyped(x, full) === gotL)) return false;
+  if(!Array.isArray(words)) return true;
+  const hits = strictFormIndex(words, cs).get(normalizeTyped(input, { caseSensitive: cs })) || [];
+  return !hits.some(e => e !== entry && !(e.id != null && e.id === entry.id));
 }
 
 // ------------------------------------------------------------------ sentences
@@ -873,8 +931,9 @@ function pronShown(x){
 // rest. So "делать" lists делать before сделать.
 // Folded search fields are computed once per word (SEARCH_CACHE, rebuilt if the word's
 // text changes), so a keystroke only compares strings.
-// Arabic script (ar/fa/ur): search is more lenient than typed-answer checking
-// (normalizeTyped keeps ة/ى distinct there, on purpose). A search key also folds the
+// Arabic script (ar/fa/ur): search has its own folds, independent of lenient typing's
+// LENIENT_LETTERS (searchFold turns that layer off; strict typing keeps ة/ى distinct).
+// Search keeps ھ and ء, and makes a leading ال optional. A search key also folds the
 // letters learners routinely type without their marks or in a keyboard variant: hamza
 // and madda on a carrier (أ إ آ ؤ ئ ۀ ۂ -> ا و ی ه ہ, by dropping U+0653..U+0655 after
 // decomposition), alef wasla ٱ -> ا, teh marbuta ة -> ہ, alef maksura ى -> ی (ي is
@@ -892,9 +951,8 @@ function pronShown(x){
 // ٲ ٳ ٵ / ٶ ٷ / ٸ (hamza/wavy-hamza letters with no canonical decomposition) map directly.
 const AR_SEARCH_MAP = { "ٱ":"ا", "ٲ":"ا", "ٳ":"ا", "ٵ":"ا", "ٶ":"و", "ٷ":"و", "ٸ":"ی",
   "ة":"ہ", "ى":"ی", "ۀ":"ہ", "ۃ":"ہ", "ه":"ہ" };
-// Devanagari (hi): search is more lenient than typed-answer checking (normalizeTyped
-// leaves nukta and chandrabindu alone there — नुक्ता makes a distinct letter and ँ/ं are
-// a real phonemic contrast for typed answers, on purpose). A search key folds nukta
+// Devanagari (hi): search does the same nukta and chandrabindu folds as lenient typing
+// (LENIENT_LETTERS), here always; strict typing keeps both. A search key folds nukta
 // away (जरूर finds ज़रूर, लडका finds लड़का) — decomposing first (NFD) so a precomposed
 // nukta letter (क़ ख़ ग़ ज़ ड़ ढ़ फ़ य़, U+0958-095F) is caught the same as a bare base+nukta
 // pair — and unifies chandrabindu ँ into anusvara ं (हैँ finds हैं), a common informal
@@ -924,7 +982,7 @@ function searchFold(s){
   // just discard it. A hyphen is folded to a space so a reduplicated/hyphenated lemma
   // (धीरे-धीरे) and its unhyphenated spelling (धीरे धीरे) search as the same phrase.
   const pre = String(s == null ? "" : s).normalize("NFD").replace(/̃/g, "n").normalize("NFC").replace(/-/g, " ");
-  let f = normalizeTyped(pre, { foldAccents: true });
+  let f = normalizeTyped(pre, { foldAccents: true, lenientLetters: false });
   if(/[ऀ-ॿ]/.test(f)) f = foldDevanagari(f);
   if(/[؀-ۿ]/.test(f)){
     f = f.replace(/[ٱ-ٳٵ-ٸةىۀۃه]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "")
@@ -3023,7 +3081,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
   meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, unitExampleSentences, rubyCovers, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
   targetLang, fontFamilyOf, fontStackOf, lineHeightOf, fontsHref, scriptDisplay, rtlRuns,
-  foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
+  foldAccents, foldLenientLetters, LENIENT_LETTERS, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,
@@ -3814,7 +3872,7 @@ function recallItem(entry){
 function typeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:"Type the word",
     html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
-    check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(val, entry, PACK, null, WORDS), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // typePron — pack.typing "pron": meaning shown (plus a replay button for the word's
@@ -3897,7 +3955,7 @@ function gapSentence(s, typed){
     onReveal: () => saySentence(s) };
   if(typed && TYPING){
     return Object.assign(base, { kind:"type", label:"Type the missing word", html,
-      check: val => VC.acceptTyped(val, entry, PACK, [match.text]) });
+      check: val => VC.acceptTyped(val, entry, PACK, [match.text], WORDS) });
   }
   const gc = VC.gapChoices(entry, match, WORDS, PACK);
   return Object.assign(base, { kind:"mc", label:"What's the missing word?", optsClass:"opts-hero opts-w", html,
@@ -5216,4 +5274,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:3425664705-1539483-->
+<!--ve-build:473506220-1543367-->

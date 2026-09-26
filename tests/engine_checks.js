@@ -914,11 +914,11 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     !same("ज़","ज") && !same("ड़","ड") && !same("क्","क") && !same("が","か") && !same("ぱ","は") && !same("ば","は"));
   check("fold: Latin accents, Cyrillic stress/ё, Hebrew niqqud, ZWNJ still fold",
     F("perché") === "perche" && F("ñ") === "n" && F("моло́ко") === "молоко" && F("ё") === "е" && F("שָׁלוֹם") === "שלום" && F("می\u200cروم") === "میروم");
-  check("lenient typing: ещё/еще both ways; fully vocalised Arabic = unvocalised; か rejected for が; ا rejected for أ", (() => {
+  check("lenient typing: ещё/еще both ways; fully vocalised Arabic = unvocalised; か rejected for が; bare ا accepted for أ (LENIENT_LETTERS), strict rejects it", (() => {
     const P = { typing:{ accents:"lenient" } };
     return VC.acceptTyped("еще", { w:"ещё" }, P) && VC.acceptTyped("ещё", { w:"еще" }, P) &&
       VC.acceptTyped("مدرسة", { w:"مَدْرَسَةٌ" }, P) && VC.acceptTyped("مَدْرَسَةٌ", { w:"مدرسة" }, P) &&
-      !VC.acceptTyped("か", { w:"が" }, P) && !VC.acceptTyped("امس", { w:"أمس" }, P) && VC.acceptTyped("أَمْس", { w:"أمس" }, P);
+      !VC.acceptTyped("か", { w:"が" }, P) && VC.acceptTyped("امس", { w:"أمس" }, P) && !VC.acceptTyped("امس", { w:"أمس" }, { typing:{ accents:"strict" } }) && VC.acceptTyped("أَمْس", { w:"أمس" }, P);
   })());
   // C. pron hidden when it only repeats the text.
   check("pronShown: hidden when pron = w (в/в, case/NFC-insensitive) or = sentence text; stress-marked pron kept",
@@ -967,8 +967,9 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   check("ar/fa search: a hamza carrier folds to the same canonical letter the typed side uses (سايل/سایل → سائل, مسيول/مسیول → مسئول, مومن → مؤمن)",
     aids("سايل").includes("sael") && aids("سایل").includes("sael") && aids("مسيول").includes("masul") && aids("مسیول").includes("masul") && aids("مومن").includes("moamen")
     && aids("سائل").includes("sael") && aids("مسئول").includes("masul"));
-  check("searchFold leaves non-Arabic text exactly as normalizeTyped folds it; typed-answer check still keeps ة and ى distinct",
-    VC.searchFold("Café  Été") === VC.normalizeTyped("Café  Été", { foldAccents: true }) && VC.normalizeTyped("مدرسة", { foldAccents: true }) !== VC.normalizeTyped("مدرسه", { foldAccents: true }));
+  check("searchFold leaves non-Arabic text exactly as normalizeTyped folds it; strict typing keeps ة and ى distinct, lenient folds them",
+    VC.searchFold("Café  Été") === VC.normalizeTyped("Café  Été", { foldAccents: true }) && VC.normalizeTyped("مدرسة", {}) !== VC.normalizeTyped("مدرسه", {}) &&
+    VC.normalizeTyped("مدرسة", { foldAccents: true }) === VC.normalizeTyped("مدرسه", { foldAccents: true }));
 })();
 
 // ------------------------------------------------------------ [21] review round: article agreement, fixed expressions, clitics
@@ -1838,8 +1839,8 @@ async function swChecks(){
   const kids = q => VC.searchWords(KW, q).map(v => v.id);
   check("hangul reduplication (space-separated syllable blocks, like the roman/Devanagari case): 안녕 안녕 folds to 안녕, matching either stored form",
     VC.searchFold("안녕 안녕") === VC.searchFold("안녕") && kids("안녕 안녕").includes("annyeong") && kids("안녕").includes("annyeong_dup"));
-  check("typed-answer checking is untouched: nukta stays a distinct letter there (normalizeTyped does not fold it)",
-    VC.normalizeTyped("जरूर", { foldAccents: true }) !== VC.normalizeTyped("ज़रूर", { foldAccents: true }));
+  check("typed answers: strict keeps nukta distinct; lenient folds it (LENIENT_LETTERS, same as search)",
+    VC.normalizeTyped("जरूर", {}) !== VC.normalizeTyped("ज़रूर", {}) && VC.normalizeTyped("जरूर", { foldAccents: true }) === VC.normalizeTyped("ज़रूर", { foldAccents: true }));
 
   const UW = [
     { id:"madrasa", w:"مدرسہ", en:"school" },
@@ -1871,6 +1872,59 @@ async function swChecks(){
       const it = VC.scriptItem("symSound", unit, ctx);
       return it.reveal.name === "";
     })());
+})();
+
+// [26] Lenient typing letter folds (LENIENT_LETTERS) + collision guard.
+(() => {
+  console.log("\n[26] lenient typing letter folds (hamza, ة, ى, ھ, nukta, chandrabindu) + collision guard");
+  const LEN = { typing:{ accents:"lenient" } }, STR = { typing:{ accents:"strict" } };
+  const ok = (typed, w, P) => VC.acceptTyped(typed, { id:"t", w }, P || LEN);
+  // Each fold accepts both ways in lenient mode, and strict rejects the same input.
+  const FOLDS = [["أمس","امس"],["إسلام","اسلام"],["آخر","اخر"],["سؤال","سوال"],["مسئول","مسیول"],["شيء","شی"],["مدرسة","مدرسه"],["مستشفى","مستشفی"],
+    ["بھائی","بہائی"],["خانۀ","خانه"],["خانهٔ","خانه"],["ٱبن","ابن"],["ज़रूर","जरूर"],["फ़िल्म","फिल्म"],["माँ","मां"],["हँसना","हंसना"]];
+  FOLDS.forEach(([a, b]) => check(`lenient fold ${a} = ${b} both ways; strict rejects both ways`,
+    ok(b, a) && ok(a, b) && !ok(b, a, STR) && !ok(a, b, STR)));
+  check("precomposed nukta letter ज़ (U+095B) = ज + ़ = ज in lenient mode",
+    ok("\u091c", "\u095b") && ok("\u095b", "\u091c\u093c") && !ok("\u091c", "\u095b", STR));
+  check("a leading ال is not folded: كتاب ≠ الكتاب in lenient typing",
+    !ok("كتاب", "الكتاب") && !ok("الكتاب", "كتاب"));
+  check("strict mode: normalizeTyped without foldAccents applies no letter fold",
+    VC.normalizeTyped("أمس ماء بھائی माँ ज़", {}) === "أمس ماء بھائی माँ ज़");
+  check("Words search unchanged by the letter layer: ھ and ء kept, ال optional",
+    VC.searchFold("بھائی") !== VC.searchFold("بہائی") && VC.searchFold("ماء") !== VC.searchFold("ما") &&
+    VC.searchWords([{ id:"k", w:"الكتاب", en:"the book" }], "كتاب").length === 1);
+  check("non-Arabic/Devanagari text: foldLenientLetters is the identity (Latin, Cyrillic, Hebrew, CJK, kana)",
+    ["perché", "ёж", "שָׁלוֹם", "你好", "が", "안녕"].every(x => VC.foldLenientLetters(x) === x));
+  // Collision guard: real colliding pairs from ar/fa/ur packs (words.json at the time of
+  // writing): [pack, idX, wX, typedX, idY, wY, typedY]. typedY is another word's exact
+  // spelling, so it is rejected for X (and vice versa) though it folds to the same key.
+  const PAIRS = [["arabic", "w0001", "أن", "أن", "w0010", "إن", "إن"], ["arabic", "w0005", "كان", "كان", "w0362", "كأن", "كأن"], ["arabic", "w0008", "إلى", "إلى", "w1707", "آلي", "آلي"], ["arabic", "w0009", "ما", "ما", "w0206", "ماء", "ماء"], ["arabic", "w0053", "رأى", "رأى", "w0381", "رأي", "رأي"], ["arabic", "w0053", "رأى", "يرى", "w1858", "أرى", "يري"], ["arabic", "w0112", "بدأ", "بدأ", "w0128", "بدا", "بدا"], ["arabic", "w0135", "إلا", "إلا", "w0170", "ألا", "ألا"], ["arabic", "w0411", "أمن", "أمن", "w0802", "آمن", "آمن"], ["arabic", "w0411", "أمن", "أمن", "w1073", "آمن", "آمن"], ["arabic", "w0420", "رجا", "رجا", "w0813", "رجاء", "رجاء"], ["arabic", "w0425", "إله", "إله", "w0856", "آلة", "آلة"], ["arabic", "w0448", "آسف", "آسف", "w0992", "أسف", "أسف"], ["arabic", "w0453", "غدا", "غدا", "w0550", "غداء", "غداء"], ["arabic", "w0466", "موسيقى", "موسيقى", "w1743", "موسيقي", "موسيقي"], ["arabic", "w0543", "بني", "بني", "w0779", "بنى", "بنى"], ["arabic", "w0589", "أذن", "أذن", "w0659", "إذن", "إذن"], ["arabic", "w0589", "أذن", "أذن", "w0828", "إذن", "إذن"], ["arabic", "w0644", "خطأ", "أخطاء", "w1985", "أخطأ", "أخطأ"], ["arabic", "w0650", "كرة", "كرة", "w0861", "كره", "كره"], ["arabic", "w0717", "أثر", "آثار", "w1100", "أثار", "أثار"], ["arabic", "w0724", "أما", "أما", "w0786", "إما", "إما"], ["arabic", "w0775", "سوى", "سوى", "w1546", "سوي", "سوي"], ["arabic", "w1454", "غني", "غني", "w1548", "غنى", "غنى"], ["arabic", "w1551", "بري", "بري", "w1823", "بريء", "بريء"], ["persian", "w0686", "جز", "جز", "w1496", "جزء", "جزء"], ["urdu", "w0067", "پھر", "پھر", "w1964", "پہر", "پہر"], ["urdu", "w2016", "کھلانا", "کھلانا", "w1743", "کہلانا", "کہلانا"]];
+  const byPack = {};
+  PAIRS.forEach(([p, ix, wx, fx, iy, wy, fy]) => {
+    const W = byPack[p] || (byPack[p] = []);
+    [[ix, wx, fx], [iy, wy, fy]].forEach(([id, w, f]) => {
+      let e = W.find(v => v.id === id);
+      if(!e){ e = { id, w, en:id, lv:"A1" }; W.push(e); }
+      if(f !== w){ e.alt = e.alt || []; if(!e.alt.includes(f)) e.alt.push(f); }
+    });
+  });
+  PAIRS.forEach(([p, ix, wx, fx, iy, wy, fy]) => {
+    const W = byPack[p], X = W.find(v => v.id === ix), Y = W.find(v => v.id === iy);
+    check(`guard ${p}: ${fy} (${iy}) rejected for ${fx} (${ix}) and vice versa; each exact form accepted; without words list the fold accepts`,
+      !VC.acceptTyped(fy, X, LEN, null, W) && !VC.acceptTyped(fx, Y, LEN, null, W) &&
+      VC.acceptTyped(fx, X, LEN, null, W) && VC.acceptTyped(fy, Y, LEN, null, W) && VC.acceptTyped(fy, X, LEN));
+  });
+  check("guard: 25 arabic, 1 persian, 2 urdu collision pairs covered",
+    ["arabic", "persian", "urdu"].map(p => PAIRS.filter(x => x[0] === p).length).join() === "25,1,2");
+  // Hamza-less typings that are not another pack word stay accepted with the guard on.
+  const AR = [{ id:"w0017", w:"أنا", en:"I" }, { id:"w0025", w:"أنت", en:"you" }, { id:"w0008", w:"إلى", en:"to" }, { id:"w0009", w:"ما", en:"what" }];
+  check("guard: non-colliding hamza-less انا/انت/الى accepted for أنا/أنت/إلى",
+    VC.acceptTyped("انا", AR[0], LEN, null, AR) && VC.acceptTyped("انت", AR[1], LEN, null, AR) && VC.acceptTyped("الى", AR[2], LEN, null, AR));
+  check("guard only covers letter folds: plain accent folds unchanged (si for sí accepted with el/él, si/sí in the list)",
+    (() => { const ES = [{ id:"si", w:"si" }, { id:"si2", w:"sí" }, { id:"el", w:"el" }, { id:"el2", w:"él" }];
+      return VC.acceptTyped("si", ES[1], LEN, null, ES) && VC.acceptTyped("el", ES[3], LEN, null, ES); })());
+  check("guard: strict mode unchanged (exact accepted, folded rejected, with and without words)",
+    VC.acceptTyped("ما", AR[3], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR));
 })();
 
 appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; })
