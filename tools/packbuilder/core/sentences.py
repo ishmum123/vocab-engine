@@ -288,6 +288,7 @@ def build_sentences(env, ctx, words, top3000):
     cands = defaultdict(list)
     tok_forms = {}     # sid -> folded token surfaces (example_shows_word only)
     link_where = {}    # sid -> (token surfaces, sentence_links where records); spec.emit_ruby only
+    spec_dropped = {}  # sid -> links before fix_links (spec.fix_links_floor only)
     for sid, toks in chain(iter_tagged(ctx["tagged"]), ctx.get("example_tagged", ())):
         text = rows[sid][1]
         if sp.untranslated_rows and not rows[sid][3]:
@@ -320,6 +321,8 @@ def build_sentences(env, ctx, words, top3000):
         fixed = sp.fix_links(rows[sid], toks, links, key_to_id)     # links only: freq/word list untouched
         if fixed != links:
             st["links_fixed_by_spec"] += 1
+            if sp.fix_links_floor and fixed:
+                spec_dropped[sid] = links
             links = fixed
         if not links:
             continue
@@ -365,6 +368,23 @@ def build_sentences(env, ctx, words, top3000):
                 hw_tier[(sid, w)] = tier
         for w in links:
             cands[w].append(sid)
+    if sp.fix_links_floor:
+        # a spec-dropped link comes back when its word would otherwise have
+        # fewer than fix_links_floor candidate sentences
+        for sid in sorted(spec_dropped):
+            if sid not in info:
+                continue
+            n, remoto, aud, maxlv, links = info[sid]
+            back = [x for x in dict.fromkeys(spec_dropped[sid])
+                    if x not in links and len(cands[x]) < sp.fix_links_floor]
+            if not back:
+                continue
+            links = [x for x in spec_dropped[sid] if x in links or x in back]
+            maxlv = max((lv_of[w] for w in links), key=lambda l: lv_ord[l])
+            info[sid] = (n, remoto, aud, maxlv, links)
+            for x in back:
+                cands[x].append(sid)
+            st["links_kept_by_fix_links_floor"] += len(back)
     st["candidates"] = len(info)
 
     use = Counter()

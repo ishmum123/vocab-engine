@@ -502,6 +502,7 @@ def build_words(env, ctx):
         chosen, level_of = apply_word_ceiling(records, forced_ok, chosen, level_of, sp)
 
     words = []
+    final_keys = set(final)
     for k in final:
         rec = records[k]
         lem, g = rec["lemma"], rec["group"]
@@ -531,6 +532,7 @@ def build_words(env, ctx):
             lem, w, alt = rec["display"], rec["display"], [rec["lemma"]]
         if fem_alt.get(k):
             alt = (alt or []) + [x for x in fem_alt[k] if x not in (alt or [])]
+        pos = sp.word_pos(rec, pos, final_keys)
         word = {"lemma": lem, "w": w, "pos": pos, "en": en, "lv": level_of[k], "rank": rank_of[k]}
         if alt:
             word["alt"] = alt

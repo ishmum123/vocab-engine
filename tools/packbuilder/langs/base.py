@@ -388,6 +388,13 @@ class LanguageSpec:
         """(w, en) for a noun: the displayed form (with article) and gloss."""
         return lemma, en
 
+    def word_pos(self, rec, pos, keys):
+        """The shipped POS label of a selected word, before ids are assigned
+        (rec: its selection record, with entry_pos = the POS of the dictionary
+        entry its gloss came from; keys: the final (lemma, group) keys).
+        Default: the group's label."""
+        return pos
+
     def clean_sentence_text(self, t):
         return t
 
@@ -606,6 +613,10 @@ class LanguageSpec:
         list and passages never see it, so a fix here cannot re-rank words.
         `row` is the corpus row, `toks` its tagged tokens. Default: unchanged."""
         return links
+
+    # a word left with fewer than this many candidate sentences by fix_links
+    # gets its dropped links back (0: off; the drop stands)
+    fix_links_floor = 0
 
     def post_resolve(self, toks, out):
         """Resolve time, whole sentence: [(lemma, group) | None] per token,
