@@ -127,6 +127,8 @@
   .row button, .chip{padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:14px;color:var(--ink);min-height:44px;font-family:var(--font)}
   .row button.on, .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
   .replay{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:17px;color:var(--ink);flex:0 0 auto}
+  .ktag{text-align:center;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+  .ktag b{font-weight:600;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:2px 10px}
   .listen-stage{display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0}
   input[type=text]{width:100%;padding:14px 14px;border:1px solid var(--line);border-radius:12px;font-size:19px;background:var(--card);color:var(--ink);font-family:var(--wfont)}
   input[type=text]:focus{outline:3px solid #7AA7D9;outline-offset:1px}
@@ -1101,24 +1103,49 @@ function typeItem(entry){
     check: val => VC.acceptTyped(val, entry, PACK, null, WORDS), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
-// typePron — pack.typing "pron": meaning shown (plus a replay button for the word's
-// audio); type its reading. Accepted: tone marks or numbers (VC.checkPronTyped: neutral as
-// 5, 0 or nothing; case, spaces and apostrophes ignored). The right letters without any
-// tone count as wrong, with a "tones missing" note giving the marked form. This is the
-// word's production slot (kindMix "type"), the same slot recall fills: the reading is
-// never drilled on its own. A word with no pron gets recall instead.
+// pack.typing "pron": the word's production slot (kindMix "type", the slot recall also
+// fills) is one of two typed items, alternating in plan order (VC.typeSlotKind), each
+// tagged on the card so the learner never confuses them:
+//  - pronTypeItem ("Type the <pack.tones>", else "Type the reading"): meaning shown, silent (no replay, no autoplay:
+//    audio would give the reading away). Tones optional: VC.checkPronTyped's "ok",
+//    "tones" (none typed) and "tonesDiff" (other tones) all count as right; the last two
+//    get a note with the tone-coloured marked form. Latin keyboard (lang="en").
+//  - writtenTypeItem ("Type the characters"): meaning shown and the word's audio played
+//    once (replay button, as hear items); type the written form (VC.acceptTyped, alt forms
+//    accepted). Target-language input attributes (TA) so the keyboard switches.
+// The characters item needs the written form on display (pronFirst: a word still shown
+// by its reading gets the reading item in both slots). A word with no pron always gets the
+// characters item; no written form either: recall.
+const PRON_NOUN = TONES ? PACK.tones : "reading"; // the reading system's name (pack.tones), else "reading"
+const kindTag = (tag, sub) => `<div class="ktag"${UIA}><b>${escapeHtml(tag)}</b>${sub ? ` · ${escapeHtml(sub)}` : ""}</div>`;
 function pronTypeItem(entry){
-  const hear = canHearWord(entry);
-  return { kind:"type", key:"w:"+entry.id, label:"Type the reading (tone marks or numbers)",
-    html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
-    placeholder: "tone marks or numbers…", inputTA: "",
-    mount: () => { if(hear){ const b = $("rp2"); b.onclick = () => sayWord(entry, b); } },
-    check: val => VC.checkPronTyped(val, entry.pron) === "ok",
-    feedback: val => VC.checkPronTyped(val, entry.pron) === "tones" ? `<div class="diff">tones missing: <span class="tpron">${readingHTML(entry.pron)}</span></div>` : "",
+  return { kind:"type", key:"w:"+entry.id, label:`Type the ${PRON_NOUN}`,
+    html: `${kindTag(PRON_NOUN, TONES ? "tones optional" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
+    placeholder: TONES ? `${PRON_NOUN}, tones optional…` : `${PRON_NOUN}…`, inputTA: ' lang="en"',
+    check: val => VC.checkPronTyped(val, entry.pron) !== "wrong",
+    feedback: val => { const v = VC.checkPronTyped(val, entry.pron); return v === "tones" || v === "tonesDiff" ? `<div class="diff">tones: <span class="tpron">${readingHTML(entry.pron)}</span></div>` : ""; },
     reveal: revealBlock(entry), onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
-const WORD_ITEM = { hear: hearItem, read: readItem, recall: recallItem, type: e => PRON_TYPING && e.pron ? pronTypeItem(e) : TYPING ? typeItem(e) : recallItem(e) };
-const itemFromPlan = p => WORD_ITEM[p.kind](p.word);
+function writtenTypeItem(entry){
+  const hear = canHearWord(entry);
+  return { kind:"type", key:"w:"+entry.id, label:"Type the characters",
+    html: `${kindTag("characters", hear ? "listen" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
+    placeholder: "characters…",
+    mount: () => { if(hear){ const b = $("rp2"); sayWord(entry, b); b.onclick = () => sayWord(entry, b); } },
+    check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
+}
+// The characters item only for a word whose written form is on display (dispWord: under
+// pronFirst, a word below its character tier shows its reading only, so its characters
+// were never shown); such a word gets the reading item in both slots.
+function pronSlotItem(entry, slot){
+  const shown = !!entry.w && !dispWord(entry).isPron;
+  if(shown && (slot === "written" || !entry.pron)) return writtenTypeItem(entry);
+  return entry.pron ? pronTypeItem(entry) : recallItem(entry);
+}
+const WORD_ITEM = { hear: hearItem, read: readItem, recall: recallItem, type: (e, slot) => PRON_TYPING ? pronSlotItem(e, slot) : TYPING ? typeItem(e) : recallItem(e) };
+// (p, i, plan): as an Array.map callback; i/plan pick the type slot's item (PRON_TYPING).
+const itemFromPlan = (p, i, plan) => WORD_ITEM[p.kind](p.word, p.kind === "type" && PRON_TYPING ? VC.typeSlotKind(plan, i) : undefined);
 // One card per missed word/sentence (items carry `key`), however many question types
 // it was missed as; the most-missed first, with a count when missed more than once.
 function missSummary(miss){
@@ -1357,7 +1384,7 @@ const scriptNotesHTML = (st, set) => SNOTES.filter(n => n && n.st === st && n.se
   .map(n => `<div class="card-teach xnote"><h3>${ui(n.h)}</h3><p>${ui(n.body)}</p></div>`).join("");
 // Plan entries are {kind, word} or, from the unified plans, {kind, unit} (a character
 // unit, or a script unit with a script kind).
-const planItem = p => isScriptPlan(p) ? scriptDrillItem(p.kind, p.unit) : p.unit ? charDrillItem(p.kind, p.unit) : itemFromPlan(p);
+const planItem = (p, i, plan) => isScriptPlan(p) ? scriptDrillItem(p.kind, p.unit) : p.unit ? charDrillItem(p.kind, p.unit) : itemFromPlan(p, i, plan);
 
 // ===================== lesson item wrapper =====================
 // mode from VC.lessonSayMode: "audio" plays `say`; "inq" runs without audio (the

@@ -290,6 +290,25 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const rp = VC.buildRecallPlan(learned, prog, typingPack, 8);
   check("recall step: 8 items, all production, recall+type mixed when typing on", rp.length === 8 && rp.every(p=>VC.PRODUCTION_KINDS.includes(p.kind)) && rp.some(p=>p.kind==="type") && rp.some(p=>p.kind==="recall"));
   check("recall step: recall only when typing off", VC.buildRecallPlan(learned, prog, PACK, 8).every(p=>p.kind==="recall"));
+  // typing "pron": each "type" slot is the typed-reading or the typed-characters item,
+  // alternating in plan order (VC.typeSlotKind); the plans themselves are untouched.
+  const pronPack = Object.assign({}, PACK, { typing: "pron" });
+  const tsPlan = ["hear","type","recall","type","read","type","type"].map(kind => ({ kind }));
+  check("typeSlotKind: type slots alternate reading, characters, reading... in plan order; other kinds skipped; no index = reading",
+    tsPlan.map((p, i) => p.kind === "type" ? VC.typeSlotKind(tsPlan, i) : "-").join(",") === "-,pron,-,written,-,pron,written" && VC.typeSlotKind(tsPlan) === "pron" && VC.typeSlotKind(null, 3) === "pron");
+  let altBad = 0, altPron = 0, altWritten = 0;
+  for(let i = 0; i < 30; i++){
+    [VC.buildReviewPlan(learned, prog, pronPack), VC.buildRecallPlan(learned, prog, pronPack, 8)].forEach(plan => {
+      const slots = plan.map((p, j) => p.kind === "type" ? VC.typeSlotKind(plan, j) : null).filter(Boolean);
+      const np = slots.filter(k => k === "pron").length, nw = slots.length - np;
+      altPron += np; altWritten += nw;
+      if(slots.some((k, j) => k !== (j % 2 ? "written" : "pron")) || np - nw < 0 || np - nw > 1) altBad++;
+    });
+  }
+  check(`zh typing "pron" Review/Recall plans: type slots alternate reading/characters, reading first (${altPron} reading, ${altWritten} characters, ${altBad} bad plans)`, altBad === 0 && altPron > 0 && altWritten > 0);
+  const rpPron = VC.buildRecallPlan(learned, prog, pronPack, 8);
+  check("zh typing \"pron\" recall step: 4 type slots = 2 reading + 2 characters", rpPron.filter(p => p.kind === "type").length === 4
+    && rpPron.map((p, j) => p.kind === "type" ? VC.typeSlotKind(rpPron, j) : "").filter(Boolean).sort().join(",") === "pron,pron,written,written");
   const km = VC.kindMix(15, 0.4, false);
   check("kindMix(15): exactly 6 production, hear:read 2:1 over the rest", km.filter(k=>k==="recall").length===6 && km.filter(k=>k==="hear").length===6 && km.filter(k=>k==="read").length===3);
   const counts = {hear:0, read:0, gap:0, gapType:0};
