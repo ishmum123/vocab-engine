@@ -152,6 +152,61 @@ Service worker (`sw.template.js`):
   that cannot play Ogg Opus the clip fails, and Persian (no voice) shows the hint. Phase 3 checks a real
   iPhone; if older iOS matters, add a second encoding (AAC `.m4a`) and pick per `canPlayType`.
 
+## Playback reliability
+
+User report (Android Chrome, zh): "in fill in the blanks, sometimes the audio doesn't play". Two fixes.
+
+**Replay rule.** Every drill item that plays audio by itself shows a Replay button (`class="replay"`,
+`aria-label="Replay"`, pulses with the `speaking` class, as the hear items' speaker). The button carries
+no text, so RTL/pronFirst audits (tests/fixtures/rtl_audit.js) see nothing new.
+
+| site | before | after |
+|---|---|---|
+| `hearItem`, `hearSentence`, charPick, primer `hear()`, `placeVocabNext` | speaker button | unchanged |
+| `writtenTypeItem` | replay button, no pulse style | pulse (`.replay.speaking`) |
+| `readItem` mount | autoplay, no button | `REPLAY_STAGE` (`#rpa`) when `canHearWord` |
+| `readSentence` mount | autoplay, no button | `REPLAY_STAGE` (`#rpa`) when `canHearSentence` |
+| `lessonItem` mount | replay button, no pulse | button passed to `speak` (pulses) |
+| reveals: `recallItem`, `typeItem`, `pronTypeItem`, `writtenTypeItem` | autoplay; reveal row tappable (icon span) | plus the runner's Replay (`#rvp`) when `revealHear` (`canHearWord`) |
+| reveal: `gapSentence` (choice and typed) | autoplay after answering; tappable row | plus `#rvp` when `canHearSentence`; nothing before the answer (the blank is never given away) |
+| reveal: `charDrillItem` | `sayUnit`; unit with no linked word had no control | plus `#rvp` when `canHearUnit` |
+| reveal: primer items with `audio: "after"` (incl. symType) | `sayScript`; no control for the unit's own sound | plus `#rvp` |
+
+The reveal button is added by the drill runner (`revealHTML` / `playReveal`), never stored in
+`item.reveal`, so the Missed summary (which repeats reveals) keeps unique ids. An item built while
+nothing could be heard gets no button, and its mount still tries to play (a voice may have arrived since),
+as before.
+
+**Autoplay reliability** (`VC.ttsDriver`, `VC.liveVoice`, `VC.clipStartWatch` in core.js; tests in
+tests/engine_checks.js [27] with fake timers and tests/audio_checks.js [6] through the app):
+
+1. *cancel/speak race.* `speechSynthesis.cancel()` immediately followed by `speak()` can drop the new
+   utterance (Chromium/Firefox reports; Mozilla bug 1522074 measured up to ~500 ms). The driver calls
+   `cancel()` only when `speaking || pending`, and after any cancel defers the speak by
+   `TTS_TIMING.deferMs` (80 ms). A generation counter makes the newest `speak()` win over a deferred one.
+   Idle engine: speak is synchronous, as before.
+2. *paused engine / utterance never starts.* `resume()` is called only when `paused` is true (a blind
+   pause/resume cycle is harmful on Android, where pause acts as cancel). If an utterance fires no
+   onstart/onend/onerror, `speaking` is never seen true, and after `watchMs` (1200 ms, polled every
+   200 ms) the engine is `!speaking && !pending`, it is cancelled and spoken once more (deferred as in 1).
+   Never a second retry. Armed only when `speechSynthesis.speaking` is a boolean.
+3. *utterance garbage collection* (onend never fires, audio cut): the driver keeps the current
+   utterance referenced until its onend/onerror.
+4. *voices loading late.* `pickVoice` already re-runs on `voiceschanged` (`pv`). Each utterance now
+   takes `VC.liveVoice(ttsVoice, getVoices(), lang)`: the chosen voice if still listed (matched by
+   voiceURI/name), else a fresh pick, else no `voice` (the utterance keeps `lang`).
+5. *recorded clip that never starts.* `clipFailed` covered load errors and rejected `play()`, not a
+   clip that hangs. `clipStartWatch` gives a clip `CLIP_START_MS` (4 s) to fire `playing`; otherwise
+   the player is stopped and the clip falls back once, exactly as a failed load (TTS, else the toast).
+   Disarmed by playing, end, error, a blocked autoplay, or a newer `speak`.
+
+Evidence relied on: Mozilla bug 1522074 (cancel then speak drops the utterance, cross-posted to
+Chromium); talkrapp.com "Lessons learned using speechSynthesis" (utterance GC, cloud voices arrive
+via voiceschanged, Android Chrome needs `lang`); dev.to "Cross browser speech synthesis" (Android
+pause = cancel, voices async on Chrome); iifx.dev Chrome TTS workarounds (remote voices fire events
+unreliably, so the watchdog also counts `speaking` seen true as started). No device test yet: the
+Android behaviour is covered by stubs only.
+
 ## Builder: `python3 -m packbuilder audio --lang fa --repo <repo> [--check] [--prune] [--only w,s,p,x] [--limit N]`
 
 Implemented in `tools/packbuilder/audio.py` (tests: `packbuilder/tests/test_audio.py`, stub synthesiser).

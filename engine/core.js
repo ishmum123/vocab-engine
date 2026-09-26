@@ -1122,6 +1122,96 @@ function pickVoice(voices, lang){
   const vs = voices || [];
   return vs.find(v=>normLang(v.lang)===want) || vs.find(v=>normLang(v.lang).split("-")[0]===base) || null;
 }
+// The voice to put on an utterance now: the chosen voice (pickVoice at the last
+// voiceschanged) when the current list still holds it (matched by voiceURI, else name:
+// some browsers hand out fresh voice objects per getVoices call), as the list's own object;
+// else a fresh pick from the current list; null (utterance keeps only its lang) when the
+// list has no voice for the language or is empty.
+function liveVoice(chosen, voices, lang){
+  const vs = voices || [];
+  if(chosen){
+    const key = v => (v && (v.voiceURI || v.name)) || "";
+    const k = key(chosen);
+    const same = vs.find(v => v === chosen) || (k ? vs.find(v => key(v) === k) : null);
+    if(same) return same;
+  }
+  return pickVoice(vs, lang);
+}
+// ---- TTS sequencing (docs/AUDIO.md "Playback reliability"). A small driver around
+// speechSynthesis (ss) that works around three Chrome/Android failure modes:
+//  1. cancel() followed at once by speak() can drop the new utterance: cancel only when
+//     something is speaking/pending, and then speak after o.deferMs; a newer say()/stop()
+//     (generation counter) wins over a deferred one.
+//  2. the engine left paused after backgrounding: resume() first when ss.paused. And an
+//     utterance that never starts (no onstart/onend/onerror, ss.speaking never seen true,
+//     then !speaking && !pending after o.watchMs) is retried once. The watchdog is armed
+//     only when ss.speaking is a boolean (every real browser; the test stubs that lack it
+//     keep the exact old synchronous behaviour).
+//  3. an utterance garbage-collected mid-speech (onend never fires): the driver keeps the
+//     current utterance referenced until its onend/onerror.
+// make(): builds a fresh utterance with its own handlers (called again for the retry).
+// o: { setTimeout, clearTimeout, deferMs, watchMs, pollMs }.
+const TTS_TIMING = { deferMs: 80, watchMs: 1200, pollMs: 200 };
+function ttsDriver(ss, o){
+  const opt = Object.assign({}, TTS_TIMING, o || {});
+  const setT = opt.setTimeout, clrT = opt.clearTimeout;
+  // cancelled: a cancel() has been issued and no deferred speak has run since, so the next
+  // say() defers too (speak() calls stop() then say(): the cancel is stop's).
+  let gen = 0, cur = null, timers = [], cancelled = false;
+  const clear = () => { timers.forEach(t => { try{ clrT(t); }catch(e){} }); timers = []; };
+  const busy = () => !!(ss.speaking || ss.pending);
+  // Stops whatever TTS is playing or waiting (a deferred say, a retry); cancel() only
+  // when the engine reports something to cancel.
+  function stop(){
+    gen++; clear(); cur = null;
+    if(busy()){ cancelled = true; try{ ss.cancel(); }catch(e){} return true; }
+    return false;
+  }
+  function say(make){
+    const g = ++gen; clear();
+    const hadWork = busy() || cancelled;
+    if(busy()){ try{ ss.cancel(); }catch(e){} }
+    cancelled = hadWork;
+    const go = retry => {
+      if(g !== gen) return;
+      cancelled = false;
+      if(ss.paused){ try{ ss.resume(); }catch(e){} }
+      const u = make(); if(!u) return;
+      let alive = false;
+      const on = (k, flag) => { const f = u[k]; u[k] = e => { if(flag) alive = true; if(k !== "onstart" && cur === u) cur = null; if(f) f.call(u, e); }; };
+      on("onstart", true); on("onend", true); on("onerror", true);
+      cur = u;
+      try{ ss.speak(u); }catch(e){ cur = null; return; }
+      if(retry || typeof ss.speaking !== "boolean") return;
+      let waited = 0;
+      const poll = () => {
+        if(g !== gen || alive) return;
+        if(ss.speaking){ alive = true; return; }
+        waited += opt.pollMs;
+        if(waited < opt.watchMs){ timers.push(setT(poll, opt.pollMs)); return; }
+        if(!ss.speaking && !ss.pending){ cur = null; cancelled = true; try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
+      };
+      timers.push(setT(poll, opt.pollMs));
+    };
+    if(hadWork) timers.push(setT(() => go(false), opt.deferMs)); else go(false);
+  }
+  return { say, stop, current: () => cur };
+}
+// Recorded clip start watchdog (docs/AUDIO.md): a clip that has not fired "playing" within
+// ms of play() (a hung load, a stalled start) is reported once through onFail. Armed only
+// on a media element that has the onplaying property (a real HTMLAudioElement; the test
+// fakes without it keep the old behaviour). Returns disarm(): call it on playing, end,
+// error, a blocked autoplay, or when a newer speak replaces the clip.
+const CLIP_START_MS = 4000;
+function clipStartWatch(a, ms, onFail, timers){
+  if(!a || !("onplaying" in a)) return () => {};
+  let done = false, t = null;
+  const disarm = () => { if(done) return; done = true; if(t !== null){ try{ timers.clearTimeout(t); }catch(e){} } };
+  const prev = a.onplaying;
+  a.onplaying = e => { disarm(); if(prev) prev.call(a, e); };
+  t = timers.setTimeout(() => { if(done) return; done = true; onFail(); }, ms);
+  return disarm;
+}
 // Whether listening items can play: needs the API, and — once the browser has
 // reported its voice list — a voice for the pack's language (a zh word read by an
 // English voice is worse than showing it). An empty list means "not loaded yet /
@@ -2831,7 +2921,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,
-  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, listenPlanCount, pickVoice, speechUsable, isSamsungBrowser, wordAudio, packAudio,
+  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, listenPlanCount, pickVoice, liveVoice, TTS_TIMING, ttsDriver, CLIP_START_MS, clipStartWatch, speechUsable, isSamsungBrowser, wordAudio, packAudio,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,

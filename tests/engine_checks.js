@@ -1967,6 +1967,139 @@ async function swChecks(){
     VC.acceptTyped("ما", AR[3], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR));
 })();
 
+// ------------------------------------------------------------ [27] playback reliability
+(function(){
+  console.log("\n[27] playback reliability: ttsDriver (cancel race, paused, no-start retry, utterance kept), liveVoice, clipStartWatch");
+  // Fake timers: advance(ms) runs every due timer in time order.
+  function clock(){
+    let now = 0, id = 0; const q = [];
+    return { setTimeout(f, ms){ const t = { id: ++id, at: now + (ms || 0), f }; q.push(t); return t.id; },
+      clearTimeout(i){ const k = q.findIndex(t => t.id === i); if(k >= 0) q.splice(k, 1); },
+      advance(ms){ const end = now + ms; for(;;){ q.sort((a, b) => a.at - b.at || a.id - b.id); const t = q[0]; if(!t || t.at > end) break; q.shift(); now = t.at; t.f(); } now = end; },
+      pending: () => q.length };
+  }
+  // Stub engine. speaking/pending/paused are booleans (a real browser); o.noBool drops them
+  // (the old test stubs). o.start: fire onstart+onend on speak (a working engine).
+  function engine(o){
+    o = o || {};
+    const e = { spoken: [], cancels: 0, resumes: 0, log: [], speaking: !!o.speaking, pending: !!o.pending, paused: !!o.paused,
+      cancel(){ e.cancels++; e.log.push("cancel"); if(o.cancelClears !== false){ e.speaking = false; e.pending = false; } },
+      resume(){ e.resumes++; e.log.push("resume"); e.paused = false; },
+      speak(u){ e.spoken.push(u.text); e.log.push("speak:" + u.text); if(o.start){ if(u.onstart) u.onstart({}); if(u.onend) u.onend({}); } } };
+    if(o.noBool){ delete e.speaking; delete e.pending; delete e.paused; }
+    return e;
+  }
+  const utt = t => () => ({ text: t });
+  const T = VC.TTS_TIMING;
+  check("TTS_TIMING: defer 60-100 ms, watchdog above the defer", T.deferMs >= 60 && T.deferMs <= 100 && T.watchMs > T.deferMs && T.pollMs > 0);
+  { // idle: happy path, no cancel, spoken synchronously
+    const c = clock(), e = engine({ start: true }), d = VC.ttsDriver(e, c);
+    d.say(utt("a"));
+    check("idle engine: no cancel(), speak() synchronously (happy path unchanged)", e.cancels === 0 && e.spoken.join() === "a");
+    c.advance(5000);
+    check("idle engine, utterance started: no retry", e.spoken.join() === "a");
+  }
+  { // busy: cancel then deferred speak exactly once
+    const c = clock(), e = engine({ speaking: true, start: true }), d = VC.ttsDriver(e, c);
+    d.say(utt("b"));
+    check("speaking engine: cancel() once, speak deferred (nothing spoken in the same tick)", e.cancels === 1 && e.spoken.length === 0);
+    c.advance(T.deferMs - 1);
+    check("speaking engine: not spoken before deferMs", e.spoken.length === 0);
+    c.advance(1);
+    c.advance(5000);
+    check("speaking engine: spoken exactly once after deferMs", e.spoken.join() === "b" && e.log.join() === "cancel,speak:b");
+  }
+  { // the app's order: stop() (cancels a busy engine) then say(): still deferred
+    const c = clock(), e = engine({ speaking: true, start: true }), d = VC.ttsDriver(e, c);
+    d.stop(); d.say(utt("z"));
+    check("stop() cancelled a busy engine, then say(): speak still deferred (not in the cancel's tick)", e.cancels === 1 && e.spoken.length === 0);
+    c.advance(T.deferMs); c.advance(5000);
+    check("stop() then say(): spoken exactly once after deferMs", e.spoken.join() === "z");
+    d.say(utt("z2"));
+    check("after that deferred speak ran: an idle say() is synchronous again", e.spoken.join() === "z,z2");
+  }
+  { // two quick says while busy: the newer wins
+    const c = clock(), e = engine({ pending: true, cancelClears: false, start: true }), d = VC.ttsDriver(e, c);
+    d.say(utt("old")); d.say(utt("new")); e.pending = false;
+    c.advance(5000);
+    check("a newer say() replaces a deferred one (generation guard): only the newer is spoken", e.spoken.join() === "new");
+  }
+  { // stop() drops a deferred say
+    const c = clock(), e = engine({ speaking: true }), d = VC.ttsDriver(e, c);
+    d.say(utt("x")); d.stop(); c.advance(5000);
+    check("stop() drops a deferred say (nothing spoken, no timers left)", e.spoken.length === 0 && c.pending() === 0);
+    const e2 = engine({}), d2 = VC.ttsDriver(e2, clock());
+    check("stop() on an idle engine: no cancel()", d2.stop() === false && e2.cancels === 0);
+  }
+  { // paused engine: resume before speak
+    const c = clock(), e = engine({ paused: true, start: true }), d = VC.ttsDriver(e, c);
+    d.say(utt("p"));
+    check("paused engine: resume() before speak()", e.log.join() === "resume,speak:p");
+    const e2 = engine({ start: true }); VC.ttsDriver(e2, clock()).say(utt("q"));
+    check("not paused: no resume()", e2.resumes === 0);
+  }
+  { // no onstart and never speaking: exactly one retry
+    const c = clock(), e = engine({}), d = VC.ttsDriver(e, c);
+    d.say(utt("s"));
+    c.advance(T.watchMs - T.pollMs);
+    check("silent failure: no retry before watchMs", e.spoken.length === 1);
+    c.advance(T.pollMs + 1);
+    check("silent failure: cancel() at the watchdog, the retry deferred (not in the cancel's tick)", e.spoken.length === 1 && e.cancels === 1);
+    c.advance(T.deferMs);
+    check("silent failure (no onstart, !speaking && !pending after watchMs): retried once", e.spoken.join() === "s,s" && e.cancels === 1);
+    c.advance(60000);
+    check("silent failure: never a second retry", e.spoken.length === 2 && c.pending() === 0);
+  }
+  { // engine reports speaking without events (remote voice): no retry
+    const c = clock(), e = engine({}), d = VC.ttsDriver(e, c);
+    d.say(utt("r")); e.speaking = true; c.advance(T.pollMs); e.speaking = false; c.advance(60000);
+    check("speaking seen true (no events fired): not retried", e.spoken.length === 1);
+    const e2 = engine({}), c2 = clock(), d2 = VC.ttsDriver(e2, c2);
+    d2.say(utt("r2")); e2.pending = true; c2.advance(60000);
+    check("still pending at the watchdog: not retried", e2.spoken.length === 1);
+  }
+  { // utterance referenced until onend / onerror; user handlers still run
+    const c = clock(), e = engine({}), d = VC.ttsDriver(e, c);
+    let ended = 0, started = 0, u0 = null;
+    d.say(() => { u0 = { text: "k", onstart(){ started++; }, onend(){ ended++; } }; return u0; });
+    check("current utterance kept referenced while speaking", d.current() === u0);
+    u0.onstart({});
+    check("onstart: still referenced, the item's handler ran", d.current() === u0 && started === 1);
+    u0.onend({});
+    check("onend: reference released, the item's handler ran", d.current() === null && ended === 1);
+    let err = 0; d.say(() => ({ text: "e", onerror(){ err++; } })); d.current().onerror({});
+    check("onerror: reference released, the item's handler ran", d.current() === null && err === 1);
+  }
+  { // old stubs (no boolean speaking): exact old behaviour, no timers
+    const c = clock(), e = engine({ noBool: true }), d = VC.ttsDriver(e, c);
+    d.say(utt("o"));
+    check("stub without speaking/pending booleans: spoken synchronously, no cancel, no watchdog timer", e.spoken.join() === "o" && e.cancels === 0 && c.pending() === 0);
+  }
+  { // liveVoice
+    const zh = { lang: "zh-CN", name: "zhA", voiceURI: "u-zhA" }, zh2 = { lang: "zh-CN", name: "zhB", voiceURI: "u-zhB" }, en = { lang: "en-US", name: "en", voiceURI: "u-en" };
+    check("liveVoice: chosen voice still listed -> that voice", VC.liveVoice(zh, [en, zh2, zh], "zh-CN") === zh);
+    const fresh = Object.assign({}, zh);
+    check("liveVoice: listed as a fresh object (same voiceURI) -> the list's object", VC.liveVoice(zh, [en, fresh], "zh-CN") === fresh);
+    check("liveVoice: chosen voice vanished -> a fresh pick for the language", VC.liveVoice(zh, [en, zh2], "zh-CN") === zh2);
+    check("liveVoice: vanished and no voice for the language -> null (utterance keeps only lang)", VC.liveVoice(zh, [en], "zh-CN") === null && VC.liveVoice(zh, [], "zh-CN") === null);
+    check("liveVoice: nothing chosen yet (voices arrived late) -> pickVoice", VC.liveVoice(null, [en, zh2], "zh-CN") === zh2);
+  }
+  { // clipStartWatch
+    const c = clock(); let fails = 0;
+    const plain = {}; const dis0 = VC.clipStartWatch(plain, 1000, () => fails++, c);
+    check("clipStartWatch: a media object without onplaying (test fakes) arms nothing", typeof dis0 === "function" && c.pending() === 0 && !("onplaying" in plain));
+    let prevRan = 0; const a = { onplaying(){ prevRan++; } };
+    VC.clipStartWatch(a, 1000, () => fails++, c); a.onplaying({}); c.advance(5000);
+    check("clipStartWatch: 'playing' before the deadline -> no fallback, prior handler kept", fails === 0 && prevRan === 1);
+    const b = { onplaying: null }; VC.clipStartWatch(b, 1000, () => fails++, c); c.advance(999);
+    check("clipStartWatch: nothing before the deadline", fails === 0);
+    c.advance(1); c.advance(60000);
+    check("clipStartWatch: no 'playing' within ms -> onFail exactly once", fails === 1);
+    const d = { onplaying: null }; const dis = VC.clipStartWatch(d, 1000, () => fails++, c); dis(); c.advance(5000);
+    check("clipStartWatch: disarm() (end/error/blocked/replaced) -> no fallback", fails === 1 && c.pending() === 0);
+  }
+})();
+
 appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; })
   .then(() => swChecks().catch(e => { console.error("service worker checks crashed:", e); fails++; })).then(() => {
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);
