@@ -159,3 +159,4 @@ final engine.
   a manual per-video judgement the project cannot staff, and video is a
   one-time curation the user will not maintain. Revisit only with a curated
   source list.
+STATUS 2026-09-26 08:20: Persian audio phase 2 merged (43d3652): docs/AUDIO.md, words[].audio + pack.audio schema, engine wordAudio/sayWord/canHearWord with all word-speaking sites migrated, SW audio cache (content-addressed audio/<kind>/<id>.<sha8>.opus, cap 800), `python -m packbuilder audio --lang fa` (idempotent, manifest-owned, tools/audio_say.json overrides). Review + re-verify clean. Phase 3 (full ganji_adabi render, ezafe/stress override pass, persian republish, live check incl. .opus MIME on Pages) running; voice swap is one line in langs/fa.py AUDIO. Known: Tatoeba packs now fall back to TTS/toast when a clip fails (accepted); older iOS Opus support unverified (needs a real iPhone check). Arabic pack build still running.
