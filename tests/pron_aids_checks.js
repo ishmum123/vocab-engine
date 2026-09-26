@@ -921,6 +921,8 @@ function walk(api, stopAt){
         // row; both are cut before comparing (the walk skips the stage, see walk()).
         a.today = a.today.replace(/<div class="stmt" id="readHintBox">[\s\S]*?<\/button><\/div>/, "");
         b.today = b.today.replace(/<tr><td>6\. Read<\/td><td>[\s\S]*?<\/td><\/tr>/, "");
+        // Intended since the cue-line style: cue content carries an extra class token.
+        for(const k of Object.keys(b)) b[k] = b[k].replace(/class="q cue"/g, 'class="q"');
         for(const k of Object.keys(a)){
           const same = a[k] === b[k];
           let at = -1; if(!same){ for(let i = 0; i < Math.max(a[k].length, b[k].length); i++) if(a[k][i] !== b[k][i]){ at = i; break; } }

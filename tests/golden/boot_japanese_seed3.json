@@ -33,7 +33,7 @@
   {
    "step": 4,
    "label": "Sentences",
-   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"med wd\" data-tl lang=\"ja\">トムを殺すべきではありませんでした。</div><div class=\"q\">トムをころすべきではありませんでした。</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
+   "html": "<div class=\"drill-body\"><p class=\"q\">What does it mean?</p><div class=\"med wd\" data-tl lang=\"ja\">トムを殺すべきではありませんでした。</div><div class=\"q cue\">トムをころすべきではありませんでした。</div><div class=\"opts opts-hero\" id=\"o\"></div><div class=\"reveal\" id=\"rv\"></div></div><div class=\"actions\"><button class=\"next\" id=\"nx\" style=\"display:none\">Next</button></div>"
   }
  ],
  "savedProgressStrings": []
