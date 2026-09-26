@@ -38,6 +38,11 @@ Pronunciation (espeak-ng `fa` + unvocalised input):
   `length_scale` 1.25 plus 150 ms lead and 250 ms tail silence ("slow" column on the samples page).
 
 Encoding: Opus via ffmpeg libopus, 24 kbps mono, resampled 22.05 → 24 kHz, `-application voip`.
+Every clip is peak-normalised before encoding (default on, all languages): ffmpeg's `volumedetect`
+measures the raw synth's true peak, then `-af volume=<gain>dB` brings it to `spec.AUDIO.peak`
+(default −1.0 dBFS; validated ≤ 0, so the filter can dampen but never boost a clip past 0 dBFS).
+`peak` is part of the clip key (below) and recorded in the manifest, so changing it re-renders
+every clip under new names.
 Measured ~3.1–3.4 KB per second of speech. Timing on this Mac (M-series, one process): synth 0.08–0.11 s per
 sentence, 0.15–0.18 s per passage sentence, 0.02–0.03 s per word; ffmpeg encode 0.058 s per file.
 
@@ -72,7 +77,7 @@ file. Bumping `version` is only for voice or codec changes.
 
 ```json
 { "voice": "fa_IR-ganji_adabi-medium", "engine": "piper-tts 1.8.0", "version": 1,
-  "codec": "opus", "bitrate": "24k", "rate": 24000, "count": 5610,
+  "codec": "opus", "bitrate": "24k", "rate": 24000, "peak": -1.0, "count": 5610,
   "generated": "2026-10-01T12:00:00Z", "licence": "CC0 (voice dataset tts.datacula.com)",
   "files": { "w/w0001": "w/w0001.1a2b3c4d.opus", "...": "..." } }
 ```
@@ -162,7 +167,8 @@ comparing (`core/util.strip_audio`; mirrored on the JS side, for `pack.json`/`wo
 by `tests/flagoff_snapshot.js`'s `stripFlagOnFields`), rather than requiring the emitter to reproduce
 fields only `packbuilder audio` writes.
 - Config: `spec.AUDIO` in the language spec (`langs/fa.py`: voice, version, engine, licence), merged over
-  defaults (Opus 24 kbps, 24 kHz, words/carriers `length_scale` 1.25 + 150/250 ms padding, sentences 1.0).
+  defaults (Opus 24 kbps, 24 kHz, words/carriers `length_scale` 1.25 + 150/250 ms padding, sentences 1.0,
+  peak −1.0 dBFS).
   The builder writes `pack.json` `audio: {voice, version}` **only when every wanted clip is current**
   (nothing missing or stale) and removes it otherwise, so the no-voice notices never hide over a partial
   render. `--only`/`--limit` runs are for development: they link what they render but leave `pack.audio`
@@ -181,7 +187,7 @@ fields only `packbuilder audio` writes.
 - Overrides: `<repo>/tools/audio_say.json` = `{pack text: spoken text}`, keyed by the item's exact pack text
   (so one fix covers every item with that text). Spoken text only; pack text never changes. `--check` fails
   on stale keys (no item has that text) and notes overrides that change letters rather than only marks.
-- Key = sha1(spoken text, voice, version, codec, bitrate, rate, speed, padding); its first 8 hex digits
+- Key = sha1(spoken text, voice, version, codec, bitrate, rate, speed, padding, peak); its first 8 hex digits
   name the file. An item whose manifest file has the current name is skipped: reruns are idempotent
   (byte-identical repo, `generated` unchanged) and a text or override edit re-renders only that item,
   under a new name, deleting the old file.
