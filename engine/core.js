@@ -1178,30 +1178,42 @@ function liveVoice(chosen, voices, lang){
 //     current utterance referenced until its onend/onerror.
 // make(): builds a fresh utterance with its own handlers (called again for the retry).
 // o: { setTimeout, clearTimeout, deferMs, watchMs, pollMs }.
-const TTS_TIMING = { deferMs: 80, watchMs: 1200, pollMs: 200 };
+const TTS_TIMING = { deferMs: 80, watchMs: 1200, pollMs: 200, cancelTtlMs: 500 };
 function ttsDriver(ss, o){
   const opt = Object.assign({}, TTS_TIMING, o || {});
   const setT = opt.setTimeout, clrT = opt.clearTimeout;
   // cancelled: a cancel() has been issued and no deferred speak has run since, so the next
-  // say() defers too (speak() calls stop() then say(): the cancel is stop's).
-  let gen = 0, cur = null, timers = [], cancelled = false;
+  // say() defers too (speak() calls stop() then say(): the cancel is stop's). It is cleared
+  // by go() actually running -- but a stop() with no follow-up say() (leaving the screen), or
+  // a later stop() bumping gen before a deferred go() gets to run, would otherwise leave it
+  // stuck true forever, deferring a wholly unrelated say() seconds or minutes later for no
+  // reason. cancelledTimer self-clears it after cancelTtlMs on its own timer, independent of
+  // the retry/poll timers stop()/say() sweep on every call, so it fires regardless of what
+  // else the driver does (or doesn't do) in the meantime.
+  let gen = 0, cur = null, timers = [], cancelled = false, cancelledTimer = null;
   const clear = () => { timers.forEach(t => { try{ clrT(t); }catch(e){} }); timers = []; };
   const busy = () => !!(ss.speaking || ss.pending);
+  const markCancelled = () => {
+    cancelled = true;
+    if(cancelledTimer) try{ clrT(cancelledTimer); }catch(e){}
+    cancelledTimer = setT(() => { cancelled = false; cancelledTimer = null; }, opt.cancelTtlMs);
+  };
+  const clearCancelled = () => { cancelled = false; if(cancelledTimer){ try{ clrT(cancelledTimer); }catch(e){} cancelledTimer = null; } };
   // Stops whatever TTS is playing or waiting (a deferred say, a retry); cancel() only
   // when the engine reports something to cancel.
   function stop(){
     gen++; clear(); cur = null;
-    if(busy()){ cancelled = true; try{ ss.cancel(); }catch(e){} return true; }
+    if(busy()){ markCancelled(); try{ ss.cancel(); }catch(e){} return true; }
     return false;
   }
   function say(make){
     const g = ++gen; clear();
     const hadWork = busy() || cancelled;
     if(busy()){ try{ ss.cancel(); }catch(e){} }
-    cancelled = hadWork;
+    if(hadWork) markCancelled(); else clearCancelled();
     const go = retry => {
       if(g !== gen) return;
-      cancelled = false;
+      clearCancelled();
       if(ss.paused){ try{ ss.resume(); }catch(e){} }
       const u = make(); if(!u) return;
       let alive = false;
@@ -1216,7 +1228,7 @@ function ttsDriver(ss, o){
         if(ss.speaking){ alive = true; return; }
         waited += opt.pollMs;
         if(waited < opt.watchMs){ timers.push(setT(poll, opt.pollMs)); return; }
-        if(!ss.speaking && !ss.pending){ cur = null; cancelled = true; try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
+        if(!ss.speaking && !ss.pending){ cur = null; markCancelled(); try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
       };
       timers.push(setT(poll, opt.pollMs));
     };

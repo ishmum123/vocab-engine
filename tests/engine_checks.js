@@ -1571,7 +1571,7 @@ return {
     const rtlB = await bootApp([{ lang:"zh-CN", name:"x" }], { passages: RPS, pack: Object.assign({}, PACK, { rtl: true }) });
     const ltrB = await bootApp([{ lang:"zh-CN", name:"x" }], { passages: PASSAGES });
     const panelOf = b => b.document.getElementById("panel").innerHTML;
-    const screens = b => { const out = {}; const pr = b.api.getProg(); pr.read = Object.assign({ done: {} }, pr.read, { unlocked: Object.fromEntries(PACK.levels.map(l => [l.id, 1])) }); pr.read.done = { [PASSAGES[0].id]: { sc: 3, n: 4, date: "2026-09-26" } }; b.api.readRender(); out.readList = panelOf(b); b.api.startPassage(RPS[0]); out.passage = panelOf(b); b.api.readQuestion(0); out.question = panelOf(b) + b.api.optsMarkup(); b.api.getRD().tapped = WORDS.filter(w => JSON.stringify(RPS[0]).includes(`"${w.id}"`)).slice(0, 2).map(w => w.id); b.api.readResults(); out.results = panelOf(b); return out; };
+    const screens = b => { const out = {}; const pr = b.api.getProg(); pr.read = Object.assign({ done: {} }, pr.read, { unlocked: Object.fromEntries(PACK.levels.map(l => [l.id, 1])) }); pr.read.done = { [PASSAGES[0].id]: { sc: 3, n: 4, date: "2026-09-26" } }; b.api.readRender(); out.readList = panelOf(b); b.api.startPassage(RPS[0]); out.passage = panelOf(b); b.api.readQuestion(0); { const qtr = b.document.getElementById("qtr"); if(qtr) qtr.click(); } out.question = panelOf(b) + b.api.optsMarkup() + (b.document.getElementById("qtrwrap") ? b.document.getElementById("qtrwrap").innerHTML : ""); b.api.getRD().tapped = WORDS.filter(w => JSON.stringify(RPS[0]).includes(`"${w.id}"`)).slice(0, 2).map(w => w.id); b.api.readResults(); out.results = panelOf(b); return out; };
     const rs = screens(rtlB), ls = screens(ltrB);
     check("rtl pack: Read-list meta line is dir=ltr data-ui inside the dir=rtl title button",
       /<button data-pid="[^"]+" dir="rtl"><span>[\s\S]*?<span class="q" dir="ltr" data-ui style="display:block;margin:0;font-size:13px">\d+ words<\/span>/.test(rs.readList));
@@ -2208,6 +2208,25 @@ async function swChecks(){
     check("stop() drops a deferred say (nothing spoken, no timers left)", e.spoken.length === 0 && c.pending() === 0);
     const e2 = engine({}), d2 = VC.ttsDriver(e2, clock());
     check("stop() on an idle engine: no cancel()", d2.stop() === false && e2.cancels === 0);
+  }
+  { // cancelled flag self-expires (a stop() with no follow-up say() ever clears it): a much
+    // later say() on an idle engine must not be deferred for a stale cancel.
+    const c = clock(), e = engine({ speaking: true }), d = VC.ttsDriver(e, c);
+    d.stop(); // busy -> cancel(); nothing ever calls say() to run go() and clear "cancelled"
+    check("stop() on a busy engine: cancelled once", e.cancels === 1);
+    c.advance(T.cancelTtlMs + 10);
+    d.say(utt("late"));
+    check("say() long after an old cancel (past cancelTtlMs, engine now idle): synchronous, not deferred for a stale flag", e.spoken.join() === "late" && e.cancels === 1);
+  }
+  { // the same staleness, via the generation path the finding describes: a second stop()
+    // (e.g. leaving the screen right after) bumps gen before the first stop()'s deferred
+    // go() would ever have run, so only the self-expiring timer -- not go() -- clears it.
+    const c = clock(), e = engine({ speaking: true }), d = VC.ttsDriver(e, c);
+    d.stop(); e.speaking = false; d.stop(); // second stop(): idle, so no second cancel()
+    check("a second stop() on an already-idle engine: no extra cancel()", e.cancels === 1);
+    c.advance(T.cancelTtlMs + 10);
+    d.say(utt("late2"));
+    check("say() well after both stop()s: synchronous (the stale cancelled flag expired on its own)", e.spoken.join() === "late2");
   }
   { // paused engine: resume before speak
     const c = clock(), e = engine({ paused: true, start: true }), d = VC.ttsDriver(e, c);

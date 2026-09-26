@@ -122,7 +122,16 @@ async function boot(opts){
   appHtml = o.html || CUR_HTML;
   const document = makeFakeDom();
   const spoken = [];
-  const ss = { getVoices: () => o.voices || [{ lang:"zh-CN", name:"x" }], onvoiceschanged: null, cancel(){}, speak(u){ spoken.push(u.text); } };
+  // neverSpeaking: a boolean-reporting engine that never confirms speaking (ttsDriver's
+  // watchdog retry path, docs/AUDIO.md "Playback reliability"; the default mock below has
+  // no speaking/pending at all, which ttsDriver treats as "no watchdog", so it can never
+  // exercise this). Default: unchanged, for every other check in this file.
+  const ss = o.neverSpeaking ? {
+    speaking: false, pending: false,
+    getVoices: () => o.voices || [{ lang:"zh-CN", name:"x" }], onvoiceschanged: null,
+    cancel(){ ss.speaking = false; ss.pending = false; },
+    speak(u){ spoken.push(u.text); },
+  } : { getVoices: () => o.voices || [{ lang:"zh-CN", name:"x" }], onvoiceschanged: null, cancel(){}, speak(u){ spoken.push(u.text); } };
   const window = { VocabCore: o.core || VC, speechSynthesis: ss, SpeechSynthesisUtterance: function(t){ this.text = t; }, addEventListener(){} };
   const localStorage = { getItem(){ return null; }, setItem(){} };
   const hook = n => `typeof ${n} === "function" ? ${n} : null`;
@@ -138,6 +147,7 @@ return {
   getD: () => D, getCur: () => __cur, panelListeners: t => document.getElementById("panel")._listeners[t || "click"] || [],
   startPassage: p => { tab = "read"; startPassage(p); }, rd: () => RD,
   sentenceRowHTML, sentenceRevealBlock, readSentence, gapSentence, passageSentenceHTML, passagePlainHTML, glossHTML, revealBlock, recallItem, readItem, wordRowHTML, charTeach, charDrillItem,
+  pronTypeItem: ${hook("pronTypeItem")},
   itemFromPlan: ${hook("itemFromPlan")}, tokTap: ${hook("tokTap")}, onTok: ${hook("onTok")}, tokOwns: ${hook("tokOwns")}, docListeners: t => document._listeners[t] || [], soundsRefGroups: ${hook("soundsRefGroups")},
   drill1: it => drill([it], () => {}, null),
   wordsPage: (lv, set) => { tab = "words"; wordsQuery = ""; wordsLv = lv; wordsSet = set; render(); },
@@ -971,6 +981,26 @@ function walk(api, stopAt){
       check("gap reveal Replay speaks the sentence again", spoken.slice(k).join() === gs.t);
       { const all = rtlAudit(api.html("rv")), base = rtlAudit(it.reveal); console.log("    rtlAudit reveal+replay:", all.length, "reveal alone:", base.length, all.slice(0,2).join(" / ")); check("gap reveal: the Replay row adds no bidi/font violations", all.length === base.length); }
     }
+    // typed gap: zh ships pack.typing "pron" (its own item shape, not the generic type
+    // gap), so gapSentence(s, true) only returns a typed item under a pack with generic
+    // word typing on -- a synthetic pack.typing:true, same words/sentences otherwise.
+    // Same rule as the choice gap either way: nothing before the answer, Replay only once
+    // the missing word has been typed.
+    const typedPack = Object.assign({}, PACK, { typing: true });
+    const { api: tapi, spoken: tspoken } = await boot({ pack: typedPack, seed: 5 });
+    tapi.setProg(seedPF());
+    let gti = null; for(const s of SENTENCES){ const it = tapi.gapSentence(s, true); if(it && it.kind === "type") { gti = [s, it]; break; } }
+    check("setup: a zh sentence with a typed gap item (synthetic pack.typing:true)", !!gti);
+    if(gti){
+      const [tgs, tit] = gti;
+      let tk = tspoken.length; tapi.drill1(tit);
+      check("typed gap item before answering: no Replay button anywhere, nothing spoken (the blank is not given away)", !/id="rvp"|id="rpa"|id="sp"/.test(tapi.html("panel")) && tspoken.length === tk);
+      tapi.el("tin").value = "x"; // right or wrong doesn't matter: reveal (and its Replay) fire either way
+      tapi.el("submit").click();
+      check("typed gap answered: Replay (#rvp) in the reveal, the sentence spoken once", RVP.test(tapi.html("rv")) && tspoken.slice(tk).join() === tgs.t);
+      tk = tspoken.length; tapi.el("rvp").click();
+      check("typed gap reveal Replay speaks the sentence again", tspoken.slice(tk).join() === tgs.t);
+    }
     // word reveal (recall): Replay after answering only
     const rit = api.recallItem(w);
     k = spoken.length; api.drill1(rit);
@@ -987,6 +1017,31 @@ function walk(api, stopAt){
     const rc = nv.api.recallItem(w); nv.api.drill1(rc); nv.api.el("o").children.find(b => b.dataset.v === rc.a).click();
     check("no voice: recall reveal has no Replay and nothing is spoken", !/id="rvp"/.test(nv.api.html("rv")) && nv.spoken.length === 0);
   }catch(e){ check(`replay rule section threw: ${e.stack}`, false); }
+
+  // ---------------------------------------------------------------- [13] dnext() cancels a still-pending TTS retry
+  console.log("\n[13] dnext(): moving to a silent item (no mount) cancels a still-pending TTS watchdog retry from the item before it");
+  try{
+    // neverSpeaking: the engine never confirms "speaking", so ttsDriver's watchdog (docs/
+    // AUDIO.md "Playback reliability") schedules exactly one retry watchMs+deferMs later --
+    // real timers (ttsDriver runs on the app's own TIMERS, not a fake clock), so this section
+    // waits them out for real.
+    const { api, spoken } = await boot({ neverSpeaking: true, seed: 5 });
+    api.setProg(seedPF());
+    const w1 = WORDS[0], w2 = WORDS[1];
+    const itemA = api.readItem(w1); // has mount: autoplays w1.w
+    const itemB = api.pronTypeItem(w2); // no mount at all: silent until answered
+    let k = spoken.length;
+    api.drill1(itemA);
+    check("item A (has mount) autoplays once", spoken.slice(k).join() === w1.w);
+    // Before the watchdog's watchMs elapses, "move on" the way Next does: a fresh drill()
+    // (dnext() is exactly what a Next click runs). itemB has no mount, so nothing of its own
+    // would ever cancel item A's still-pending retry -- only dnext()'s own cancel can.
+    api.drill1(itemB);
+    check("item B (silent, no mount) shows; nothing new spoken yet", spoken.length === k + 1);
+    const T = VC.TTS_TIMING;
+    await new Promise(r => setTimeout(r, T.watchMs + T.deferMs + 150));
+    check("item A's watchdog retry never fires once item B (silent) is showing: nothing new spoken", spoken.slice(k).join() === w1.w);
+  }catch(e){ check(`dnext cancel section threw: ${e.stack}`, false); }
 
   Math.random = REAL_RANDOM;
   console.log(`\n${fails === 0 ? "ALL PASSED" : "FAILED"}: ${passes} passed, ${fails} failed`);
