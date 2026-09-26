@@ -95,6 +95,10 @@
   .reveal{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:none;font-size:15px}
   .reveal .rw{font-size:22px;margin-bottom:2px;font-family:var(--wfont)}
   .reveal .rp{color:var(--mute);margin-bottom:2px}
+  /* pack.rtl: an answer block (the reveal, and the same block in the Missed list) aligns
+     to one edge, the right: target lines are dir=rtl (start = right) and the Latin pron,
+     gloss and labels keep their LTR direction but share the right edge. */
+  :root[data-tlrtl] .reveal,:root[data-tlrtl] .rvb{text-align:right}
   .next,.primary{margin-top:14px;width:100%;padding:14px;border:none;border-radius:12px;background:var(--ink);color:var(--bg);font-size:16px;min-height:48px;font-family:var(--font)}
   .ghost{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--ink);font-size:15px;min-height:44px;font-family:var(--font)}
   .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
@@ -170,6 +174,10 @@
   /* Spread shadow widens the tint past a thin joined letter (fa medial ا, ی) without
      padding: padding/border on an inline breaks Arabic-script shaping across it. */
   .xhl{background:var(--ok-bg);border-radius:3px;box-shadow:0 0 0 2px var(--ok-bg)}
+  /* ::highlight() takes no box-shadow/border-radius, so the span's spread (which keeps a
+     thin joined letter, medial ا or initial ل, visible) is replaced by tinting the glyph
+     itself: the letter turns --ok on the --ok-bg ground, visible at any width. */
+  ::highlight(xhl){background-color:var(--ok-bg);color:var(--ok)}
   .xrword{margin-top:8px}
   .xset{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px}
   .xsn{color:var(--mute);font-size:12px;min-width:14px;padding-top:12px;text-align:right}
@@ -379,6 +387,7 @@ const tw = s => `<bdi${TA}>${escapeHtml(s)}</bdi>`;
   const r = document.documentElement;
   if(DISP.fontFamily) r.style.setProperty("--wfont", `${DISP.fontFamily}, var(--wbase)`);
   if(DISP.lineHeight){ r.style.setProperty("--tlh", String(DISP.lineHeight)); r.setAttribute("data-tlh", ""); }
+  if(DISP.rtl) r.setAttribute("data-tlrtl", "");
   // Google Fonts is the only external resource allowed; VC.fontsHref only ever builds a
   // fonts.googleapis.com URL from validated family names.
   const fh = VC.fontsHref(PACK);
@@ -785,7 +794,22 @@ const onShowWritten = e => !!(e && e.target && e.target.closest && e.target.clos
 // tokEscEaten); otherwise it reaches the drill as usual (quit).
 let tokEscEaten = null;
 const tokOwns = e => onTok(e) && (e.key !== "Escape" || e === tokEscEaten);
-document.addEventListener("keydown", e => { if(drillKeyHandler && !onShowWritten(e) && !tokOwns(e)) drillKeyHandler(e); });
+// Escape closes whatever gloss is open (the Read-tab #gloss box, any word-tap popover) and
+// clears the tapped highlight, staying on the same view; only an Escape with nothing
+// open reaches the drill (quit). A focused tap's own Escape is handled (and marked) by
+// the #panel listener first.
+function dismissGlosses(){
+  const P = $("panel"); if(!P) return false;
+  const open = [$("gloss"), ...P.querySelectorAll(".gloss")].filter((g, i, a) => g && !g.hidden && a.indexOf(g) === i);
+  const on = [...P.querySelectorAll(".pw.on, .tk.on")];
+  open.forEach(g => { g.hidden = true; });
+  on.forEach(x => x.classList.remove("on"));
+  return open.length > 0 || on.length > 0;
+}
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape" && !tokOwns(e) && dismissGlosses()){ e.preventDefault(); return; }
+  if(drillKeyHandler && !onShowWritten(e) && !tokOwns(e)) drillKeyHandler(e);
+});
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
 // ---- word taps inside sentences (any pack whose sentences carry ruby, or pronFirst
@@ -1045,7 +1069,7 @@ const itemFromPlan = p => WORD_ITEM[p.kind](p.word);
 // it was missed as; the most-missed first, with a count when missed more than once.
 function missSummary(miss){
   const u = VC.dedupeMisses(miss);
-  return u.length ? `<p class="q">Missed:</p>${u.map(({item, count})=>`<div class="stmt">${count > 1 ? `<div class="q" style="margin:0 0 4px">missed ${count}×</div>` : ""}${item.reveal}</div>`).join("")}` : "<p class='q'>Clean.</p>";
+  return u.length ? `<p class="q">Missed:</p>${u.map(({item, count})=>`<div class="stmt rvb">${count > 1 ? `<div class="q" style="margin:0 0 4px">missed ${count}×</div>` : ""}${item.reveal}</div>`).join("")}` : "<p class='q'>Clean.</p>";
 }
 
 // ===================== sentence drill items =====================
@@ -1198,15 +1222,57 @@ function scriptDrillItem(kind, unit, ctx){
   throw new Error(`no renderer for script item kind ${k}`);
 }
 const isScriptPlan = p => !!(p && p.unit && VC.SCRIPT_KINDS.includes(p.kind));
-// Glyph occurrences in an example word, tinted by a wrapping span (background only, so a
-// joined word keeps its shaping). A letter inside a composed block (a jamo in its
-// syllable, a batchim included) tints the block; comparison is core's scriptGlyphIn, the
-// validator's fold (compatibility decomposition, lower case, positional jamo as letters).
+// Glyph occurrences in an example word. A browser shapes each element's text on its own,
+// so a span boundary inside a word can break a ligature (لا splits into ل + ا, a Devanagari
+// conjunct into half forms). Two layers, chosen together:
+//  - markup (every browser, and what node tests see): the tint spans whole shaping
+//    clusters (core shapingClusters: a grapheme, lam+alef, a virama conjunct), so a
+//    boundary never falls inside a mandatory ligature or conjunct. Highlighting ا in لا
+//    tints لا; adjacent tinted clusters share one span.
+//  - paintScriptHL, where the CSS Custom Highlight API exists (Chrome 105+, Safari 17.2+,
+//    Firefox 140+): after insertion the spans are replaced by plain text plus ranges in a
+//    registered Highlight, so the word is one text node and shapes exactly as untinted
+//    (this also keeps Nastaliq's longer ligatures whole, which clusters cannot promise).
+// The Highlight API alone would leave older browsers with no tint and nothing testable in
+// markup; clusters alone cannot cover every font's discretionary ligatures.
+// Which clusters match: the glyph as a substring (code units), else per cluster by core's
+// scriptGlyphIn, the validator's fold (compatibility decomposition, lower case, positional
+// jamo as letters), so a jamo tints its syllable block and آ counts as ا.
 function scriptHL(word, glyph){
   const w = String(word), g = String(glyph || "");
   if(!g) return escapeHtml(w);
-  if(w.includes(g)) return w.split(g).map(escapeHtml).join(`<span class="xhl">${escapeHtml(g)}</span>`);
-  return [...w].map(ch => VC.scriptGlyphIn(g, ch) ? `<span class="xhl">${escapeHtml(ch)}</span>` : escapeHtml(ch)).join("");
+  const cl = VC.shapingClusters(w);
+  let marks;
+  if(w.includes(g)){
+    const hits = []; for(let i = w.indexOf(g); i >= 0; i = w.indexOf(g, i + g.length)) hits.push([i, i + g.length]);
+    let at = 0;
+    marks = cl.map(c => { const a = at, b = at += c.length; return hits.some(([s, e]) => s < b && e > a); });
+  } else marks = cl.map(c => VC.scriptGlyphIn(g, c));
+  let out = "", run = "";
+  cl.forEach((c, i) => {
+    if(marks[i]){ run += c; return; }
+    if(run){ out += `<span class="xhl">${escapeHtml(run)}</span>`; run = ""; }
+    out += escapeHtml(c);
+  });
+  return out + (run ? `<span class="xhl">${escapeHtml(run)}</span>` : "");
+}
+// StaticRange, not Range: a live Range whose text node is replaced collapses into the
+// parent and stays "connected", so it could never be pruned; a StaticRange keeps pointing
+// at the removed node.
+const HL_API = typeof CSS !== "undefined" && !!CSS.highlights && typeof Highlight === "function" && typeof StaticRange === "function";
+let XHL = null;
+function paintScriptHL(root){
+  if(!HL_API || !root || !root.querySelectorAll) return;
+  if(!XHL){ XHL = new Highlight(); CSS.highlights.set("xhl", XHL); }
+  [...XHL].forEach(r => { if(!r.startContainer.isConnected) XHL.delete(r); }); // cards re-rendered since
+  root.querySelectorAll(".xteach .wd").forEach(wd => {
+    if(!wd.querySelector(".xhl")) return;
+    const spans = []; let text = "";
+    wd.childNodes.forEach(n => { const t = n.textContent; if(n.nodeType === 1 && n.classList.contains("xhl")) spans.push([text.length, text.length + t.length]); text += t; });
+    wd.textContent = text;
+    const tn = wd.firstChild;
+    spans.forEach(([a, b]) => XHL.add(new StaticRange({ startContainer: tn, startOffset: a, endContainer: tn, endOffset: b })));
+  });
 }
 // One unit's teach card (Learn and the Script tab): glyph 64px on the start side, beside
 // it name, roman (bold) and note, a play button only when the unit has a sound. Row 2 by
@@ -1230,7 +1296,7 @@ function scriptTeachHTML(u){
     const tap = scriptVoice() || !!wordAudio(SCRIPT_BYID[e.id]);
     return `<div class="rowset"${tap ? ` data-xw="${escapeHtml(e.id)}" style="cursor:pointer"` : ""}><span class="wd"${TA}>${scriptHL(e.w, g)}</span><span class="info"><span class="pr">${escapeHtml(e.roman)}</span><span class="en">${escapeHtml(VC.gloss(SCRIPT_BYID[e.id]))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>`;
   }).join("");
-  return `<div class="xteach"><div class="xhead"${DISP.rtl ? ' dir="rtl"' : ""}><span class="cform xg"${TA}>${escapeHtml(u.t)}</span><span class="info" dir="ltr">${u.name ? `<span class="xnm">${tw(u.name)}</span>` : ""}<b class="xrm">${escapeHtml(u.roman)}</b>${u.note ? `<span class="en">${escapeHtml(u.note)}</span>` : ""}</span>${play}</div>${row2}${ital}${exs}</div>`;
+  return `<div class="xteach"><div class="xhead"${DISP.rtl ? ' dir="rtl"' : ""}><span class="cform xg"${TA}>${escapeHtml(u.t)}</span><span class="info" dir="ltr">${u.name ? `<span class="xnm">${tw(u.name)}</span>` : ""}<b class="xrm">${escapeHtml(u.roman)}</b>${VC.scriptUnitNote(u) ? `<span class="en">${escapeHtml(VC.scriptUnitNote(u))}</span>` : ""}</span>${play}</div>${row2}${ital}${exs}</div>`;
 }
 const scriptNotesHTML = (st, set) => SNOTES.filter(n => n && n.st === st && n.set === set)
   .map(n => `<div class="card-teach xnote"><h3>${escapeHtml(n.h)}</h3><p>${escapeHtml(n.body)}</p></div>`).join("");
@@ -1519,6 +1585,7 @@ function scriptTeach(ss, stage, onDrill){
   const set = ss.units.length ? ss.units[0].set : null;
   P.innerHTML = `<p class="q">${tw(stage.label)}, set ${ss.index+1} of ${ss.total}: ${ss.units.length} new symbol${ss.units.length === 1 ? "" : "s"}.${scriptVoice() || ss.units.some(u => u.audio) ? " Tap the speaker to hear one." : ""}</p>
     <div id="xtl">${scriptNotesHTML(stage.key, set)}${ss.units.map(scriptTeachHTML).join("")}</div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
+  paintScriptHL($("xtl"));
   $("dr").onclick = onDrill;
 }
 // Script Learn: the snapshot's set i (teach, then learnScriptPlan), then, while the
@@ -1612,6 +1679,7 @@ function scriptTabWire(){
 function scriptOpenCard(u, e){
   const c = $("xcard"); if(!c) return;
   c.innerHTML = scriptTeachHTML(u);
+  paintScriptHL(c);
   bringIntoView(c.firstElementChild, !!e && e.detail === 0);
 }
 function scriptTabRender(){

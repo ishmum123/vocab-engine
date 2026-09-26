@@ -414,6 +414,45 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     const eb = await boot(esc);
     const eh = eb.api.scriptTeachHTML(esc.script.units[0]);
     check("pack text is escaped (note, name)", !/<img/.test(eh) && eh.includes("&lt;img") && eh.includes("&lt;b&gt;"));
+
+    // Shaping clusters: a tint never puts an element boundary inside a mandatory ligature
+    // (Arabic-script lam + alef) or a Brahmic conjunct (consonant + virama + consonant).
+    // Every letter of every word is tried as the glyph; the tint must still be there.
+    const HL = fb.api.scriptHL;
+    const LAM = "ل", ALEFS = "اأإآٱ", VIR = "्";
+    // true when a tag sits between lam(+marks) and an alef, right after a virama(+ZWJ), or before a mark
+    const splits = h => new RegExp(`${LAM}[\\u064b-\\u065f\\u0670]*<[^>]*>(?:<[^>]*>)*[${ALEFS}]`).test(h) || new RegExp(`${VIR}\\u200d?<[^>]*>`).test(h) || /<[^>]*>[\p{M}\u200c\u200d]/u.test(h); // or a mark cut off its base
+    const sweep = words => words.flatMap(w => [...new Set([...w].filter(c => !/[ً-़्ٰٟ‍]/.test(c)))].map(g => ({ w, g, h: HL(w, g) })));
+    const AR = ["لا", "سلام", "الأب", "سلآم", "إلى", "لإس", "لَا", "الٱبن"];
+    const FAW = ["کلاس", "لاله", "بلا", "بابا"];
+    const HI = ["क्षमा", "स्त्री", "पर्व", "विद्या"];
+    const arS = sweep(AR), faS = sweep(FAW), hiS = sweep(HI);
+    check(`ar: no element boundary between lam and alef for any tinted letter (${arS.length} word/letter pairs)`, arS.every(x => !splits(x.h) && x.h.includes('class="xhl"')), arS.filter(x => splits(x.h)).map(x => x.h).join(" | "));
+    check(`fa: same for Persian words (کلاس, لاله, بلا, بابا; ${faS.length} pairs)`, faS.every(x => !splits(x.h) && x.h.includes('class="xhl"')), faS.filter(x => splits(x.h)).map(x => x.h).join(" | "));
+    check(`hi: no element boundary after a virama (क्ष, स्त्री, र्व, द्या; ${hiS.length} pairs)`, hiS.every(x => !splits(x.h) && x.h.includes('class="xhl"')), hiS.filter(x => splits(x.h)).map(x => x.h).join(" | "));
+    check("ar: tinting ل or ا in لا tints the whole ligature; سلام tints لا only; بابا still tints each ب alone",
+      HL("لا", "ل") === '<span class="xhl">لا</span>' && HL("لا", "ا") === '<span class="xhl">لا</span>'
+      && HL("سلام", "ل") === 'س<span class="xhl">لا</span>م' && HL("بابا", "ب") === '<span class="xhl">ب</span>ا<span class="xhl">ب</span>ا');
+    check("ar: a haraka stays inside its letter's tint (بَاب: ب tint holds the fatha)", HL("بَاب", "ب") === '<span class="xhl">بَ</span>ا<span class="xhl">ب</span>');
+    check("hi: क in क्षमा tints the conjunct क्ष; ZWNJ after the virama (explicit halant) splits",
+      HL("क्षमा", "क") === '<span class="xhl">क्ष</span>मा' && VC.shapingClusters("क्‌ष").length === 2 && VC.shapingClusters("क्ष").length === 1);
+    check("ar: a ZWJ between lam and alef keeps them one cluster (shapers ligate through ZWJ)", VC.shapingClusters("\u0644\u200d\u0627").length === 1 && HL("\u0644\u200d\u0627\u0645", "\u0627") === '<span class="xhl">\u0644\u200d\u0627</span>\u0645');
+    check("browser layer: the ::highlight tint also recolours the glyph (thin joined letters stay visible without the span's spread)", /::highlight\(xhl\)\{background-color:var\(--ok-bg\);color:var\(--ok\)\}/.test(appHtml));
+    check("ar: tatweel between lam and alef blocks the ligature, so they are separate clusters", VC.shapingClusters("لـا").length >= 2);
+    check("browser layer: paintScriptHL runs after both teach-card insertions and a ::highlight(xhl) rule exists",
+      /paintScriptHL\(\$\("xtl"\)\)/.test(appSrc) && /c\.innerHTML = scriptTeachHTML\(u\);\s*paintScriptHL\(c\);/.test(appSrc) && /::highlight\(xhl\)\{background-color:var\(--ok-bg\)/.test(appHtml));
+    // Note equal to the roman is not shown twice ("b | b"); a real note still is.
+    const dup = FX.fa(); const bu = dup.script.units.find(u => u.id === "fa-be"); bu.note = " " + String(bu.roman).toUpperCase() + " ";
+    const db = await boot(dup);
+    const dh = db.api.scriptTeachHTML(bu);
+    const dItem = VC.scriptItem("symSound", bu, { units: dup.script.units, words: dup.words });
+    check("teach card and answer screen drop a note that only repeats the roman", !/<span class="en">/.test(dh.match(/<div class="xhead"[\s\S]*?<\/div>/)[0]) && dItem.reveal.note === "");
+    const rn = FX.fa(); const ru2 = rn.script.units.find(u => u.id === "fa-be"); ru2.note = "as in boy";
+    const rb2 = await boot(rn);
+    check("... a note that says more is kept on both", /<span class="en">as in boy<\/span>/.test(rb2.api.scriptTeachHTML(ru2)) && VC.scriptItem("symSound", ru2, { units: rn.script.units, words: rn.words }).reveal.note === "as in boy");
+    // RTL answer block: one edge for every line (root flag + rule), LTR packs untouched.
+    check("rtl pack: root carries data-tlrtl, and .reveal/.rvb align right under it", fb.document.documentElement._attrs["data-tlrtl"] === "" && /:root\[data-tlrtl\] \.reveal,:root\[data-tlrtl\] \.rvb\{text-align:right\}/.test(appHtml));
+    check("ltr pack (ko): no data-tlrtl on the root", kb.document.documentElement._attrs["data-tlrtl"] === undefined);
   }
 
   // ---------------------------------------------------------------- [8] existing learner

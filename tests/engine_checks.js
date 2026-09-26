@@ -927,6 +927,30 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const mut = [{ id:"m", w:"кот", en:"cat" }];
   const firstHit = VC.searchWords(mut, "кот").length; mut[0].w = "пёс";
   check("search cache: a changed word is re-folded (old text no longer matches, new does)", firstHit === 1 && VC.searchWords(mut, "кот").length === 0 && VC.searchWords(mut, "пес").length === 1);
+  // E. Arabic-script search folding (searchFold): hamza/madda carriers, alef wasla, teh
+  // marbuta, alef maksura, harakat/tatweel, optional leading ال; Persian ي/ك and ZWNJ.
+  const AW = [
+    { id:"kitab", w:"كِتَاب", en:"book" }, { id:"alkitab", w:"الكتاب", en:"the book" },
+    { id:"ana", w:"أنا", en:"I" }, { id:"madrasa", w:"مدرسة", en:"school" }, { id:"fi", w:"في", en:"in" },
+    { id:"ala", w:"على", en:"on" }, { id:"imam", w:"إمام", en:"imam" }, { id:"quran", w:"القرآن", en:"Quran" },
+    { id:"ibn", w:"ٱبن", en:"son" }, { id:"suel", w:"سؤال", en:"question" },
+    { id:"sael", w:"سائل", en:"liquid" }, { id:"masul", w:"مسئول", en:"responsible" }, { id:"moamen", w:"مؤمن", en:"believer" },
+    { id:"miravam", w:"می‌روم", en:"I go" }, { id:"ketab", w:"کتاب", en:"book (fa)" }, { id:"khane", w:"خانهٔ", en:"house of" },
+  ];
+  const aids = q => VC.searchWords(AW, q).map(v => v.id);
+  check("ar search: كتاب finds الكتاب and كِتَاب (harakat folded), exact first; الكتاب finds كتاب too (article optional)",
+    aids("كتاب").includes("alkitab") && aids("كتاب").includes("kitab") && aids("كتاب")[0] === "kitab" && aids("الكتاب").includes("kitab") && aids("الكتاب").includes("alkitab"));
+  check("ar search: hamza/madda/wasla carriers fold to bare alef (انا → أنا, امام → إمام, قران → القرآن, ابن → ٱبن), سوال → سؤال",
+    aids("انا").includes("ana") && aids("امام").includes("imam") && aids("قران").includes("quran") && aids("ابن").includes("ibn") && aids("سوال").includes("suel"));
+  check("ar search: teh marbuta and alef maksura fold (مدرسه → مدرسة, فى → في, علي → على)",
+    aids("مدرسه").includes("madrasa") && aids("فى").includes("fi") && aids("علي").includes("ala"));
+  check("fa search: Arabic ي/ك typed (مي‌روم, كتاب) find Persian ی/ک; ZWNJ-insensitive (میروم, می روم); خانه finds خانهٔ",
+    aids("مي‌روم").includes("miravam") && aids("میروم").includes("miravam") && aids("می روم").includes("miravam") && aids("كتاب").includes("ketab") && aids("خانه").includes("khane"));
+  check("ar/fa search: a hamza carrier folds to the same canonical letter the typed side uses (سايل/سایل → سائل, مسيول/مسیول → مسئول, مومن → مؤمن)",
+    aids("سايل").includes("sael") && aids("سایل").includes("sael") && aids("مسيول").includes("masul") && aids("مسیول").includes("masul") && aids("مومن").includes("moamen")
+    && aids("سائل").includes("sael") && aids("مسئول").includes("masul"));
+  check("searchFold leaves non-Arabic text exactly as normalizeTyped folds it; typed-answer check still keeps ة and ى distinct",
+    VC.searchFold("Café  Été") === VC.normalizeTyped("Café  Été", { foldAccents: true }) && VC.normalizeTyped("مدرسة", { foldAccents: true }) !== VC.normalizeTyped("مدرسه", { foldAccents: true }));
 })();
 
 // ------------------------------------------------------------ [21] review round: article agreement, fixed expressions, clitics
@@ -1271,7 +1295,7 @@ const appBootChecks = (async function(){
         if(m) return m[1] ? tabButtons.filter(b=>b.dataset.t===m[1]) : tabButtons.slice();
         return [];
       },
-      addEventListener(){},
+      _l: {}, addEventListener(t, f){ (this._l[t] = this._l[t] || []).push(f); },
     };
   }
   const tick = () => new Promise(r=>setTimeout(r,0));
@@ -1490,6 +1514,19 @@ return {
     const t4 = tapIn("p0003", 4, "w0028");
     check("span gloss: a span without a gloss (你 in p0003) has no data-pg and falls back to the word gloss",
       !/data-pg/.test(t4.tag) && /<span class="ge">/.test(t4.pop) && text(t4.pop).includes(VC.gloss(BY_ID.w0028)));
+    // Escape closes the open Read-tab gloss box and stays on the passage (same RD, no
+    // re-render); a second Escape with nothing open changes nothing.
+    {
+      const gEl = document.getElementById("gloss"), rd0 = api.getRD(), rc0 = api.getRenderCalls(), panel0 = document.getElementById("panel").innerHTML;
+      const kds = document._l.keydown || [];
+      const fire = () => { const ev = { key: "Escape", target: {}, dp: false, preventDefault(){ this.dp = true; } }; kds.forEach(f => f(ev)); return ev; };
+      const open0 = gEl && gEl.hidden === false;
+      const e1 = fire();
+      check("Read tab: Escape closes the open gloss box (consumed) and stays on the same passage view",
+        kds.length === 1 && open0 && gEl.hidden === true && e1.dp && api.getRD() === rd0 && api.getRenderCalls() === rc0 && document.getElementById("panel").innerHTML === panel0);
+      const e2 = fire();
+      check("... a second Escape (nothing open) is not consumed and still leaves the view alone", !e2.dp && api.getRD() === rd0 && api.getRenderCalls() === rc0);
+    }
     // Results weak-word list: a word tapped at a glossed span lists the sense that was seen.
     tapIn("p0003", 4, "w0115");
     const rd = api.getRD(); rd.answers = rd.p.questions.map(() => ({ ok: true, reopened: false, given: null })); rd.resultsDone = true;
