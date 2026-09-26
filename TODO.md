@@ -149,6 +149,32 @@ starting (measure candidate words with ≥2 corpus sentences in ranks
 2001–4000). Order after the hsk merge (item 1) so the rebuild happens on the
 final engine.
 
+PARKED 2026-09-26 (user). Viability measured 2026-09-26 (scout, approximation: wordfreq
+ranks 2001–4000 as the pool, Tatoeba English-linked sentences where a links file
+exists — it/fr/ru unfiltered, slightly optimistic — plus generated sentences; kaikki
+gloss hit):
+
+| lang | ≥2 sent Tatoeba | +generated | gloss | verdict |
+|---|---|---|---|---|
+| ja | 96% | 96% | 85% | viable now |
+| fr | 95% | 95% | 77% | viable now |
+| es | 93% | 93% | 90% | viable now |
+| it | 92% | 92% | 89% | viable now |
+| ru | 91% | 91% | 81% | viable now |
+| ar | 78% | 79% | 41% | viable now, heavy gloss review |
+| de | 77% | 77% | 54% | viable now |
+| fa | 55% | 60% | 53% | with generation |
+| id | 53% | 58% | 64% | with generation |
+| ko | 44% | 50% | 72% | with generation |
+| hi | 40% | 49% | 72% | with generation |
+| ur | 18% | 36% | 41% | not viable without a sentence-authoring push |
+| zh | – | – | – | blocked: hsk has HSK 1–4 lists only; B2 needs an HSK 5–6 source |
+
+Engine impact is small: levels/placement/Read unlocks are generic arrays; touch points are
+langs/base.py bands (600/700/700 → add B2) and placement buckets, words.py level_ceiling
+(additive), 20 B2 passages per language, README scope lines. Suggested order: ja, fr, es,
+it, ru, de, ar → fa, id, ko, hi → ur → zh.
+
 ## Backlog (not scheduled)
 - **Video stage** (user 2026-09-25: backlog only): level-graded YouTube
   videos per language with a timed transcript and passage-style questions,
