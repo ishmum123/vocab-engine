@@ -2580,14 +2580,31 @@ function numberedForms(pron){
 // (right letters, tones given but not all right, e.g. ni2hao3 or nihao5) or "wrong"
 // (the letters differ). Tones are optional: the typed-reading item accepts every verdict
 // but "wrong" and notes the marked form after "tones" or "tonesDiff".
+// pack (optional): a pack without `tones` (e.g. ja: kana readings) takes the plain path
+// instead, plainPronKey equality, "ok" or "wrong" only; no pack keeps the tonal path.
 const pronLetters = s => pronKey(stripMarks(s)).replace(/\p{N}/gu, "");
-function checkPronTyped(input, pron){
+function checkPronTyped(input, pron, pack){
+  if(pack && !tonesOn(pack)){ const k = plainPronKey(input); return k && pron && k === plainPronKey(pron) ? "ok" : "wrong"; }
   const got = pronKey(input);
   if(!got || !pron) return "wrong";
   if(got === pronKey(pron) || numberedForms(pron).indexOf(got) >= 0) return "ok";
   if(pronLetters(got) !== pronLetters(pron)) return "wrong";
   return !/\p{N}/u.test(got) && markCount(got) === 0 ? "tones" : "tonesDiff";
 }
+// Kana fold for readings: NFKC (half-width kana to full width), then katakana to hiragana
+// (U+30A1-30F6 to U+3041-3096, the iteration marks ヽヾ to ゝゞ), so a katakana reading
+// may be typed in hiragana and the reverse. The long-vowel mark ー, small kana (ゃ is not
+// や) and voicing marks are kept: they spell a different reading.
+function kanaFold(s){
+  return String(s == null ? "" : s).normalize("NFKC").replace(/[\u30a1-\u30f6\u30fd\u30fe]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+// Comparison key for a reading typed without tones: kanaFold, normalizeTyped (case,
+// whitespace, apostrophes), then everything but letters, marks and digits removed (spaces,
+// the affix mark 〜 of 〜ねん, the middle dot ・).
+function plainPronKey(s){ return normalizeTyped(kanaFold(s)).replace(/[^\p{L}\p{M}\p{N}]/gu, ""); }
+// A written form without its affix mark: 〜年 -> 年 (wave dash or full-width tilde at
+// either end), so a typed suffix/prefix word needs no 〜. The form itself when it has none.
+function affixBare(w){ return String(w == null ? "" : w).replace(/^[\u301c\uff5e]+|[\u301c\uff5e]+$/g, ""); }
 // pack.typing "pron": the typed item a plan's "type" slot (a word's production slot) is.
 // The type slots alternate in plan order, reading first: "pron" (type the reading, silent,
 // tones optional), then "written" (type the characters, the word's audio played). Plan
@@ -2786,7 +2803,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
   recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, graphemes, shapingClusters, scriptUnitNote, scriptUnitHeadName, searchFold, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
-  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, typeSlotKind, joinReadings, composeSpanReading, spanReadingText,
+  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, kanaFold, plainPronKey, affixBare, typeSlotKind, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
