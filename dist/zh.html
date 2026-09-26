@@ -17,8 +17,8 @@
     /* Target-language text: the UI font first, then system fonts that cover non-Latin
        scripts (IBM Plex lacks many glyphs; missing ones fall through to system fonts). */
     --wbase: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, "PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
-    /* pack.fontFamily, when set, is prepended at boot: --wfont = <its named families>, var(--wbase)
-       (generic keywords such as serif dropped: the UI stack ends in sans-serif). */
+    /* pack.fontFamily, when set, is prepended at boot: --wfont = <pack font>, var(--wbase)
+       (pack.rtl: its named families only, generic keywords such as serif dropped). */
     --wfont: var(--wbase);
     --safe-b: env(safe-area-inset-bottom, 0px);
     /* The fixed tab bar's real height: 56px buttons (fixed, see .tabs) + 1px top border,
@@ -78,7 +78,8 @@
      not grow the UI line it sits in. */
   [data-ui]{font-family:var(--font);unicode-bidi:isolate}
   [dir=rtl] [data-ui]{text-align:right} /* still aligned to the RTL block's start edge */
-  input[data-tl]::placeholder{font-family:var(--font)} /* English placeholder, UI font */
+  :root[data-tlrtl] input[data-tl]::placeholder{font-family:var(--font)} /* English placeholder, UI font */
+  :root[data-tlrtl] .gloss{text-align:right} /* the LTR popover line sits on the RTL block's edge */
   :root[data-tlh] [data-tl].tlf{line-height:1}
   /* Korean only: words (Hangul syllable blocks) are space-separated like Latin, so the
      default break-anywhere wrapping can split inside a word (봤어/요). Scoped off the
@@ -977,11 +978,21 @@ function fontsHref(pack){
 // The pack font stack the UI prepends to its own (--wfont = <this>, UI stack): the named
 // families of fontFamilyOf with generic keywords (serif, sans-serif, ...) dropped, so a
 // Latin run inside target text (pron, roman, a number) falls through to the UI font
-// instead of a generic serif. null when no named family is left.
+// instead of a generic serif. null when no named family is left. The list is split on
+// commas outside quotes, so a quoted family name holding a comma stays one family. The UI
+// uses it for pack.rtl packs only; LTR packs keep fontFamily as given.
 const GENERIC_FAMILY_RE = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|math|emoji|fangsong|ui-serif|ui-sans-serif|ui-monospace|ui-rounded)$/i;
 function fontStackOf(pack){
   const f = fontFamilyOf(pack); if(!f) return null;
-  const named = f.split(",").map(x => x.trim()).filter(x => x && !GENERIC_FAMILY_RE.test(x));
+  const parts = []; let cur = "", q = "";
+  for(const ch of f){
+    if(q){ cur += ch; if(ch === q) q = ""; }
+    else if(ch === '"' || ch === "'"){ cur += ch; q = ch; }
+    else if(ch === ","){ parts.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  parts.push(cur);
+  const named = parts.map(x => x.trim()).filter(x => x && !GENERIC_FAMILY_RE.test(x));
   return named.length ? named.join(", ") : null;
 }
 // Everything the UI needs to mark target-language text: {lang, rtl, fontFamily, fontStack, lineHeight}.
@@ -989,12 +1000,16 @@ function scriptDisplay(pack){
   return { lang: targetLang(pack), rtl: !!(pack && pack.rtl === true), fontFamily: fontFamilyOf(pack), fontStack: fontStackOf(pack), lineHeight: lineHeightOf(pack) };
 }
 // RTL packs (docs/PACK_SCHEMA.md "RTL rendering"): a UI/English string (gloss, note,
-// label) split into runs, each run of right-to-left script (Hebrew/Arabic blocks, with
-// the spaces, ZWNJ/ZWJ and marks between its letters) flagged rtl, so the UI can isolate
-// it in its own <bdi> and the English around it keeps its order. Joined, the runs'
-// text is the input. [] for "" / null.
+// label) split into runs, each run of right-to-left script (Hebrew/Arabic blocks) flagged
+// rtl, so the UI can isolate it in its own <bdi> and the English around it keeps its
+// order. A run spans from an RTL letter to the last RTL letter reachable without crossing
+// a strong-LTR letter: everything between (spaces, ZWNJ, "...", "…", "/", commas, digits,
+// brackets) is neutral or weak and, as in the Unicode bidi algorithm, takes the
+// direction of the RTL text on both sides, so a phrase such as "از ... متنفرم" or
+// "کا/کی/کے" stays one run in its own order. Trailing neutrals (": I have)") stay
+// outside. Joined, the runs' text is the input. [] for "" / null.
 const RTL_CH = "\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF";
-const RTL_RUN_RE = new RegExp(`[${RTL_CH}](?:[${RTL_CH}\u200C\u200D\\s]*[${RTL_CH}])?`, "g");
+const RTL_RUN_RE = new RegExp(`[${RTL_CH}](?:(?:[${RTL_CH}]|[^\\p{L}\\p{M}])*[${RTL_CH}])?`, "gu");
 function rtlRuns(s){
   const str = s == null ? "" : String(s), out = [];
   let i = 0, m; RTL_RUN_RE.lastIndex = 0;
@@ -3080,9 +3095,11 @@ const tf = s => DISP.rtl ? ui(s) : tw(s);
 const UIA = DISP.rtl ? ' dir="ltr" data-ui' : "";
 (function(){
   const r = document.documentElement;
-  // fontStack: the pack's named families only (generic serif etc. dropped), so Latin text
-  // inside target-language elements falls through to the UI font, not a generic serif.
-  if(DISP.fontStack) r.style.setProperty("--wfont", `${DISP.fontStack}, var(--wbase)`);
+  // pack.rtl: fontStack, the pack's named families only (generic serif etc. dropped), so
+  // Latin text inside target-language elements falls through to the UI font, not a
+  // generic serif. LTR packs keep pack.fontFamily exactly as given.
+  const wf = DISP.rtl ? DISP.fontStack : DISP.fontFamily;
+  if(wf) r.style.setProperty("--wfont", `${wf}, var(--wbase)`);
   if(DISP.lineHeight){ r.style.setProperty("--tlh", String(DISP.lineHeight)); r.setAttribute("data-tlh", ""); }
   if(DISP.rtl) r.setAttribute("data-tlrtl", "");
   // Google Fonts is the only external resource allowed; VC.fontsHref only ever builds a
@@ -3429,7 +3446,7 @@ function renderMcItem(it){
   let answered = false;
   opts.forEach((o,i)=>{
     const b = document.createElement("button");
-    b.innerHTML = `<b class="num">${i+1}</b>${it.optHtml ? it.optHtml(o) : ui(o)}`;
+    b.innerHTML = `<b class="num"${UIA}>${i+1}</b>${it.optHtml ? it.optHtml(o) : ui(o)}`;
     if(it.optsT && DISP.rtl) b.dir = "rtl"; // options are target-language words
     b.onclick = () => {
       if(answered) return; answered = true;
@@ -4053,7 +4070,7 @@ function pathStrip(){
   const stages = HAS_STAGES
     ? VC.stagePath(PACK, WORDS, CHAR_LIST, prog, SU).map(s => ({ label: s.label, frac: s.frac, tl: s.kind === "chars" || s.kind === "script" }))
     : LEVELS.map(lv=>({ label: levelLabel(lv), frac: nSets(lv) ? (prog.sets[lv]||0)/nSets(lv) : 1 }));
-  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.tl ? tw(s.label) : escapeHtml(s.label)}</div>`).join("")}</div>`;
+  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.tl ? tf(s.label) : escapeHtml(s.label)}</div>`).join("")}</div>`;
 }
 // The snapshot (VC.todaySnapshot) Today runs on: taken at Start today and kept for the
 // session, so finishing a stage mid-session changes neither what Learn teaches nor
@@ -4355,7 +4372,7 @@ function soundsRender(){
 // (panel data-xs/data-xopen listener). "Practise weakest 20" runs VC.scriptTestPlan.
 function scriptChartHTML(){
   const recs = VC.scriptRecs(prog);
-  return SCFG.stages.map(st => `<div class="refh">${tw(st.label)}</div>` + VC.scriptSets(st.key, SUNITS).map((set, i) =>
+  return SCFG.stages.map(st => `<div class="refh">${tf(st.label)}</div>` + VC.scriptSets(st.key, SUNITS).map((set, i) =>
     `<div class="xset"><span class="xsn">${i + 1}</span><div class="refcells xcells">${set.map(u => {
       const r = recs[u.id]; const m = !!r && VC.scriptMastered(r, PACK);
       const state = m ? "mastered" : r ? "taught" : "";
@@ -4493,7 +4510,7 @@ function readRender(){
       const ps = PASSAGE_LIST.filter(p => p.lv === l.lv);
       return `<div class="rlv"><div class="rlh">${L}<span class="q" style="margin:0">${ps.filter(passageDone).length} / ${ps.length} done</span></div>
         <div class="plist">${ps.map(p => { const d = passageDone(p);
-          return `<button data-pid="${escapeHtml(p.id)}"${DISP.rtl ? ' dir="rtl"' : ""}><span>${rubyTw(p.title, p.titleRuby, true)}<span class="q"${UIA} style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick">✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
+          return `<button data-pid="${escapeHtml(p.id)}"${DISP.rtl ? ' dir="rtl"' : ""}><span>${rubyTw(p.title, p.titleRuby, true)}<span class="q"${UIA} style="display:block;margin:0;font-size:13px">${VC.passageLength(p, PACK)} words</span></span>${d ? `<span class="tick"${UIA}>✓ ${d.sc} / ${d.n}</span>` : ""}</button>`; }).join("")}</div></div>`;
     }).join("")}`;
   P.querySelectorAll("[data-pid]").forEach(b => b.onclick = () => startPassage(PASSAGE_LIST.find(p => p.id === b.dataset.pid)));
 }
@@ -4639,10 +4656,12 @@ function rubyTw(t, ruby, inButton){
   return pfRubyText(t, ruby) ? `<bdi${TA}>${rubyTextOr(t, ruby, inButton)}</bdi>` : tw(t);
 }
 function passageHTML(hiIndex){ return RD.p.sentences.map((s, i) => passageSentenceHTML(s, i, i === hiIndex)).join(""); }
-// RTL packs: the popover (and the tokgloss / weak-word rows that reuse glossHTML) is an LTR
-// line: the tapped word is its own isolated dir=rtl span (TA), pron and gloss follow as
+// RTL packs: the popover (#gloss and the sentence tokgloss) is an LTR line, right-aligned:
+// the tapped word is its own isolated dir=rtl span (TA), pron and gloss follow as
 // isolated LTR runs, so a gloss that wraps never interleaves with the word, and RTL
-// fragments inside the gloss are isolated by ui().
+// fragments inside the gloss are isolated by ui(). The results' weak-word rows are RTL
+// flex rows (checkbox on the right like the rows around them); each piece is its own
+// flex item, pron/gloss/why labels dir=ltr.
 const LTR = DISP.rtl ? ' dir="ltr"' : "";
 const glossBox = () => `<div class="gloss" id="gloss"${LTR} hidden></div>`;
 // spanGloss: the tapped span's display-only gloss (spans[i][3], carried as data-pg on
@@ -4727,7 +4746,7 @@ function readQuestionScreen(){
   const box = $("o");
   order.forEach((v, i) => {
     const b = document.createElement("button");
-    b.innerHTML = `<b class="num">${i+1}</b>${tf ? (v ? "True" : "False") : rubyTw(q.options[v], (q.optionsRuby || [])[v], true)}`;
+    b.innerHTML = `<b class="num"${UIA}>${i+1}</b>${tf ? (v ? "True" : "False") : rubyTw(q.options[v], (q.optionsRuby || [])[v], true)}`;
     if(!tf && DISP.rtl) b.dir = "rtl";
     b.dataset.v = String(v);
     b.onclick = () => {
@@ -4767,7 +4786,7 @@ function readResults(){
     <p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
       return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${ui(s.en)}</div></div>`; }).join("")}
-    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${LTR}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q" style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
+    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q"${UIA} style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
     <div id="addmsg" class="q" hidden></div>
     <button class="ghost" id="rlist" style="margin-top:10px">Back to passages</button></div>`;
@@ -5021,7 +5040,7 @@ function scriptProgress(){
   const stageOn = st => !(prog.script && prog.script.skip && prog.script.skip[st.key] === true);
   const multi = SCFG.stages.length > 1;
   const controls = `<div id="scriptCtl" style="margin-top:14px"><div class="row"><button class="chip ${off ? "" : "on"}" id="xOn" aria-pressed="${!off}">Script primer on</button><button class="chip ${off ? "on" : ""}" id="xOff" aria-pressed="${off}">Script primer off</button></div>
-    ${multi && !off ? `<div class="row">${SCFG.stages.map((st, i) => `<button class="chip ${stageOn(st) ? "on" : ""}" id="xSt${i}" aria-pressed="${stageOn(st)}">${tw(st.label)}</button>`).join("")}</div>` : ""}
+    ${multi && !off ? `<div class="row">${SCFG.stages.map((st, i) => `<button class="chip ${stageOn(st) ? "on" : ""}" id="xSt${i}" aria-pressed="${stageOn(st)}">${tf(st.label)}</button>`).join("")}</div>` : ""}
     <p class="q" style="margin-top:6px">Changes what Today's Learn step teaches next. Nothing you've learned is lost.</p></div>`;
   const wire = () => {
     $("xOn").onclick = () => { VC.setScriptSkipped(prog, false); store.save(); progressRender(); };
@@ -5037,7 +5056,7 @@ function legacySummaryHTML(m, kept){
   const p = m.prog, n = o => Object.keys(o || {}).length;
   const setsN = Object.values(p.sets || {}).reduce((a, b) => a + (b || 0), 0);
   const parts = [`${n(p.w)} word records`, `${n(p.s)} sentence records`];
-  if(p.chars) parts.push(`${n(p.chars.c)} ${tw(CHAR_CFG ? CHAR_CFG.label : "")} records`);
+  if(p.chars) parts.push(`${n(p.chars.c)} ${tf(CHAR_CFG ? CHAR_CFG.label : "")} records`);
   parts.push(`${setsN} sets done`, `${p.sessions || 0} sessions`);
   const LIST_MAX = 20;
   const um = m.unmapped || [];
@@ -5141,4 +5160,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:4265499845-1534233-->
+<!--ve-build:1969847951-1535488-->

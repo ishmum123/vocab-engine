@@ -640,11 +640,21 @@ function fontsHref(pack){
 // The pack font stack the UI prepends to its own (--wfont = <this>, UI stack): the named
 // families of fontFamilyOf with generic keywords (serif, sans-serif, ...) dropped, so a
 // Latin run inside target text (pron, roman, a number) falls through to the UI font
-// instead of a generic serif. null when no named family is left.
+// instead of a generic serif. null when no named family is left. The list is split on
+// commas outside quotes, so a quoted family name holding a comma stays one family. The UI
+// uses it for pack.rtl packs only; LTR packs keep fontFamily as given.
 const GENERIC_FAMILY_RE = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|math|emoji|fangsong|ui-serif|ui-sans-serif|ui-monospace|ui-rounded)$/i;
 function fontStackOf(pack){
   const f = fontFamilyOf(pack); if(!f) return null;
-  const named = f.split(",").map(x => x.trim()).filter(x => x && !GENERIC_FAMILY_RE.test(x));
+  const parts = []; let cur = "", q = "";
+  for(const ch of f){
+    if(q){ cur += ch; if(ch === q) q = ""; }
+    else if(ch === '"' || ch === "'"){ cur += ch; q = ch; }
+    else if(ch === ","){ parts.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  parts.push(cur);
+  const named = parts.map(x => x.trim()).filter(x => x && !GENERIC_FAMILY_RE.test(x));
   return named.length ? named.join(", ") : null;
 }
 // Everything the UI needs to mark target-language text: {lang, rtl, fontFamily, fontStack, lineHeight}.
@@ -652,12 +662,16 @@ function scriptDisplay(pack){
   return { lang: targetLang(pack), rtl: !!(pack && pack.rtl === true), fontFamily: fontFamilyOf(pack), fontStack: fontStackOf(pack), lineHeight: lineHeightOf(pack) };
 }
 // RTL packs (docs/PACK_SCHEMA.md "RTL rendering"): a UI/English string (gloss, note,
-// label) split into runs, each run of right-to-left script (Hebrew/Arabic blocks, with
-// the spaces, ZWNJ/ZWJ and marks between its letters) flagged rtl, so the UI can isolate
-// it in its own <bdi> and the English around it keeps its order. Joined, the runs'
-// text is the input. [] for "" / null.
+// label) split into runs, each run of right-to-left script (Hebrew/Arabic blocks) flagged
+// rtl, so the UI can isolate it in its own <bdi> and the English around it keeps its
+// order. A run spans from an RTL letter to the last RTL letter reachable without crossing
+// a strong-LTR letter: everything between (spaces, ZWNJ, "...", "…", "/", commas, digits,
+// brackets) is neutral or weak and, as in the Unicode bidi algorithm, takes the
+// direction of the RTL text on both sides, so a phrase such as "از ... متنفرم" or
+// "کا/کی/کے" stays one run in its own order. Trailing neutrals (": I have)") stay
+// outside. Joined, the runs' text is the input. [] for "" / null.
 const RTL_CH = "\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF";
-const RTL_RUN_RE = new RegExp(`[${RTL_CH}](?:[${RTL_CH}\u200C\u200D\\s]*[${RTL_CH}])?`, "g");
+const RTL_RUN_RE = new RegExp(`[${RTL_CH}](?:(?:[${RTL_CH}]|[^\\p{L}\\p{M}])*[${RTL_CH}])?`, "gu");
 function rtlRuns(s){
   const str = s == null ? "" : String(s), out = [];
   let i = 0, m; RTL_RUN_RE.lastIndex = 0;
