@@ -210,6 +210,35 @@ const DEFER = VC.TTS_TIMING.deferMs + 30;
     check("reveal: no Replay (#rvp), nothing spoken (source sentence has no clip either)", !RVP.test(api.html("rv")) && spoken.length === 0);
   }catch(e){ check(`section threw: ${e.stack}`, false); }
 
+  // ---------------------------------------------------------------- question translation hidden behind a tap
+  console.log("\n[3b] readQuestionScreen: q.en stays behind a 'Show translation' tap, logged if peeked before answering");
+  try{
+    const { api } = await boot();
+    api.setProg(seedPF());
+    const p = PASSAGES[0];
+    const q0 = p.questions[0];
+    check("setup: this question carries an English translation", !!q0.en);
+    api.startPassage(p);
+    api.el("rdone").click();
+    const panel0 = api.html("panel");
+    check("translation absent on mount, 'Show translation' button present", !panel0.includes(VC.escapeHtml(q0.en)) && /id="qtr"/.test(panel0) && /Show translation/.test(panel0));
+    api.el("qtr").click();
+    check("tapping shows the translation and logs the peek (rec.tr)", api.html("qtrwrap").includes(VC.escapeHtml(q0.en)) && api.rd().answers[0].tr === true);
+    // answer, then check results reflects the peek for this question only
+    const opts = api.el("o").children;
+    opts.find(b => b.dataset.v === String(q0.answer)).click();
+    api.el("nx").click();
+    for(let qi = 1; qi < p.questions.length; qi++){
+      const q = p.questions[qi];
+      const os = api.el("o").children;
+      (os.find(b => b.dataset.v === String(q.answer)) || os[0]).click();
+      api.el("nx").click();
+    }
+    const results = api.html("panel");
+    const lines = [...results.matchAll(/(?:✓|✗) Question (\d+)[^<]*/g)].map(m => m[0]);
+    check("results: question 1's line has ' · translation shown'; no other question's does", /Question 1[^<]*· translation shown/.test(lines[0] || "") && lines.slice(1).every(l => !l.includes("translation shown")));
+  }catch(e){ check(`section threw: ${e.stack}`, false); }
+
   console.log("\n[4] readResults: a Replay button per source sentence, no autoplay");
   try{
     const { api, spoken } = await boot();

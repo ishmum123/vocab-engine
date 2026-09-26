@@ -5205,7 +5205,7 @@ function readPassageScreen(){
 function readQuestionScreen(){
   screenTop();
   const p = RD.p, P = $("panel"), qi = RD.qi, q = p.questions[qi];
-  if(!RD.answers[qi]) RD.answers[qi] = { ok: null, reopened: false, given: null };
+  if(!RD.answers[qi]) RD.answers[qi] = { ok: null, reopened: false, given: null, tr: false };
   const rec = RD.answers[qi];
   // Each question starts with the passage hidden, so "reopened" is logged per question.
   RD.shown = false;
@@ -5216,7 +5216,7 @@ function readQuestionScreen(){
   // voice is usable, same "no voice -> no replay" rule as every other spoken site.
   const hearQ = hasSpeech;
   P.innerHTML = `<div class="drill-body top"><p class="q">Question ${qi+1} / ${p.questions.length}</p>
-    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${hearQ ? REPLAY_STAGE : ""}${q.en ? `<div class="q cue">${ui(q.en)}</div>` : ""}
+    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${hearQ ? REPLAY_STAGE : ""}${q.en ? `<div id="qtrwrap">${rec.tr ? `<div class="q cue">${ui(q.en)}</div>` : `<button class="ghost" id="qtr" style="margin:8px 0">Show translation</button>`}</div>` : ""}
     <div class="opts ${tf ? "" : "opts-w"}" id="o"></div>
     <div class="reveal" id="rv"></div>
     <button class="ghost" id="ptoggle" aria-expanded="${RD.shown}" style="margin-top:12px">${RD.shown ? "Hide passage" : "Show passage"}</button>
@@ -5225,6 +5225,12 @@ function readQuestionScreen(){
     </div><div class="actions"><button class="next" id="nx" style="display:none">${qi+1 < p.questions.length ? "Next" : "See results"}</button></div>`;
   wirePassage($("pbox"), $("gloss"));
   if(hearQ){ const qb = $("rpa"); speak(q.q, qb); qb.onclick = () => speak(q.q, qb); }
+  if(q.en){
+    const qtr = $("qtr");
+    // Same "logged only before answering" rule as reopening the passage: a peek after the
+    // question is already answered is just curiosity, not a hint the learner used.
+    if(qtr) qtr.onclick = () => { if(rec.ok === null) rec.tr = true; $("qtrwrap").innerHTML = `<div class="q cue">${ui(q.en)}</div>`; };
+  }
   $("ptoggle").onclick = () => {
     RD.shown = !RD.shown;
     if(RD.shown && rec.ok === null) rec.reopened = true; // logged: looked back before answering
@@ -5278,7 +5284,7 @@ function readResults(){
   P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
     <p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence]; const hearS = canHearSentence(s);
-      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q cue" style="margin:2px 0 0">${ui(s.en)}</div>${hearS ? `<button type="button" class="replay" id="rr${i}" aria-label="Replay">${REPLAY_SVG}</button>` : ""}</div>`; }).join("")}
+      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}${a.tr ? " · translation shown" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q cue" style="margin:2px 0 0">${ui(s.en)}</div>${hearS ? `<button type="button" class="replay" id="rr${i}" aria-label="Replay">${REPLAY_SVG}</button>` : ""}</div>`; }).join("")}
     ${weak.length ? `<p class="q">Weak words from this passage${RD.today ? ". Ticked ones go to your next review." : ""}</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q"${UIA} style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       ${RD.today ? "" : `<button class="next" id="addrev">Add to review</button>`}` : `<p class="q">No weak words from this passage.</p>`}
     ${RD.today ? `<button class="next" id="rcont" style="margin-top:10px">Continue</button></div>` : `<div id="addmsg" class="q" hidden></div>
@@ -5665,4 +5671,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:4073684878-1571078-->
+<!--ve-build:3090400401-1571601-->
