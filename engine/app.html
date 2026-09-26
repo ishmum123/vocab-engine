@@ -561,12 +561,22 @@ let speakingBtn = null;
 const TIMERS = { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: t => clearTimeout(t) };
 const tts = SS ? VC.ttsDriver(SS, TIMERS) : null;
 let speakGen = 0, clipDisarm = () => {};
-function speak(text, btn, audioUrl){
-  const gen = ++speakGen;
+// Stops whatever is currently playing/pending (clip or TTS) and bumps speakGen, so any
+// late callback from it (a clip's onended/onerror, a TTS retry) is dropped as stale. Every
+// speak() call does this itself before starting the next thing; dnext() (drill.js) also
+// calls it directly when the runner moves to an item that never calls speak() at all (a
+// silent item, e.g. pronTypeItem) -- without that, the previous item's ttsDriver watchdog
+// retry (up to watchMs + deferMs later) could still fire and speak stale text on top of it.
+function stopSpeaking(){
+  ++speakGen;
   clipDisarm(); clipDisarm = () => {};
   audioOut.stop();
   if(tts) tts.stop();
   if(speakingBtn){ speakingBtn.classList.remove("speaking"); speakingBtn = null; }
+}
+function speak(text, btn, audioUrl){
+  stopSpeaking();
+  const gen = speakGen;
   if(audioUrl){
     try{
       const a = audioOut.play(audioUrl);
@@ -793,6 +803,11 @@ function playReveal(it){
 }
 function dnext(){
   if(!D) return;
+  // Moving to the next item is itself a break in "one speaker at a time": a silent item
+  // (no mount, no onReveal, e.g. pronTypeItem) never calls speak() itself, so without this
+  // the previous item's still-pending TTS (its ttsDriver watchdog retry) can fire later and
+  // speak stale text on top of it.
+  stopSpeaking();
   const P = $("panel");
   if(!D.q.length){
     const { right, seen, miss, onDone, summary, onShown } = D;

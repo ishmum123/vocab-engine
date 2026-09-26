@@ -184,12 +184,22 @@ tests/engine_checks.js [27] with fake timers and tests/audio_checks.js [6] throu
    utterance (Chromium/Firefox reports; Mozilla bug 1522074 measured up to ~500 ms). The driver calls
    `cancel()` only when `speaking || pending`, and after any cancel defers the speak by
    `TTS_TIMING.deferMs` (80 ms). A generation counter makes the newest `speak()` win over a deferred one.
-   Idle engine: speak is synchronous, as before.
+   Idle engine: speak is synchronous, as before. This matters on iOS Safari, which only allows
+   `speechSynthesis.speak()` to start audio when it runs synchronously inside a user gesture handler: the
+   very first speak of a session (the unlocking tap) always hits an idle engine, so it is never deferred
+   and the gesture is preserved; only a speak that follows one already busy or just cancelled -- by which
+   point audio is already unlocked -- pays the 80 ms. The `cancelled` flag this depends on self-expires
+   after `TTS_TIMING.cancelTtlMs` (500 ms) on its own timer, so a `stop()` with no follow-up `say()` (e.g.
+   leaving the screen) can never leave a much later, unrelated `say()` deferred for a stale reason.
 2. *paused engine / utterance never starts.* `resume()` is called only when `paused` is true (a blind
    pause/resume cycle is harmful on Android, where pause acts as cancel). If an utterance fires no
    onstart/onend/onerror, `speaking` is never seen true, and after `watchMs` (1200 ms, polled every
    200 ms) the engine is `!speaking && !pending`, it is cancelled and spoken once more (deferred as in 1).
-   Never a second retry. Armed only when `speechSynthesis.speaking` is a boolean.
+   Never a second retry. Armed only when `speechSynthesis.speaking` is a boolean. The drill runner's
+   `dnext()` also calls the app's `stopSpeaking()` (which stops `tts`/`audioOut` and bumps `speakGen`)
+   before rendering the next item, even when that item is silent and never calls `speak()` itself (no
+   mount, e.g. `pronTypeItem`) -- otherwise a still-pending watchdog retry from the item before it could
+   fire seconds later and speak stale text on top of it.
 3. *utterance garbage collection* (onend never fires, audio cut): the driver keeps the current
    utterance referenced until its onend/onerror.
 4. *voices loading late.* `pickVoice` already re-runs on `voiceschanged` (`pv`). Each utterance now
