@@ -340,10 +340,18 @@ def build_words(env, ctx):
             second_diag.append(f"{lem} {g} '{gloss}' vs {first['group']} '{first['en']}' overlap={overlap:.2f}")
             nominalised = {g, first["group"]} == {"NOUN", "ADJ"} and \
                 re.search(r"\b(person|people|man|woman|one|soul)\b", gloss)
-            if gloss_stems(gloss) & gloss_stems(first["en"]) or first["group"] == g or \
-                    same_words(gloss, first["en"]) or nominalised or \
-                    top["score"] <= 0 or top["defn"] or top["demote"] or \
-                    overlap > SECOND_SENSE_OVERLAP:
+            # a same-sense signal (shared gloss stem, same POS group, a nominalised
+            # adjective, ...) always disqualifies; a weak-evidence signal (a low
+            # dictionary-sense score, a definitional sense, demotion, high translation
+            # overlap) is a heuristic for "not a distinct sense" that a hand-listed
+            # exemption may override once SECOND_ENTRY_SHARE already shows real,
+            # independent corpus support for both POS (a forced word's own sense often
+            # scores 0 for lack of bag evidence, same as high overlap: "to sing a song"
+            # keeps "song" in the translation of most "to sing" sentences)
+            same_sense = bool(gloss_stems(gloss) & gloss_stems(first["en"])) or first["group"] == g or \
+                same_words(gloss, first["en"]) or bool(nominalised)
+            weak_evidence = top["score"] <= 0 or top["defn"] or top["demote"] or overlap > SECOND_SENSE_OVERLAP
+            if same_sense or (weak_evidence and lem not in sp.second_entry_overlap_exempt):
                 if not forced or first["forced"]:
                     exclude("second POS entry without a distinct sense", lem); continue
                 del records[fk]              # the forced POS replaces a same-sense entry
