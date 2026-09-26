@@ -1127,6 +1127,41 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
   const st = VC.readingStats(PS, RP, prog);
   check("readingStats: A1 2/2 done, avg of latest scores (100%, 100%); A2 0/1, avg null", st.length === 2 && st[0].done === 2 && st[0].total === 2 && st[0].avg === 100 && st[1].done === 0 && st[1].avg === null && prog.read.done.p0001.x === 2);
 
+  // Today Read stage selection (nextReadItem): new first, then spaced re-reads of passages
+  // with a missed question, oldest completion first, >= READ_REREAD_DAYS after it.
+  {
+    const base = JSON.parse(JSON.stringify(prog)); delete base.read.done;
+    const rp = () => JSON.parse(JSON.stringify(base));
+    const at = (pr, now) => VC.nextReadItem(PS, RW, RP, pr, now);
+    const nr = at(rp(), "2026-09-26");
+    check("nextReadItem: a not-done passage at an unlocked level -> {p, reason:new} (suggestPassage's pick)", nr && nr.p === P1 && nr.reason === "new" && VC.suggestPassage(PS, RW, RP, rp()) === P1);
+    const locked = VC.normalizeProg({}, RP);
+    check("nextReadItem: nothing unlocked -> null; no passages -> null", at(locked, "2026-09-26") === null && VC.nextReadItem([], RW, RP, rp(), "2026-09-26") === null);
+    const clean = rp(); VC.markPassageDone(clean, "p0001", 3, 3, "2026-09-01"); VC.markPassageDone(clean, "p0002", 1, 1, "2026-09-01");
+    check("nextReadItem: every unlocked passage done, none missed -> null", at(clean, "2026-12-01") === null);
+    const miss = rp(); VC.markPassageDone(miss, "p0001", 3, 3, "2026-09-01"); VC.markPassageDone(miss, "p0002", 0, 1, "2026-09-20");
+    check("nextReadItem: missed passage 6 days ago -> null (7-day rule)", at(miss, "2026-09-26") === null);
+    const rr = at(miss, "2026-09-27");
+    check("nextReadItem: missed passage 7 days ago -> {p, reason:reread}", rr && rr.p === P2 && rr.reason === "reread" && VC.READ_REREAD_DAYS === 7);
+    check("nextReadItem: now as a Date (local day) works like the ISO string", at(miss, new Date(2026, 8, 27, 23, 30)).p === P2 && at(miss, new Date(2026, 8, 26, 0, 5)) === null);
+    check("nextReadItem: month/year boundaries count calendar days", at(Object.assign(rp(), { read: { unlocked: { A1: 1 }, done: { p0001: { sc:3, n:3, d:"2026-12-28", x:1 }, p0002: { sc:0, n:1, d:"2026-12-28", x:1 } } } }), "2027-01-04").p === P2);
+    const two = rp(); VC.markPassageDone(two, "p0001", 2, 3, "2026-09-10"); VC.markPassageDone(two, "p0002", 0, 1, "2026-09-05");
+    check("nextReadItem: oldest completion first among missed passages", at(two, "2026-09-26").p === P2);
+    two.read.done.p0002.d = "2026-09-10";
+    check("nextReadItem: equal dates -> pack order", at(two, "2026-09-26").p === P1);
+    two.read.done.p0002.d = "2026-09-24";
+    check("nextReadItem: a missed passage still inside 7 days is passed over for an older one", at(two, "2026-09-26").p === P1);
+    const snap = JSON.stringify(two);
+    const a1 = at(two, "2026-09-26"), a2 = at(two, "2026-09-26");
+    check("nextReadItem is pure: prog unchanged, same pick every call (skipping writes nothing, so it comes back)", JSON.stringify(two) === snap && a1.p === a2.p && a1.reason === a2.reason);
+    VC.markPassageDone(two, "p0001", 3, 3, "2026-09-26");
+    check("nextReadItem: a clean re-read (latest sc = n) drops the passage from re-reads", at(two, "2026-10-10").p === P2 && two.read.done.p0001.x === 2 && (two.read.done.p0002.sc = 1, at(two, "2026-10-10")) === null);
+    const lockedMiss = rp(); VC.markPassageDone(lockedMiss, "p0001", 3, 3, "2026-09-01"); VC.markPassageDone(lockedMiss, "p0002", 1, 1, "2026-09-01"); lockedMiss.read.done.p0003 = { sc:0, n:1, d:"2026-09-01", x:1 };
+    check("nextReadItem: a done entry at a locked level (A2) is never offered", at(lockedMiss, "2026-12-01") === null);
+    const odd = rp(); VC.markPassageDone(odd, "p0001", 3, 3, "2026-09-01"); odd.read.done.p0002 = { sc:0, n:1, x:1 };
+    check("nextReadItem: missing/invalid date or now -> no re-read (new passages unaffected)", at(odd, "2026-12-01") === null && at(miss, "not a date") === null && at(rp(), undefined).reason === "new");
+  }
+
   // progress shape and round trip
   const L = VC.levelIds(RP);
   check("validateProgShape accepts prog with read state", VC.validateProgShape(JSON.parse(JSON.stringify(prog)), L).ok);
@@ -1364,7 +1399,7 @@ const appBootChecks = (async function(){
     const localStorage = { getItem(){ return null; }, setItem(k,v){ setItemCalls.push([k,v]); } };
     const matchMedia = () => ({ matches:false });
     const requestAnimationFrame = fn => setTimeout(fn, 0);
-    const fnBody = appSrc + `
+    const fnBody = ((env && env.appSrc) || appSrc) + `
 let __renderCalls = 0;
 const __wrappedRender = render;
 render = function(){ __renderCalls++; return __wrappedRender.apply(this, arguments); };
@@ -1378,6 +1413,7 @@ return {
   setHasSpeech: v => { hasSpeech = v; },
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
   today: () => { tab = "today"; render(); },
+  enterTodayStep: (step, read) => { todayStepState = read === undefined ? { step } : { step, read }; todayStep(); },
   getHtml: id => { const e = document.getElementById(id); return e ? e.innerHTML : ""; },
 };`;
     // PASSAGES only when env.passages is given (undefined -> no Read tab, as before).
@@ -1546,6 +1582,100 @@ return {
     check("ltr pack: Read screens carry no data-ui / tlf markup (unchanged)", Object.values(ls).every(h => !/data-ui|class="tlf"/.test(h)));
     await tick(); await tick();
   }catch(e){ check(`rtl read screens scenario does not throw (got: ${e.message})`, false); }
+
+  // Today Read stage (README "Today"): the plan's Read row, the stage's run (same passage
+  // screens as the Read tab, "Skip today" in place of the list link), scoring, weak words
+  // into prog.w, prog.read.done, skip semantics, RTL plan line, no-passages byte identity.
+  try{
+    const { rtlAudit } = require("./fixtures/rtl_audit.js");
+    const unlockAll = pr => { pr.read = { unlocked: Object.fromEntries(PACK.levels.map(l => [l.id, 1])) }; };
+    const readRow = h => (h.match(/<tr><td>6\. Read<\/td><td>([\s\S]*?)<\/td><\/tr>/) || [])[1];
+    const b = await bootApp([{ lang:"zh-CN", name:"x" }], { passages: PASSAGES });
+    const pr = b.api.getProg();
+    b.api.today();
+    const lockedToday = b.api.getHtml("panel");
+    check("Today, no passage unlocked: no Read row, 5 plan rows, no old hint box", !readRow(lockedToday) && (lockedToday.match(/<tr>/g) || []).length === 5 && !/readHintBox|hintRead/.test(lockedToday));
+    unlockAll(pr); b.api.today();
+    const p0 = VC.suggestPassage(PASSAGES, WORDS, PACK, pr), row = readRow(b.api.getHtml("panel"));
+    check(`Today, passage available: plan row "6. Read" = 1 passage: <title> (level, N words) (${row && row.replace(/<[^>]+>/g, "")})`,
+      !!row && row === `1 passage: <bdi data-tl lang="zh">${VC.escapeHtml(p0.title)}</bdi> (${VC.escapeHtml(PACK.levels.find(l => l.id === p0.lv).label)}, ${VC.passageLength(p0, PACK)} words)`);
+    // Run the stage (step 5, as Start today reaches it after Sentences).
+    b.api.enterTodayStep(5);
+    const stageH = b.api.getHtml("panel");
+    check("stage opens the suggested passage with Skip today (no passage-list link)", b.api.getRD() && b.api.getRD().p === p0 && b.api.getRD().today === true && /<button id="rskip">Skip today<\/button>/.test(stageH) && !/id="rback"/.test(stageH));
+    b.api.startPassage(p0); const tabH = b.api.getHtml("panel");
+    check("stage passage screen is the Read tab's screen apart from that one button", stageH.replace('<button id="rskip">Skip today</button>', "") === tabH.replace('<button id="rback">‹ passages</button>', "") && !b.api.getRD().today);
+    // Answer: question 0 wrong, the rest right.
+    b.api.enterTodayStep(5);
+    const doc = b.document, qs = p0.questions, s0 = pr.sessions || 0;
+    const wrongIds = qs[0].words || [], before = Object.fromEntries(wrongIds.map(id => [id, (pr.w[id] && pr.w[id].w) || 0]));
+    doc.getElementById("rdone").click();
+    qs.forEach((q, i) => {
+      const opts = doc.getElementById("o").children;
+      const btn = i === 0 ? opts.find(x => x.dataset.v !== String(q.answer)) : opts.find(x => x.dataset.v === String(q.answer));
+      btn.click(); doc.getElementById("nx").click();
+    });
+    const res = b.api.getHtml("panel");
+    check(`results count the passage's questions (${qs.length - 1} / ${qs.length}), Continue instead of Add to review / Back to passages`,
+      res.includes(`<h2>${qs.length - 1} / ${qs.length}</h2>`) && /id="rcont"/.test(res) && !/id="addrev"|id="rlist"/.test(res) && (!wrongIds.length || /Ticked ones go to your next review/.test(res)));
+    const rec = pr.read.done[p0.id];
+    check("passage recorded in prog.read.done as a Read-tab completion ({sc, n, d, x:1})", rec && rec.sc === qs.length - 1 && rec.n === qs.length && rec.x === 1 && /^\d{4}-\d{2}-\d{2}$/.test(rec.d));
+    doc.getElementById("rcont").click();
+    check(`Continue: the missed question's words gain READ_WEIGHT.wrong misses in prog.w (${wrongIds.join(",")})`, wrongIds.length > 0 && wrongIds.every(id => pr.w[id].w === before[id] + VC.READ_WEIGHT.wrong && pr.w[id].s === 0));
+    check("Continue ends the session as usual (Session done, sessions + 1)", /Session done/.test(b.api.getHtml("panel")) && pr.sessions === s0 + 1 && b.api.getRD() === null);
+    b.api.today();
+    const p1 = VC.suggestPassage(PASSAGES, WORDS, PACK, pr);
+    check("next Today plan names the next passage", p1 && p1 !== p0 && readRow(b.api.getHtml("panel")).includes(VC.escapeHtml(p1.title)));
+    // Skip: nothing recorded, session counts as usual, same passage next time.
+    const doneBefore = JSON.stringify(pr.read.done), s1 = pr.sessions;
+    b.api.enterTodayStep(5); doc.getElementById("rskip").click();
+    check("Skip today: session finishes (sessions + 1 as without the stage), passage not marked done", /Session done/.test(b.api.getHtml("panel")) && pr.sessions === s1 + 1 && JSON.stringify(pr.read.done) === doneBefore && b.api.getRD() === null);
+    b.api.today();
+    check("Skip today: the same passage is offered next session", readRow(b.api.getHtml("panel")).includes(VC.escapeHtml(p1.title)));
+    // Start today carries the plan's pick: the stage runs the passage the plan named.
+    b.api.enterTodayStep(5, { p: PASSAGES[3], reason: "new" });
+    check("stage runs the passage picked at Start today (todayStepState.read)", b.api.getRD().p === PASSAGES[3]);
+    b.api.enterTodayStep(5, null);
+    check("Start today with no passage: step 5 goes straight to Session done", /Session done/.test(b.api.getHtml("panel")) && !/id="rskip"/.test(b.api.getHtml("panel")));
+    // Everything done: a spaced re-read, then nothing.
+    const today = new Date(), iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const old = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 8)), recent = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2));
+    pr.read.done = Object.fromEntries(PASSAGES.map(p => [p.id, { sc: p.questions.length, n: p.questions.length, d: old, x: 1 }]));
+    b.api.today();
+    check("all done, none missed: no Read row", !readRow(b.api.getHtml("panel")));
+    pr.read.done[PASSAGES[2].id].sc = 0; pr.read.done[PASSAGES[2].id].d = recent;
+    b.api.today();
+    check("all done, missed one 2 days ago: no Read row yet (7-day rule)", !readRow(b.api.getHtml("panel")));
+    pr.read.done[PASSAGES[5].id].sc = 0;
+    b.api.today();
+    const rrow = readRow(b.api.getHtml("panel"));
+    check(`all done, missed one 8 days ago: Read row offers it as a re-read (${rrow && rrow.replace(/<[^>]+>/g, "")})`, !!rrow && rrow.startsWith("1 passage to re-read: ") && rrow.includes(VC.escapeHtml(PASSAGES[5].title)));
+    await tick(); await tick();
+    // RTL: the plan line passes the shared RTL audit; UI parts isolated, title in pack font.
+    const RP0 = JSON.parse(JSON.stringify(PASSAGES[0])); RP0.title = "خانه (آزمون)";
+    const rb = await bootApp([{ lang:"zh-CN", name:"x" }], { passages: [RP0, ...PASSAGES.slice(1)], pack: Object.assign({}, PACK, { rtl: true }) });
+    unlockAll(rb.api.getProg()); rb.api.today();
+    const rtlToday = rb.api.getHtml("panel"), rrw = readRow(rtlToday), bad = rtlAudit(rtlToday);
+    check(`rtl pack: Today plan with the Read row passes the RTL audit (${bad.length})`, !!rrw && bad.length === 0, bad.slice(0, 3).join(" | "));
+    check("rtl pack: Read row title is an isolated RTL run (tlf, ui() run split), level/length plain UI text", /^1 passage: <bdi data-tl lang="zh" dir="rtl" class="tlf">خانه \(آزمون<\/bdi>\) \(HSK 1, \d+ words\)$/.test(rrw));
+    check("ltr pack: Read row carries no data-ui / tlf markup", !/data-ui|class="tlf"/.test(row));
+    await tick(); await tick();
+    // No passages in the pack: Today markup and the session end byte-identical to main at spawn.
+    const MAIN_READ = "93f77a2";
+    const mainHtml = cp.execSync(`git -C "${ROOT}" show ${MAIN_READ}:engine/app.html`, { encoding: "utf8", maxBuffer: 1 << 26 });
+    const mainBlocks = [...mainHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)], mainSrc = mainBlocks[mainBlocks.length - 1][1];
+    const screensOf = async src => {
+      const x = await bootApp([{ lang:"zh-CN", name:"x" }], src ? { appSrc: src } : undefined);
+      const out = [x.api.getHtml("panel")];
+      const q = x.api.getProg(); q.sets[PACK.levels[0].id] = 3; x.api.today(); out.push(x.api.getHtml("panel"));
+      x.api.enterTodayStep(5); out.push(x.api.getHtml("panel"));
+      await tick(); await tick();
+      return out;
+    };
+    const [mA, cA] = [await screensOf(mainSrc), await screensOf()];
+    check(`no-passages pack: Today (fresh, 3 sets learned) and the session end byte-identical to main ${MAIN_READ} (${cA.map(h => h.length).join("/")} chars)`,
+      mA.length === 3 && mA.every((h, i) => h === cA[i]) && /Session done/.test(cA[2]));
+  }catch(e){ check(`today read stage scenario does not throw (got: ${e.stack})`, false); }
 
   // Span display glosses (spans[i][3]) reach the tap-to-gloss popover, the screen-reader
   // announcement and the results weak-word list; a span without one, and a pack without

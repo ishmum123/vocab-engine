@@ -1587,6 +1587,36 @@ function suggestPassage(passages, words, pack, prog){
   const done = (isObj(prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
   return (passages||[]).find(p => open.has(p.lv) && !done[p.id]) || null;
 }
+// Today's Read stage (README "Today"): one passage per session. First choice is
+// suggestPassage (reason "new"). When nothing new is left, a spaced re-read: among passages
+// at unlocked levels whose latest attempt missed a question (done[id].sc < n), the one
+// with the oldest completion date d, no sooner than READ_REREAD_DAYS after it (ties: pack
+// order); reason "reread". null when neither exists, and the stage is absent. `now` is a
+// Date (local calendar day) or "YYYY-MM-DD" (app.html todayISO). Skipping the stage writes
+// nothing, so the same passage comes back next session.
+const READ_REREAD_DAYS = 7;
+function isoDayNumber(d){
+  if(d instanceof Date) return isNaN(d) ? NaN : Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d == null ? "" : d));
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : NaN;
+}
+function nextReadItem(passages, words, pack, prog, now){
+  const fresh = suggestPassage(passages, words, pack, prog);
+  if(fresh) return { p: fresh, reason: "new" };
+  const today = isoDayNumber(now);
+  if(!isFinite(today)) return null;
+  const open = new Set(readingLevels(passages, words, pack, prog).filter(l => l.unlocked).map(l => l.lv));
+  const done = (isObj(prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
+  let best = null, bestDay = Infinity;
+  (passages||[]).forEach(p => {
+    const r = done[p.id];
+    if(!open.has(p.lv) || !isObj(r) || typeof r.sc !== "number" || typeof r.n !== "number" || !(r.sc < r.n)) return;
+    const day = isoDayNumber(r.d);
+    if(!isFinite(day) || today - day < READ_REREAD_DAYS || day >= bestDay) return;
+    best = p; bestDay = day;
+  });
+  return best ? { p: best, reason: "reread" } : null;
+}
 // Length in words: whitespace tokens for spaced scripts, linked word tokens otherwise.
 function passageLength(p, pack){
   if(!pack || pack.spaced !== false) return String((p && p.text) || "").trim().split(/\s+/).filter(Boolean).length;
@@ -3212,7 +3242,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
-  READ_UNLOCK, READ_WEIGHT, readState, readingLevels, updateReadUnlocks, suggestPassage, passageLength, passageSegments,
+  READ_UNLOCK, READ_WEIGHT, READ_REREAD_DAYS, readState, readingLevels, updateReadUnlocks, suggestPassage, nextReadItem, passageLength, passageSegments,
   gradeQuestion, passageWeakWords, applyWeakWords, markPassageDone, readingStats,
   CHARS_PROG_VERSION, CHAR_SET_SIZE, CHAR_MASTERED, CHAR_BARE, REVIEW_SIZE_CHARS, CHAR_KINDS, charsConfig,
   defaultCharsProg, validateCharsShape, normalizeCharsProg, ensureChars, charRecs, markChar, answerCharChoice, setCharOrder,
@@ -4415,23 +4445,24 @@ function todayRender(){
   ];
   const showPlaceHint = !prog.placedOnce;
   const showSoundsHint = HAS_LESSONS && !prog.soundsOpened;
-  refreshReadUnlocks();
-  const readHint = HAS_PASSAGES ? VC.suggestPassage(PASSAGE_LIST, WORDS, PACK, prog) : null;
+  // Read stage (VC.nextReadItem): a row only when a passage is available; Start today
+  // runs exactly this one.
+  const readNext = todayReadItem();
+  if(readNext) steps.push(["Read", null, readPlanLine(readNext)]);
   const choice = !!(snap && snap.choice);
   const xChoice = HAS_SCRIPT && !!(snap && snap.choice === "script");
   const xNotice = showScriptNotice();
   P.innerHTML = `<div class="drill-body top">${samsungNoticeHTML}${legacyNotice ? `<div class="stmt" id="legacyNotice">${legacyNotice}<button class="ghost" id="legacyOk" style="margin-top:8px">OK</button></div>` : ""}${legacyFail ? `<div class="stmt" id="legacyFail">${legacyFailHTML(legacyFail)}<button class="ghost" id="legacySkip" style="margin-top:8px">Start without it</button></div>` : ""}${xNotice ? `<div class="stmt" id="scriptNotice">A script primer is available. Turn it on in Progress.<button class="ghost" id="scriptNoticeOk" style="margin-top:8px">OK</button></div>` : ""}${pathStrip()}${xChoice ? scriptChoiceHTML() : ""}
     ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}${choice && !xChoice ? charChoiceHTML() : ""}
     ${showSoundsHint ? `<div class="stmt">A few short lessons explain how ${ui(PACK.name)} sounds and is written.<button class="next" id="hintSounds" style="margin-top:8px">Start the first lesson</button></div>` : ""}
-    ${readHint ? `<div class="stmt" id="readHintBox">Read 1 passage: ${pfRubyText(readHint.title, readHint.titleRuby) ? rubyTw(readHint.title, readHint.titleRuby) : tf(readHint.title)} (${escapeHtml(levelLabel(readHint.lv))}, ${VC.passageLength(readHint, PACK)} words).<button class="next" id="hintRead" style="margin-top:8px">Read 1 passage</button></div>` : ""}
+    ${""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
-    <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${ui(s[1])}</td></tr>`).join("")}</table>
+    <table class="stats steps">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[2] != null ? s[2] : ui(s[1])}</td></tr>`).join("")}</table>
     </div>${choice ? "" : `<div class="actions"><button class="next" id="go">Start today</button></div>`}`;
   if(legacyNotice) $("legacyOk").onclick = () => { legacyNotice = null; todayRender(); };
   if(legacyFail) $("legacySkip").onclick = () => { legacyFail = null; storeReadOnly = false; store.save(); todayRender(); };
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
-  if(readHint) $("hintRead").onclick = () => { switchToTab("read", "Read"); RD = null; startPassage(readHint); };
   if(xNotice) $("scriptNoticeOk").onclick = () => { VC.dismissScriptNotice(prog); store.save(); todayRender(); };
   // The choice card replaces Start today until answered, so Learn never teaches a stage
   // the learner hasn't chosen.
@@ -4445,7 +4476,21 @@ function todayRender(){
     $("choiceSkip").onclick = () => { VC.answerCharChoice(prog, false); store.save(); todayRender(); };
     return;
   }
-  $("go").onclick = () => { todayStepState = HAS_STAGES ? (todayPrep ? { step:0, snap: todayPrep.snap, review: todayPrep.review } : { step:0, snap: takeSnapshot() }) : { step:0 }; todayPrep = null; todayStep(); };
+  $("go").onclick = () => { todayStepState = HAS_STAGES ? (todayPrep ? { step:0, snap: todayPrep.snap, review: todayPrep.review } : { step:0, snap: takeSnapshot() }) : { step:0 }; todayStepState.read = readNext; todayPrep = null; todayStep(); };
+}
+// The Read stage's passage ({p, reason} from VC.nextReadItem) or null: none without
+// passages.json. Records newly met unlock thresholds first, as the Read tab does.
+function todayReadItem(){
+  if(!HAS_PASSAGES) return null;
+  refreshReadUnlocks();
+  return VC.nextReadItem(PASSAGE_LIST, WORDS, PACK, prog, todayISO());
+}
+// The Read row of the Today plan: the passage title in target-language text (its reading
+// under pronFirst), level and length as UI text.
+function readPlanLine(r){
+  const p = r.p;
+  const t = pfRubyText(p.title, p.titleRuby) ? rubyTw(p.title, p.titleRuby) : tf(p.title);
+  return `${ui(r.reason === "reread" ? "1 passage to re-read: " : "1 passage: ")}${t}${ui(` (${levelLabel(p.lv)}, ${VC.passageLength(p, PACK)} words)`)}`;
 }
 function enterPlacementFromToday(){ switchToTab("test", "Test"); testSel = "placement"; startPlacement(); }
 function enterFirstSoundsLessonFromToday(){
@@ -4455,7 +4500,9 @@ function enterFirstSoundsLessonFromToday(){
   lessonTeach(LESSON_LIST[0], () => { prog.lessons[LESSON_LIST[0].id] = 1; store.save(); backToToday(); }, backToToday);
 }
 // review(15, >=40% production) -> learn(next set) -> listen(12 hear) -> recall(8
-// recall/type) -> sentences(8) -> finish. Each step skips itself when its pool is too small.
+// recall/type) -> sentences(8) -> read(1 passage) -> finish. Each step skips itself when
+// its pool is too small; Read runs the passage picked at Start today (todayStepState.read,
+// looked up when a step is entered without one) and is absent when there is none.
 // With pack.characters every step reads the Start-today snapshot (todayStepState.snap,
 // taken lazily if a step is entered without one): Learn teaches its stage's set (word
 // or unit), Review is snap.reviewSize, and Review/Recall rank units with words once
@@ -4506,6 +4553,11 @@ function todayStep(){
   }
   if(s === 4){
     if(g.sentences){ drill(weakFirstSentences(avail,8).map(sentenceItemFor), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 5){
+    const r = "read" in todayStepState ? todayStepState.read : todayReadItem();
+    if(r){ startPassage(r.p, true); return; }
     return todayStep();
   }
   todayFinish();
@@ -4760,8 +4812,9 @@ function renderWordBody(){
 // ===================== Read (passages) =====================
 // Only packs with passages.json (PASSAGES, appended to sentences.js) show this tab.
 // RD is the passage in progress: {p, tapped: [wordId], answers: [{ok, reopened, given}],
-// qi, shown, resultsDone}. Tapped ids and per-question reopen flags feed
-// VC.passageWeakWords on the results screen.
+// qi, shown, resultsDone, today}. Tapped ids and per-question reopen flags feed
+// VC.passageWeakWords on the results screen. today: the Today Read stage runs it (same
+// screens; "Skip today" instead of the passage list link, Continue on to the next step).
 const readLevelsNow = () => VC.readingLevels(PASSAGE_LIST, WORDS, PACK, prog);
 function refreshReadUnlocks(){ if(HAS_PASSAGES && VC.updateReadUnlocks(PASSAGE_LIST, WORDS, PACK, prog).length) store.save(); }
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
@@ -4786,9 +4839,9 @@ function readRender(){
     }).join("")}`;
   P.querySelectorAll("[data-pid]").forEach(b => b.onclick = () => startPassage(PASSAGE_LIST.find(p => p.id === b.dataset.pid)));
 }
-function startPassage(p){
+function startPassage(p, today){
   if(!p) return;
-  RD = { p, tapped: [], glosses: {}, answers: [], qi: null, shown: false, resultsDone: false };
+  RD = { p, tapped: [], glosses: {}, answers: [], qi: null, shown: false, resultsDone: false, today: !!today };
   readPassageScreen();
 }
 // One passage sentence: linked words as tappable spans (data-pw), words not visible in
@@ -4979,14 +5032,17 @@ function wirePassage(box, glossEl){
 function readPassageScreen(){
   setScore(0,0); screenTop();
   const p = RD.p, P = $("panel");
-  P.innerHTML = `<div class="row"><button id="rback">‹ passages</button></div>
+  P.innerHTML = `<div class="row">${RD.today ? `<button id="rskip">Skip today</button>` : `<button id="rback">‹ passages</button>`}</div>
     <h2 class="ptitle"${TA}>${rubyTextOr(p.title, p.titleRuby)}</h2>
     <p class="q">${escapeHtml(levelLabel(p.lv))} · ${VC.passageLength(p, PACK)} words. Tap a word to see its meaning.</p>
     ${glossBox()}
     <div class="passage" id="pbox">${passageHTML(-1)}</div>
     <div class="actions"><button class="next" id="rdone">Done reading</button></div>`;
   wirePassage($("pbox"), $("gloss"));
-  $("rback").onclick = () => { RD = null; readRender(); };
+  // Skip today: nothing is recorded (not done, no session effect), so the same passage
+  // is offered next session.
+  if(RD.today) $("rskip").onclick = () => { RD = null; todayStep(); };
+  else $("rback").onclick = () => { RD = null; readRender(); };
   $("rdone").onclick = () => { RD.qi = 0; RD.shown = false; readQuestionScreen(); };
 }
 function readQuestionScreen(){
@@ -5058,10 +5114,20 @@ function readResults(){
     <p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
       return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${ui(s.en)}</div></div>`; }).join("")}
-    ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q"${UIA} style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
-      <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
-    <div id="addmsg" class="q" hidden></div>
-    <button class="ghost" id="rlist" style="margin-top:10px">Back to passages</button></div>`;
+    ${weak.length ? `<p class="q">Weak words from this passage${RD.today ? ". Ticked ones go to your next review." : ""}</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q"${UIA} style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
+      ${RD.today ? "" : `<button class="next" id="addrev">Add to review</button>`}` : `<p class="q">No weak words from this passage.</p>`}
+    ${RD.today ? `<button class="next" id="rcont" style="margin-top:10px">Continue</button></div>` : `<div id="addmsg" class="q" hidden></div>
+    <button class="ghost" id="rlist" style="margin-top:10px">Back to passages</button></div>`}`;
+  // Today Read stage: the ticked weak words (all by default) are applied on Continue, as
+  // drill misses are, then the session goes on.
+  if(RD.today){
+    $("rcont").onclick = () => {
+      const chosen = weak.filter((w, i) => { const x = P.querySelector(`[data-wi="${i}"]`); return !x || x.checked; });
+      if(chosen.length){ VC.applyWeakWords(prog, chosen, WORDS, PACK); store.save(); }
+      RD = null; todayStep();
+    };
+    return;
+  }
   if(weak.length) $("addrev").onclick = () => {
     const chosen = [...P.querySelectorAll("[data-wi]")].filter(x => x.checked).map(x => weak[+x.dataset.wi]);
     VC.applyWeakWords(prog, chosen, WORDS, PACK); store.save();
@@ -5432,4 +5498,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:150104843-1556311-->
+<!--ve-build:286656730-1559910-->

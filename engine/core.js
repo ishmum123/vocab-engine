@@ -1237,6 +1237,36 @@ function suggestPassage(passages, words, pack, prog){
   const done = (isObj(prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
   return (passages||[]).find(p => open.has(p.lv) && !done[p.id]) || null;
 }
+// Today's Read stage (README "Today"): one passage per session. First choice is
+// suggestPassage (reason "new"). When nothing new is left, a spaced re-read: among passages
+// at unlocked levels whose latest attempt missed a question (done[id].sc < n), the one
+// with the oldest completion date d, no sooner than READ_REREAD_DAYS after it (ties: pack
+// order); reason "reread". null when neither exists, and the stage is absent. `now` is a
+// Date (local calendar day) or "YYYY-MM-DD" (app.html todayISO). Skipping the stage writes
+// nothing, so the same passage comes back next session.
+const READ_REREAD_DAYS = 7;
+function isoDayNumber(d){
+  if(d instanceof Date) return isNaN(d) ? NaN : Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d == null ? "" : d));
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : NaN;
+}
+function nextReadItem(passages, words, pack, prog, now){
+  const fresh = suggestPassage(passages, words, pack, prog);
+  if(fresh) return { p: fresh, reason: "new" };
+  const today = isoDayNumber(now);
+  if(!isFinite(today)) return null;
+  const open = new Set(readingLevels(passages, words, pack, prog).filter(l => l.unlocked).map(l => l.lv));
+  const done = (isObj(prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
+  let best = null, bestDay = Infinity;
+  (passages||[]).forEach(p => {
+    const r = done[p.id];
+    if(!open.has(p.lv) || !isObj(r) || typeof r.sc !== "number" || typeof r.n !== "number" || !(r.sc < r.n)) return;
+    const day = isoDayNumber(r.d);
+    if(!isFinite(day) || today - day < READ_REREAD_DAYS || day >= bestDay) return;
+    best = p; bestDay = day;
+  });
+  return best ? { p: best, reason: "reread" } : null;
+}
 // Length in words: whitespace tokens for spaced scripts, linked word tokens otherwise.
 function passageLength(p, pack){
   if(!pack || pack.spaced !== false) return String((p && p.text) || "").trim().split(/\s+/).filter(Boolean).length;
@@ -2862,7 +2892,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
-  READ_UNLOCK, READ_WEIGHT, readState, readingLevels, updateReadUnlocks, suggestPassage, passageLength, passageSegments,
+  READ_UNLOCK, READ_WEIGHT, READ_REREAD_DAYS, readState, readingLevels, updateReadUnlocks, suggestPassage, nextReadItem, passageLength, passageSegments,
   gradeQuestion, passageWeakWords, applyWeakWords, markPassageDone, readingStats,
   CHARS_PROG_VERSION, CHAR_SET_SIZE, CHAR_MASTERED, CHAR_BARE, REVIEW_SIZE_CHARS, CHAR_KINDS, charsConfig,
   defaultCharsProg, validateCharsShape, normalizeCharsProg, ensureChars, charRecs, markChar, answerCharChoice, setCharOrder,

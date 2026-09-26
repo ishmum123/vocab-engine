@@ -192,6 +192,7 @@ function walk(api, stopAt){
       const btn = btns.find(b => b.dataset.v === it.a); if(!btn) throw new Error("no answer option " + it.key);
       btn.click(); seen.push({ where: it.key + " reveal", html: api.html("rv") }); api.el("nx").click(); continue;
     }
+    if(/id="rskip"/.test(P)){ api.el("rskip").click(); continue; } // Today Read stage: skipped (engine_checks covers it)
     seen.push({ where: "screen", html: P });
     if(stopAt && stopAt.test(P)) return seen;
     if(/id="ok"/.test(P)){ api.el("ok").click(); continue; }
@@ -675,10 +676,10 @@ function walk(api, stopAt){
     check(`zh passages carry titleRuby (${withTR}/${PASSAGES.length}) and question ruby (${withQR})`, withTR === PASSAGES.length && withQR > 0);
     const { api } = await boot({ seed: 5 });
     const pr = seedPF(); pr.read = { unlocked: PASSAGES.map(p => p.lv).filter((v, i, a) => a.indexOf(v) === i) }; api.setProg(VC.normalizeProg(pr, PACK));
-    // Today read hint: the suggested passage's title by its reading.
+    // Today plan's Read row: the stage's passage title by its reading.
     api.today();
-    const hint = (api.html("panel").match(/<div class="stmt" id="readHintBox">([\s\S]*?)<button class="next"/) || [])[1];
-    check(`Today read hint: the title reads by its ruby, coloured, with a show-written tap (${hint ? stripTags(hint).slice(0, 60) : "no hint"})`, !!hint && !HAN.test(stripTags(hint)) && tspans(hint) > 0 && /data-showw=/.test(hint));
+    const hint = (api.html("panel").match(/<tr><td>6\. Read<\/td><td>([\s\S]*?)<\/td><\/tr>/) || [])[1];
+    check(`Today plan Read row: the title reads by its ruby, coloured, with a show-written tap (${hint ? stripTags(hint).slice(0, 60) : "no hint"})`, !!hint && !HAN.test(stripTags(hint)) && tspans(hint) > 0 && /data-showw=/.test(hint));
     // Passage list: titles as readings inside the list buttons, no show-written inside a button.
     api.goto("read");
     const list = api.html("panel");
@@ -916,6 +917,10 @@ function walk(api, stopAt){
       for(const [name, pk, ss, ps] of cases){
         const a = await screens(mainHtml, mainCore, pk, ss, ps, 11);
         const b = await screens(CUR_HTML, VC, pk, ss, ps, 11);
+        // Intended since the Today Read stage: main's Read hint box became the plan's Read
+        // row; both are cut before comparing (the walk skips the stage, see walk()).
+        a.today = a.today.replace(/<div class="stmt" id="readHintBox">[\s\S]*?<\/button><\/div>/, "");
+        b.today = b.today.replace(/<tr><td>6\. Read<\/td><td>[\s\S]*?<\/td><\/tr>/, "");
         for(const k of Object.keys(a)){
           const same = a[k] === b[k];
           let at = -1; if(!same){ for(let i = 0; i < Math.max(a[k].length, b[k].length); i++) if(a[k][i] !== b[k][i]){ at = i; break; } }
