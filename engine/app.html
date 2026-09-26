@@ -2143,8 +2143,11 @@ function readQuestionScreen(){
   setScore(qi, p.questions.length);
   const tf = q.type === "tf";
   const order = tf ? [true, false] : shuffle([0,1,2,3]);
+  // The question is TTS only (no per-question clip in the pack schema), so it plays iff a
+  // voice is usable, same "no voice -> no replay" rule as every other spoken site.
+  const hearQ = hasSpeech;
   P.innerHTML = `<div class="drill-body top"><p class="q">Question ${qi+1} / ${p.questions.length}</p>
-    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${q.en ? `<div class="q">${ui(q.en)}</div>` : ""}
+    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${hearQ ? REPLAY_STAGE : ""}${q.en ? `<div class="q">${ui(q.en)}</div>` : ""}
     <div class="opts ${tf ? "" : "opts-w"}" id="o"></div>
     <div class="reveal" id="rv"></div>
     <button class="ghost" id="ptoggle" aria-expanded="${RD.shown}" style="margin-top:12px">${RD.shown ? "Hide passage" : "Show passage"}</button>
@@ -2152,6 +2155,7 @@ function readQuestionScreen(){
     <div class="passage" id="pbox"${RD.shown ? "" : " hidden"}>${passageHTML(-1)}</div>
     </div><div class="actions"><button class="next" id="nx" style="display:none">${qi+1 < p.questions.length ? "Next" : "See results"}</button></div>`;
   wirePassage($("pbox"), $("gloss"));
+  if(hearQ){ const qb = $("rpa"); speak(q.q, qb); qb.onclick = () => speak(q.q, qb); }
   $("ptoggle").onclick = () => {
     RD.shown = !RD.shown;
     if(RD.shown && rec.ok === null) rec.reopened = true; // logged: looked back before answering
@@ -2171,7 +2175,11 @@ function readQuestionScreen(){
       [...box.children].forEach(x => { x.disabled = true; if(x.dataset.v === String(q.answer)) x.classList.add("ok"); });
       if(!rec.ok) b.classList.add("bad");
       const s = p.sentences[q.sentence];
-      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"${TOKBOX}><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${ui(s.en)}</div></div>`);
+      const hearS = canHearSentence(s);
+      showReveal(`<div class="q" style="margin:0 0 6px">${rec.ok ? "Right." : "Not quite."} The answer is in this sentence:</div><div class="stmt hi" style="margin:0"${TOKBOX}><div${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:4px 0 0">${ui(s.en)}</div></div>${hearS ? REVEAL_REPLAY : ""}`);
+      // speak() cancels whatever the question was saying (audioOut.stop / tts.stop), so
+      // the source sentence never overlaps the question's own TTS.
+      if(hearS){ const rb = $("rvp"); saySentence(s, rb); rb.onclick = () => saySentence(s, rb); }
       const hs = $("pbox").querySelector(`[data-si="${q.sentence}"]`); if(hs) hs.classList.add("hi");
       showNext(); setScore(qi+1, p.questions.length);
     };
@@ -2200,12 +2208,14 @@ function readResults(){
   const weak = VC.passageWeakWords(p, { tapped: RD.tapped, answers: RD.answers }, WORDS_BY_ID);
   P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
     <p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
-    ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence];
-      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${ui(s.en)}</div></div>`; }).join("")}
+    ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence]; const hearS = canHearSentence(s);
+      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q" style="margin:2px 0 0">${ui(s.en)}</div>${hearS ? `<button type="button" class="replay" id="rr${i}" aria-label="Replay">${REPLAY_SVG}</button>` : ""}</div>`; }).join("")}
     ${weak.length ? `<p class="q">Weak words from this passage</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q"${UIA} style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       <button class="next" id="addrev">Add to review</button>` : `<p class="q">No weak words from this passage.</p>`}
     <div id="addmsg" class="q" hidden></div>
     <button class="ghost" id="rlist" style="margin-top:10px">Back to passages</button></div>`;
+  // Replay only: results is a review screen, nothing autoplays here.
+  p.questions.forEach((q, i) => { const s = p.sentences[q.sentence]; if(canHearSentence(s)){ const rb = $("rr"+i); rb.onclick = () => saySentence(s, rb); } });
   if(weak.length) $("addrev").onclick = () => {
     const chosen = [...P.querySelectorAll("[data-wi]")].filter(x => x.checked).map(x => weak[+x.dataset.wi]);
     VC.applyWeakWords(prog, chosen, WORDS, PACK); store.save();
