@@ -509,8 +509,10 @@ async function reliabilityChecks(){
     const { api, log, ss } = await boot(D, { voices: FAVOICE, ss: { speaking: true, pending: false, paused: false, cancel(){ cancels++; ss.speaking = false; } } });
     // render() now calls stopSpeaking() on every screen paint (category fix: a screen
     // transition must not leave a previous utterance's watchdog/defer pending), so boot()'s
-    // own initial render -- with this mock engine pre-set "speaking" -- already counts one
-    // cancel before the test's own speak() call. Reset the counter here, same as log.spoken.
+    // own initial render -- with this mock engine pre-set "speaking" -- already counts
+    // cancels before the test's own speak() call (two: render() and todayRender(); the mock's
+    // cancel() assigns ss.speaking while `ss` is still unassigned during boot(), so the driver's
+    // try/catch swallows it and the mock never goes idle). Reset the counter here, same as log.spoken.
     cancels = 0;
     log.spoken.length = 0;
     api.speak("اول");
