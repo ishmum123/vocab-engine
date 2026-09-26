@@ -3,9 +3,20 @@
 // canHearWord), the no-voice notices under pack.audio, speak()'s clip -> TTS -> hint
 // fallback; build.sh's audio cache version; sw.js's audio cache (cache on play, Range
 // slices, cap, offline, activate keeps it).
-// The app is booted against the Persian pack (../persian/pack; skipped when absent) with
-// 3 clips added: the example words of the primer's "be" unit. Fake DOM as in
-// tests/characters_app_checks.js (engine_checks.js check [23]).
+// The app is booted against the Persian pack (../persian/pack; skipped when absent). Its
+// pack/words/sentences/passages/script are read live off disk, so once Persian ships
+// audio for real (docs/AUDIO.md phase 3: every word/sentence/unit gets a clip) this
+// sibling repo is mutable state this file must not assume the shape of: most of this
+// file wants a *controlled* fixture (some words with a clip, some without) to exercise
+// the flag-off/flag-on paths, so faData() deep-strips whatever audio the live pack
+// already carries (mirrors packbuilder/core/util.strip_audio and
+// tests/flagoff_snapshot.js's stripFlagOnFields: a relative `audio` string or a
+// pack.audio object is dropped; an absolute one, e.g. Tatoeba, is kept) before
+// re-adding exactly 3 clips (the example words of the primer's "be" unit). Section
+// [2c] below instead runs a handful of checks against the *unstripped* live pack, to
+// cover the state where literally every item already has a clip (skipped when the
+// live pack has no pack.audio yet). Fake DOM as in tests/characters_app_checks.js
+// (engine_checks.js check [23]).
 // Run: node tests/audio_checks.js
 "use strict";
 const fs = require("fs");
@@ -18,6 +29,35 @@ const VC = require(path.join(ROOT, "engine", "core.js"));
 const FA = path.join(ROOT, "..", "persian", "pack");
 function loadConst(file, name){ return new Function(fs.readFileSync(file, "utf8") + `\nreturn ${name};`)(); }
 function tryLoadConst(file, name){ try{ return loadConst(file, name); }catch(e){ return undefined; } }
+// Deep-strip recorded-audio fields (docs/AUDIO.md): a relative `audio` string (owned by
+// `packbuilder audio`) is dropped; an absolute one (Tatoeba, pre-dates it) is kept; a
+// non-string `audio` (pack.json's {voice, version}) is dropped outright. Mirrors
+// packbuilder/core/util.strip_audio (Python) and flagoff_snapshot.js's stripFlagOnFields.
+const AUDIO_ABSOLUTE = /^[a-z][a-z0-9+.-]*:/i;
+function stripAudio(v){
+  if(Array.isArray(v)) return v.map(stripAudio);
+  if(v && typeof v === "object"){
+    const out = {};
+    for(const k of Object.keys(v)){
+      if(k === "audio"){
+        if(typeof v[k] === "string" && AUDIO_ABSOLUTE.test(v[k])) out[k] = v[k];
+        continue;
+      }
+      out[k] = stripAudio(v[k]);
+    }
+    return out;
+  }
+  return v;
+}
+function rawFaData(){
+  return {
+    pack: loadConst(path.join(FA, "pack.js"), "PACK"),
+    words: loadConst(path.join(FA, "words.js"), "WORDS"),
+    sentences: loadConst(path.join(FA, "sentences.js"), "SENTENCES"),
+    passages: tryLoadConst(path.join(FA, "sentences.js"), "PASSAGES") || [],
+    script: loadConst(path.join(FA, "script.js"), "SCRIPT"),
+  };
+}
 
 let fails = 0, passes = 0;
 function check(name, cond){
@@ -171,11 +211,9 @@ function coreChecks(){
 
 // ------------------------------------------------------------------ [2]-[5] app
 function faData(withAudio){
-  const pack = loadConst(path.join(FA, "pack.js"), "PACK");
-  const words = loadConst(path.join(FA, "words.js"), "WORDS");
-  const sentences = loadConst(path.join(FA, "sentences.js"), "SENTENCES");
-  const passages = tryLoadConst(path.join(FA, "sentences.js"), "PASSAGES") || [];
-  const script = loadConst(path.join(FA, "script.js"), "SCRIPT");
+  const raw = rawFaData();
+  const pack = stripAudio(raw.pack), words = stripAudio(raw.words), sentences = stripAudio(raw.sentences),
+    passages = stripAudio(raw.passages), script = stripAudio(raw.script);
   const be = script.units.find(u => u.id === "fa-be");
   const clipIds = be.ex.map(e => e[0]);
   if(withAudio){
@@ -245,6 +283,30 @@ async function appChecks(){
     check("primer example-word tap (data-xw) plays the clip without a voice", log.played.join() === c1.audio);
     const other = api.unit("fa-te");
     check("primer wordHear for a unit without recorded examples still becomes wordRead", api.scriptDrillItem("wordHear", other).label !== "Which word do you hear?");
+  }
+
+  console.log("\n[2c] the live shipped Persian pack, unstripped: same sites when every word/sentence/unit already has a clip");
+  {
+    const live = rawFaData();
+    if(!live.pack.audio){
+      console.log("NOTE  ../persian/pack has no pack.audio yet (phase 3 not published on this checkout): live-unstripped scenario skipped");
+    } else {
+      const { api, log } = await boot(live, { voices: NOVOICE });
+      check("live pack: PACK_AUDIO on", api.packAudio() === true);
+      const w0 = live.words.find(w => w.lv === "A1");
+      check("live pack: an arbitrary word already has a clip and canHearWord is true", typeof w0.audio === "string" && api.canHearWord(w0) === true);
+      log.played.length = 0; api.readItem(w0).mount();
+      check("live pack: readItem mount plays that word's real clip, no TTS", log.played.join() === w0.audio && log.spoken.length === 0);
+      const s0 = live.sentences.find(s => typeof s.audio === "string" && !AUDIO_ABSOLUTE.test(s.audio));
+      check("live pack: a sentence with a recorded (non-Tatoeba) clip exists", !!s0);
+      if(s0){
+        log.played.length = 0; api.saySentence(s0);
+        check("live pack: a sentence's real clip plays via saySentence", log.played.join() === s0.audio);
+      }
+      const be = api.unit("fa-be");
+      check("live pack: primer wordHear survives without a voice (every fa-be example word has a clip)",
+        api.scriptDrillItem("wordHear", be).label === "Which word do you hear?");
+    }
   }
 
   console.log("\n[3] speak(): clip, else TTS, else hint; stale failures ignored");
