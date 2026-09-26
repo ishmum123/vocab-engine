@@ -255,6 +255,34 @@ class AudioBuild(unittest.TestCase):
         self.assertTrue((self.root / "audio/w/recorded-by-hand.mp3").exists())
         self.assertEqual(self.url("words.json", 1), "audio/w/recorded-by-hand.mp3")
 
+    def test_lost_manifest_readopts_builder_clips(self):
+        self.run_audio()
+        files_before = self.manifest()["files"]
+        (self.root / "audio/manifest.json").unlink()
+        self.log.clear()
+        self.assertEqual(self.run_audio(check=True)[0], 1)          # the loss is reported, not hidden
+        self.assertIn("unrecorded: w/w1", "\n".join(self.log))
+        rc, stub = self.run_audio()
+        self.assertEqual((rc, stub.calls), (0, []))                 # sha8 matches: adopted as current
+        self.assertEqual(self.manifest()["files"], files_before)
+        self.assertEqual(self.pack("pack.json")["audio"], {"voice": "xx-test-medium", "version": 1})
+        self.assertEqual(self.url("words.json", 0), "audio/" + files_before["w/w1"])
+        self.assertEqual(self.run_audio(check=True)[0], 0)
+
+    def test_lost_manifest_with_changed_text_rerenders(self):
+        self.run_audio()
+        old = self.manifest()["files"]["w/w1"]
+        (self.root / "audio/manifest.json").unlink()
+        words = self.pack("words.json")
+        words[0]["w"] = "کتابها"
+        (self.root / "pack/words.json").write_text(json.dumps(words, ensure_ascii=False, separators=(",", ":")) + "\n")
+        _, stub = self.run_audio()
+        self.assertEqual(stub.calls, ["کتابها"])                     # adopted, sha8 mismatch: stale
+        self.assertFalse((self.root / "audio" / old).exists())
+        self.assertNotEqual(self.manifest()["files"]["w/w1"], old)
+        self.assertIn("audio", self.pack("pack.json"))
+        self.assertEqual(self.run_audio(check=True)[0], 0)
+
     def test_pack_audio_only_when_complete(self):
         self.run_audio(only=["w"])
         self.assertEqual(self.url("words.json", 0), "audio/" + self.manifest()["files"]["w/w1"])

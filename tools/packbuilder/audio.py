@@ -24,6 +24,8 @@ and regenerates the pack .js files. Items and rules:
 - The builder owns only what the manifest lists. An absolute URL (Tatoeba) and a relative URL
   not in the manifest (foreign) are never rendered, changed or removed; files not in the
   manifest are never deleted (--prune deletes owned clips of items no longer in the pack).
+  A URL in the builder's own pattern for its item (audio/<kind>/<id>.<8 hex>.opus) whose file
+  exists is adopted even when the manifest lacks it (a lost manifest), then judged by its sha8.
 - pack.json audio is set only when every wanted clip is current; a partial run (--only,
   --limit: dev use) links what it rendered but leaves pack.audio unset.
 - Words and script carriers render slower with silence padding (spec.AUDIO short_*);
@@ -182,11 +184,22 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
     its = items(pack_dir)
     stale_ov, letter_ov = override_notes(overrides, {t for _, _, t, _, _ in its})
 
-    want, foreign = {}, []   # want: id -> (file, spoken, short, holder)
+    want, foreign, adopted = {}, [], []   # want: id -> (file, spoken, short, holder)
     for kind, name, text, short, holder in its:
         url = holder.get("audio")
         if isinstance(url, str) and ABSOLUTE.match(url):
             continue                                   # Tatoeba or other remote clip: never touched
+        # A URL in the builder's own pattern for this very item whose file exists, but that the
+        # manifest does not list (manifest lost or hand-edited): adopt it as owned. Its sha8 is
+        # then checked against the current key like any owned clip (match: current; else stale,
+        # re-rendered under a new name).
+        own = f"{kind}/{name}"
+        if (isinstance(url, str) and url[len("audio/"):] not in owned_files
+                and re.fullmatch(r"audio/" + re.escape(own) + r"\.[0-9a-f]{8}\.opus", url)
+                and (repo / url).is_file() and own not in owned):
+            owned[own] = url[len("audio/"):]
+            owned_files.add(owned[own])
+            adopted.append(own)
         if isinstance(url, str) and not (url.startswith("audio/") and url[len("audio/"):] in owned_files):
             foreign.append(f"{kind}/{name}: {url}")    # a relative URL the builder did not write
             continue
@@ -224,10 +237,12 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
                           ("note: override changes letters, not just marks", [repr(k) for k in letter_ov])):
             for x in xs[:20]:
                 out(f"{label}: {x}")
-        bad = sum(map(len, (missing, stale, orphans, dangling, stale_ov, problems)))
+        for x in adopted[:20]:
+            out(f"unrecorded: {x} (clip in the builder's pattern but not in the manifest; the next run adopts it)")
+        bad = sum(map(len, (missing, stale, orphans, dangling, stale_ov, problems, adopted)))
         out(f"audio --check: {len(want)} clips wanted, {len(missing)} missing, {len(stale)} stale, "
             f"{len(orphans)} orphan, {len(dangling)} dangling URLs, {len(stale_ov)} stale override keys, "
-            f"{len(foreign)} foreign URLs, {len(unowned)} unowned files")
+            f"{len(foreign)} foreign URLs, {len(unowned)} unowned files, {len(adopted)} unrecorded")
         return 1 if bad else 0
 
     if problems:
@@ -238,6 +253,8 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
         out(f"warning: stale override key (no item has this text): {k!r}")
     for f in foreign[:20]:
         out(f"note: foreign URL left alone (not in the manifest): {f}")
+    if adopted:
+        out(f"note: adopted {len(adopted)} clips missing from the manifest (builder's own URL pattern, file present)")
 
     kinds = set(only) if only else set(KINDS)
     todo = [i for i in want if i.split("/")[0] in kinds and not current(i)]
@@ -276,7 +293,7 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
 
     changed = False
     files_sorted = dict(sorted(owned.items()))
-    if (owned or mpath.exists()) and (todo or pruned or not mpath.exists() or manifest.get("files") != files_sorted
+    if (owned or mpath.exists()) and (todo or pruned or adopted or not mpath.exists() or manifest.get("files") != files_sorted
                                       or manifest.get("version") != cfg["version"] or manifest.get("voice") != cfg["voice"]):
         adir.mkdir(parents=True, exist_ok=True)
         ts = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")

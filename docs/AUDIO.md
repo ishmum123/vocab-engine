@@ -157,7 +157,11 @@ Implemented in `tools/packbuilder/audio.py` (tests: `packbuilder/tests/test_audi
   that already carry an absolute URL (Tatoeba) are never rendered and never changed.
 - Ownership: the builder owns exactly the files the manifest lists. A relative URL that is not one of them
   is foreign (a hand recording): never rendered over, relinked or removed, and logged as a note. Files on
-  disk that the manifest does not list are never deleted.
+  disk that the manifest does not list are never deleted. Exception, for a lost or hand-edited manifest:
+  an item's URL in the builder's own pattern for that item (`audio/<kind>/<id>.<8 hex>.opus`) whose file
+  exists is adopted as owned. Its sha8 is checked against the current key: a match is current (no
+  re-render), a mismatch is stale (re-rendered, old file deleted). `--check` reports such clips as
+  "unrecorded" and exits 1; the next normal run rewrites the manifest.
 - Overrides: `<repo>/tools/audio_say.json` = `{pack text: spoken text}`, keyed by the item's exact pack text
   (so one fix covers every item with that text). Spoken text only; pack text never changes. `--check` fails
   on stale keys (no item has that text) and notes overrides that change letters rather than only marks.
