@@ -247,7 +247,7 @@ sentences; run it again after editing either file, then `packbuilder audio` re-r
    write Latin digits in the spoken text (3 pack sentences); izafat is voiced when marked with kasre (and
    already before a vowel-initial dependent), one real pack case; ں vs ن is a source-text matter. Voice
    choice is the user's ear; Android ships a Urdu Google voice (user check 2026-09-26), so recorded clips
-   mainly serve Macs/iPhones.
+   mainly serve Macs/iPhones. **Decision 2026-09-26: Urdu audio skipped** (user); revisit only if a device without a Urdu voice matters.
 
 ## Decisions (2026-09-26)
 
