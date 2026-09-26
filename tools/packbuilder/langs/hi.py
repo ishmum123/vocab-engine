@@ -1225,17 +1225,16 @@ class Hindi(LanguageSpec):
                 adj = sorted(t for t, p, k in lx.F.get(txt[i], []) if p == "adj" and t != txt[i])
                 if adj and not lx.usable_entries(txt[i], ["adj"]):
                     out[i] = (adj[0], "ADJ")
-        # V2 of an unlisted compound verb, passive जाना, conjunctive कर/के: nothing
+        # V2 of an unlisted compound verb and passive जाना link their own verb
+        # (लौट जाती: जाना, किया जा सकता: जाना, ख़रीद लें: लेना; QA 2026-09-26);
+        # conjunctive कर/के after a stem links nothing
         for i in range(1, n):
             r, pr = out[i], out[i - 1]
-            if not r or not pr or pr[1] != "VERB" or i in done and r[0] not in VECTOR_V2:
+            if not r or not pr or pr[1] != "VERB" or i in done:
                 continue
             base = pr[0].split(" ")[-1]
             stem = txt[i - 1] == base[:-2] or (txt[i - 1] in VECTOR_V1_F)
-            if r[1] == "VERB" and r[0] in VECTOR_V2 and (stem or (r[0] == "जाना" and "Aspect=Perf" in toks[i - 1][3])) \
-                    and not (i in done and out[i] == out[i - 1]):
-                out[i] = None
-            elif txt[i] in ("कर", "के") and stem and toks[i - 1][2] in ("VERB", "AUX"):
+            if txt[i] in ("कर", "के") and stem and toks[i - 1][2] in ("VERB", "AUX"):
                 out[i] = None
         # an oblique plural in -ों is ambiguous between X and Xा (पौधों: पौध or
         # पौधा; बड़ों: बड़ "banyan" or बड़ा "elders"): the clearly more frequent
@@ -1340,7 +1339,7 @@ class Hindi(LanguageSpec):
             for k, j in enumerate(idx):
                 tj = toks[j]
                 if vector:
-                    out[j] = (parts[0], "VERB") if k == 0 else None
+                    out[j] = (parts[0], "VERB") if k == 0 else (parts[-1], "VERB")
                 elif tj[2] in ("VERB", "AUX"):
                     out[j] = (parts[-1], "VERB")
                 else:
@@ -1376,6 +1375,9 @@ class Hindi(LanguageSpec):
             wid = key_to_id.get((lem, g))
             if wid:
                 return wid
+        # a noun homograph of a verb stem (दौड़ "race"): the verb (QA 2026-09-26)
+        if group == "NOUN":
+            return key_to_id.get((lem + "ना", "VERB"))
         return None
 
     def bind_lexicon(self, lexicon):
