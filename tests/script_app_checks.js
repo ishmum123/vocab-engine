@@ -337,7 +337,7 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
   }
 
   // ---------------------------------------------------------------- [6] no voice
-  console.log("\n[6] no-voice path: fa (tts:false) and ko with voices stubbed out");
+  console.log("\n[6] no-voice path: fa (tts:false legacy hard off), ko and fa with voices stubbed out");
   {
     const FA = FX.fa();
     let r = await one(FA, "soundSym", "fa-be");
@@ -354,6 +354,25 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     const withAudio = FX.fa(); withAudio.script.units.find(u => u.id === "fa-be").audio = "audio/be.mp3";
     r = await one(withAudio, "soundSym", "fa-be");
     check(`a recorded audio clip plays even with tts:false (speaker shown, clip played: ${JSON.stringify(r.played)})`, /id="sp"/.test(r.h) && r.played.length === 1 && r.spoken.length === 0);
+
+    // fa as shipped: tts true + consonant-with-fatha carriers; whether it speaks is decided
+    // by the browser's voice list (Android Chrome has fa-IR, Apple/Windows do not)
+    const faLive = () => { const f = FX.fa(); f.pack.script.tts = true;
+      f.script.units.forEach(u => { u.say = "اآوی".includes(u.t) ? u.t : u.t + "\u064E"; }); return f; };
+    r = await one(faLive(), "soundSym", "fa-be");
+    check(`fa tts:true with an fa-IR voice: soundSym has the speaker and speaks the carrier (${JSON.stringify(r.spoken)})`, /id="sp"/.test(r.h) && r.spoken.join("|") === "بَ");
+    r = await one(faLive(), "wordHear", "fa-be");
+    check("fa tts:true with an fa-IR voice: wordHear stays a listening item", r.it.key === "x:fa-be" && !/How is it read\?/.test(r.h) && /id="sp"/.test(r.h));
+    const lb = await boot(faLive());
+    check("fa tts:true with an fa-IR voice: teach card has the play button", /xplay/.test(lb.api.scriptTeachHTML(faLive().script.units.find(u => u.id === "fa-be"))));
+    r = await one(faLive(), "soundSym", "fa-be", { voices: NOVOICE });
+    check("fa tts:true, voice list without fa: soundSym degrades to the roman, nothing spoken", /<div class="med"[^>]*>b<\/div>/.test(r.h) && !/id="sp"/.test(r.h) && r.spoken.length === 0);
+    r = await one(faLive(), "wordHear", "fa-be", { voices: NOVOICE });
+    check("fa tts:true, voice list without fa: wordHear becomes wordRead", /How is it read\?/.test(r.h) && !/id="sp"/.test(r.h));
+    const nb = await boot(faLive(), { voices: NOVOICE });
+    check("fa tts:true, voice list without fa: teach card has no play button", !/xplay/.test(nb.api.scriptTeachHTML(faLive().script.units.find(u => u.id === "fa-be"))));
+    r = await one(faLive(), "soundSym", "fa-be", { voices: [] });
+    check("fa tts:true, empty voice list = not loaded yet: sound items stay on", /id="sp"/.test(r.h));
   }
 
   // ---------------------------------------------------------------- [7] teach-card rows

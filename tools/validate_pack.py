@@ -742,6 +742,9 @@ def check_script_pack(pack, rep):
             rep.err(f"pack.script.{f} must be a positive integer")
     if "tts" in sc and not is_bool(sc["tts"]):
         rep.err("pack.script.tts must be a boolean")
+    if sc.get("tts") is False:
+        rep.warn("pack.script.tts is false: sound items are off even where the browser has a voice; "
+                 "leave it true, the app detects a voice for pack.tts at runtime")
     for f in ("learnKinds", "reviewKinds"):
         if f in sc:
             v = sc[f]
