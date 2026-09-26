@@ -207,14 +207,28 @@ function foldLenientLetters(s){
   return s.normalize("NFD").replace(/[\u0653-\u0655]/g, "").replace(LENIENT_RE, c => LENIENT_LETTERS[c])
     .replace(/[\u0643\u064a]/g, c => ARABIC_VARIANTS[c]).normalize("NFC");
 }
-// opts: {caseSensitive, foldAccents, lenientLetters}. Trims, collapses inner whitespace,
-// unifies typographic apostrophes, casefolds unless caseSensitive, accent-folds if asked;
-// with foldAccents also applies LENIENT_LETTERS unless lenientLetters === false.
+// German-only ASCII substitutions (opts.germanAscii, gated in acceptTyped to pack.key ===
+// "de"): a learner on a non-German keyboard types ae/oe/ue/ss for \u00e4/\u00f6/\u00fc/\u00df. Folded on both
+// sides, on the pre-foldAccents string, so \u00e4 -> "ae" (not the bare "a" foldAccents would
+// otherwise strip it to) and typed \u00e4 still folds to the same "ae" key. No other pack's
+// text contains these letters, but the fold is gated by pack anyway, not by script, so a
+// future non-German pack with an \u00e4/\u00f6/\u00fc/\u00df loanword is unaffected unless it opts in.
+const GERMAN_ASCII = { "\u00e4":"ae", "\u00f6":"oe", "\u00fc":"ue", "\u00df":"ss",
+  "\u00c4":"Ae", "\u00d6":"Oe", "\u00dc":"Ue" };
+const GERMAN_ASCII_RE = /[\u00e4\u00f6\u00fc\u00df\u00c4\u00d6\u00dc]/g;
+function foldGermanAscii(s){
+  return String(s).replace(GERMAN_ASCII_RE, c => GERMAN_ASCII[c]);
+}
+// opts: {caseSensitive, foldAccents, lenientLetters, germanAscii}. Trims, collapses inner
+// whitespace, unifies typographic apostrophes, casefolds unless caseSensitive, accent-folds
+// if asked; with foldAccents also applies germanAscii (if set, before the accent strip so
+// \u00e4/\u00f6/\u00fc/\u00df are not lost to it first) and LENIENT_LETTERS unless lenientLetters === false.
 function normalizeTyped(s, opts){
   const o = opts || {};
   let out = String(s == null ? "" : s).normalize("NFC").replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/[\u0643\u064a]/g, c => ARABIC_VARIANTS[c]).replace(/\s+/g, " ").trim();
   if(!o.caseSensitive) out = out.toLowerCase();
   if(o.foldAccents){
+    if(o.germanAscii) out = foldGermanAscii(out);
     out = foldAccents(out);
     if(o.lenientLetters !== false) out = foldLenientLetters(out).replace(/\s+/g, " ").trim();
   }
@@ -268,7 +282,9 @@ function guardIndex(words, caseSensitive){
 // pointing key is another entry's and no target's (so مَا, مـا or ما typed for ماء, and
 // si or s+ZWJ+i for sí, are wrong). A pointing key the target shares stays accepted:
 // замок for за́мок passes even when замо́к is also a pack word (typed замо́к does not).
-// امس for أمس and perche for perché are fine.
+// امس for أمس and perche for perché are fine. The German pack (pack.key === "de") also
+// folds ä/ö/ü/ß to ae/oe/ue/ss on both sides (GERMAN_ASCII, foldGermanAscii), so a learner
+// on a non-German keyboard can type "Muede"/"Strasse" for müde/Straße; same guard applies.
 function acceptTyped(input, entry, pack, extra, words){
   const t = (pack && pack.typing) || {};
   const cs = !!t.caseSensitive, lenient = typingLenientFor(entry, pack);
@@ -279,7 +295,7 @@ function acceptTyped(input, entry, pack, extra, words){
   const targetStrict = targets.map(x => normalizeTyped(x, strict));
   if(targetStrict.includes(got)) return true;
   if(!lenient) return false;
-  const full = { caseSensitive: cs, foldAccents: true };
+  const full = { caseSensitive: cs, foldAccents: true, germanAscii: pack && pack.key === "de" };
   const gotL = normalizeTyped(input, full);
   if(!gotL || !targets.some(x => normalizeTyped(x, full) === gotL)) return false;
   if(!Array.isArray(words)) return true;
@@ -2782,7 +2798,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
   meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, unitExampleSentences, rubyCovers, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
   targetLang, fontFamilyOf, fontStackOf, lineHeightOf, fontsHref, scriptDisplay, rtlRuns,
-  foldAccents, foldLenientLetters, LENIENT_LETTERS, pointingKey, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
+  foldAccents, foldLenientLetters, LENIENT_LETTERS, foldGermanAscii, pointingKey, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,

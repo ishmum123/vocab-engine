@@ -1965,6 +1965,37 @@ async function swChecks(){
         VC.pointingKey("за́мок") === "замок" && VC.pointingKey("está") === "está" && VC.pointingKey("مَـا") === "ما" && VC.pointingKey("أ") === "أ"; })());
   check("guard: strict mode unchanged (exact accepted, folded rejected, with and without words)",
     VC.acceptTyped("ما", AR[3], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR));
+  // German-only ASCII substitutions (ä/ö/ü/ß -> ae/oe/ue/ss), gated to pack.key === "de".
+  const LEVELS3 = [{ id:"A1" }, { id:"A2" }, { id:"B1" }];
+  const LEN_DE = { key:"de", typing:{ accents:"lenient" }, levels:LEVELS3 };
+  const STR_DE = { key:"de", typing:{ accents:"strict" }, levels:LEVELS3 };
+  const LEN_DE_B1 = { key:"de", typing:{ accents:"lenient", strictFromLevel:"B1" }, levels:LEVELS3 };
+  check("German ASCII fold: Muede typed for müde accepted (lenient, A1)",
+    VC.acceptTyped("Muede", { id:"m", w:"müde", lv:"A1" }, LEN_DE));
+  check("German ASCII fold: Strasse typed for Straße accepted (lenient)",
+    VC.acceptTyped("Strasse", { id:"s", w:"Straße", lv:"A1" }, LEN_DE));
+  check("German ASCII fold: exact ä/ö/ü/ß spelling still accepted",
+    VC.acceptTyped("müde", { id:"m", w:"müde", lv:"A1" }, LEN_DE) && VC.acceptTyped("Straße", { id:"s", w:"Straße", lv:"A1" }, LEN_DE));
+  check("German ASCII fold: strict mode never folds ae/oe/ue/ss",
+    !VC.acceptTyped("Muede", { id:"m", w:"müde", lv:"A1" }, STR_DE) && VC.acceptTyped("müde", { id:"m", w:"müde", lv:"A1" }, STR_DE));
+  check("German ASCII fold: muede rejected for a B1 müde word once typing.strictFromLevel is B1 (lenient window closed)",
+    !VC.acceptTyped("muede", { id:"m", w:"müde", lv:"B1" }, LEN_DE_B1) && VC.acceptTyped("müde", { id:"m", w:"müde", lv:"B1" }, LEN_DE_B1) &&
+    VC.acceptTyped("muede", { id:"m2", w:"müde", lv:"A1" }, LEN_DE_B1));
+  check("German ASCII fold is German-only: muede rejected for müde on a non-de pack (fixture lang it)",
+    !VC.acceptTyped("muede", { id:"m", w:"müde", lv:"A1" }, { key:"it", typing:{ accents:"lenient" }, levels:LEVELS3 }));
+  check("normalizeTyped without germanAscii leaves ä/ö/ü/ß to the plain accent strip (ü -> u, not ue)",
+    VC.normalizeTyped("müde", { foldAccents:true }) === "mude");
+  check("foldGermanAscii is the identity without German letters, and maps ä/ö/ü/ß/Ä/Ö/Ü on their own",
+    VC.foldGermanAscii("perché") === "perché" && VC.foldGermanAscii("müde Straße") === "muede Strasse" &&
+    VC.foldGermanAscii("Übung") === "Uebung");
+  // Collision guard for the German ASCII fold: a synthetic pair (the real german pack has
+  // none at the time of writing; the guard is generic and already covers this class).
+  const DE_MASSE = { id:"masse", w:"Masse", lv:"A1" }, DE_MASSE2 = { id:"maße", w:"Maße", lv:"A1" };
+  const DE_W = [DE_MASSE, DE_MASSE2];
+  check("guard de: Maße rejected for Masse and vice versa (ß/ss collision); each exact form accepted; without words list the fold accepts",
+    !VC.acceptTyped("Maße", DE_MASSE, LEN_DE, null, DE_W) && !VC.acceptTyped("Masse", DE_MASSE2, LEN_DE, null, DE_W) &&
+    VC.acceptTyped("Masse", DE_MASSE, LEN_DE, null, DE_W) && VC.acceptTyped("Maße", DE_MASSE2, LEN_DE, null, DE_W) &&
+    VC.acceptTyped("Maße", DE_MASSE, LEN_DE));
 })();
 
 appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; })
