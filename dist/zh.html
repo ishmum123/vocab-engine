@@ -3921,7 +3921,7 @@ function writtenTypeItem(entry){
     html: `${kindTag("characters", hear ? "listen" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
     placeholder: "characters…",
     mount: () => { if(hear){ const b = $("rp2"); sayWord(entry, b); b.onclick = () => sayWord(entry, b); } },
-    check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(val, entry, PACK, null, WORDS), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // The characters item only for a word whose written form is on display (dispWord: under
@@ -5316,4 +5316,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:2624659399-1546713-->
+<!--ve-build:2134885867-1546726-->
