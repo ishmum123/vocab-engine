@@ -524,7 +524,16 @@ VECTOR_V1_F = {fold(k): fold(v) for k, v in VECTOR_V1.items()}
 # nukta-distinct lemma pairs the fold() nukta-drop merges (सज़ा/सजा): before
 # these light verbs the merged surface is the nukta headword's noun sense, not
 # the other lemma's verb stem (QA v1.1; audited: the only such pack collision)
-NUKTA_NOUN_LV = {"सजा": frozenset(_f(["देना", "होना", "मिलना", "पाना", "सुनाना", "भुगतना"]))}
+NUKTA_NOUN_LV = {"सजा": frozenset(_f(["देना", "होना", "मिलना", "पाना", "सुनाना", "भुगतना"])),
+                 **{fold(w): frozenset(_f(["होना"])) for w in ("लूट", "जीत", "हार", "मार", "चोट", "भूल")}}
+# LIGHT_VERBS entries whose compound never made the shipped pack as a headword
+# (v1.2 QA, 2026-09-26): the light-verb match below still fires (so a deverbal
+# noun like दिखाई/सुनाई, tagged VERB by the tagger, does not fall through to the
+# causative-stem rule as दिखाना/सुनाना), but only the light verb links -- the
+# noun/adjective slot is left for the tagger's normal resolution, as the
+# passage path (passage_post_resolve) already does for an unpacked compound.
+LV_NOT_IN_PACK = frozenset(_f(["पता करना", "गुस्सा होना", "तारीफ़ करना", "जमा करना", "दिखाई देना",
+                               "सुनाई देना", "नौकरी करना", "मुलाक़ात करना", "हासिल करना", "इलाज करना"]))
 ADVERB_SURFACES = {"अब": "अब", "अभी": "अभी", "यहाँ": "यहाँ", "वहाँ": "वहाँ", "जहाँ": "जहाँ", "कहाँ": "कहाँ",
                    "यहां": "यहाँ", "वहां": "वहाँ", "जहां": "जहाँ", "कहां": "कहाँ", "तब": "तब", "जब": "जब",
                    "कब": "कब", "क्यों": "क्यों", "कैसे": "कैसे", "यहीं": "यहीं", "वहीं": "वहीं", "कभी": "कभी",
@@ -813,6 +822,11 @@ class Hindi(LanguageSpec):
                  ("वही", "DET"): ("वही", "PRON"), ("ठीक", "ADJ"): ("ठीक", "ADV"),
                  (fold("बाक़ी"), "NOUN"): (fold("बाक़ी"), "ADJ"),
                  ("मूर्ख", "NOUN"): ("मूर्ख", "ADJ"), ("विरोधी", "NOUN"): ("विरोधी", "ADJ")}
+    # करा is a candidate surface only of कराना's own paradigm (its causative
+    # imperative), so the single-candidate fallback in lexicon._resolve links
+    # it there even when the tagger's own lemma is करना -- its far commoner
+    # colloquial perfective (= किया) in some dialects (v1.2 QA, s0732/s1822)
+    surface_lemma = {(fold("करा"), "VERB"): fold("करना")}
     profanity = _f(PROFANE)
     # profanity, and Tatoeba sentences dropped by text: ungrammatical, or a
     # contested language-politics claim (Hindi/Urdu), against the neutrality rule
@@ -1190,10 +1204,20 @@ class Hindi(LanguageSpec):
             j, gaps = i - 1, 0
             while j >= 0 and txt[j] in LV_GAP_OK and gaps < 2:
                 j, gaps = j - 1, gaps + 1
-            if j < 0 or j in done or toks[j][2] in ("PUNCT", "PROPN", "VERB", "AUX"):
-                continue
             nouns = LV_INDEX[r[0]]
+            # a deverbal noun (दिखाई, सुनाई) the tagger POS-tags VERB is still the
+            # light verb's noun slot when its surface matches one (v1.2 QA)
+            if j < 0 or j in done or toks[j][2] in ("PUNCT", "PROPN") or \
+                    (toks[j][2] in ("VERB", "AUX") and txt[j] not in nouns):
+                continue
             comp = nouns.get(out[j][0] if out[j] else "") or nouns.get(txt[j])
+            if comp and comp in LV_NOT_IN_PACK:
+                # not a headword: i keeps its own light-verb link; j is its own
+                # noun surface, not the causative stem the tagger's VERB lemma
+                # gave it (दिखाई देना: दिखाना/सुनाना never link, v1.2 QA)
+                out[j] = (txt[j], "NOUN")
+                done.add(j)
+                continue
             if comp:
                 out[i] = out[j] = (comp, "VERB")
                 done.update((i, j))
@@ -1302,12 +1326,17 @@ class Hindi(LanguageSpec):
                      # core A1 words the forced additions would push to A2
                      **{(fold(w), g): "A1" for w, g in (("खाना बनाना", "VERB"), ("संगीत", "NOUN"),
                                                         ("धीरे", "ADV"), ("बाल", "NOUN"), ("लौटना", "VERB"),
-                                                        ("हवा", "NOUN"), ("के नीचे", "ADP"))}}
+                                                        ("हवा", "NOUN"), ("के नीचे", "ADP"))},
+                     # V2 linking drift pushed ध्यान देना too high (v1.2 QA, 2026-09-26)
+                     **{(fold(w), "VERB"): "A2" for w in ("ध्यान देना",)}}
+    # V2 linking drift dropped राष्ट्रपति too low (v1.2 QA, 2026-09-26)
+    level_floor = {(fold(w), "NOUN"): "A2" for w in ("राष्ट्रपति",)}
     # (रेस्टोरेंट, संग्रहालय, पल, रंगीन, कुल are not candidates: no corpus tokens)
     keep_keys = frozenset((fold(w), g) for w, g in (
         ("बगीचा", "NOUN"), ("उगाना", "VERB"), ("पूरा करना", "VERB"), ("प्रदूषण", "NOUN"), ("तोहफ़ा", "NOUN")))
 
     passage_words_counted = True
+    merge_sense_examples = True   # drop_keys merges (वही, ठीक, ...): keep an example per merged sense (v1.2 QA)
     span_fold = staticmethod(_span_fold)
     passage_retag_names = True      # passage_retag gets the declared names (no capitals mark them)
 

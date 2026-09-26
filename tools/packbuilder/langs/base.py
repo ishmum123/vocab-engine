@@ -418,6 +418,7 @@ class LanguageSpec:
     refill_unexampled = False     # a non-forced word with no example sentence is replaced by the next-ranked word
     bare_prefer_shared = False    # example_shows_word: pick the bare-form sentence with audio / already used first
     example_shows_word = False    # sentences: one of a word's examples contains its bare lemma surface when any candidate does
+    merge_sense_examples = False  # sentences: a word with a drop_keys-merged sense keeps >=1 example per merged sense when any candidate has one
     numeral_verb_rule = True     # a NUM token with no noun after it may be a verb form (it: "sei"); ru: off ("три" = тереть)
 
     def fold(self, s):
