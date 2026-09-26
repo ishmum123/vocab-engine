@@ -220,7 +220,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
   - Beside it: `name`, `roman` in bold and `note`.
   - A play button, hidden with no voice and no `audio`.
   - Row 2 by script: fa, ar and ur show the forms strip, four cells for dual joiners or two for right joiners, in visual RTL order (isolated, initial, medial, final from the right), each labelled underneath in English. ko shows `syll[0]` as a "ㄴ + ㅏ = 나" strip. ja shows `base` → variant.
-  - Row 3: `ex` words as teach rows (word, roman, gloss). The unit is highlighted with a background tint on a wrapping span, not with bold or a font change, so joined words keep their shaping.
+  - Row 3: `ex` words as teach rows (word, roman, gloss). The unit is highlighted with a background tint, not with bold or a font change. Where the browser has the CSS Custom Highlight API the word stays one text node and the tint is a registered highlight, so every ligature (لا, Nastaliq joins) shapes as untinted. Otherwise the tint is a wrapping span over whole shaping clusters (core.js `shapingClusters`: a grapheme, lām + alif, a virama conjunct such as क्ष), so tinting ا in لا tints لا. A unit `note` equal to its `roman` is not shown.
   - A set's `notes` card goes first.
 - **Items** reuse the drill shell. Glyph stimuli use `.cform` at 64px. Option buttons are 2×2 for glyphs and a list for romans and words. RTL follows "Script display" in PACK_SCHEMA.
 - **Progress.** Per-stage rows ("n / N taught · m mastered"), the on/off chip pair with the line "Changes what Today's Learn step teaches next. Nothing you've learned is lost.", and the Script mastered line.

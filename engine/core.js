@@ -525,30 +525,51 @@ function pronShown(x){
 // rest. So "делать" lists делать before сделать.
 // Folded search fields are computed once per word (SEARCH_CACHE, rebuilt if the word's
 // text changes), so a keystroke only compares strings.
+// Arabic script (ar/fa/ur): search is more lenient than typed-answer checking
+// (normalizeTyped keeps ة/ى distinct there, on purpose). A search key also folds the
+// letters learners routinely type without their marks or in a keyboard variant: hamza
+// and madda on a carrier (أ إ آ ؤ ئ ۀ ۂ -> ا و ی ه ہ, by dropping U+0653..U+0655 after
+// decomposition), alef wasla ٱ -> ا, teh marbuta ة -> ه, alef maksura ى -> ی (ي is
+// already ی). Harakat, tatweel and ZWNJ go in foldAccents; ي/ك -> ی/ک in normalizeTyped.
+// Anything without an Arabic-script letter is left exactly as normalizeTyped folds it.
+const AR_SEARCH_MAP = { "ٱ":"ا", "ة":"ه", "ى":"ی", "ۀ":"ه" };
+function searchFold(s){
+  const f = normalizeTyped(s, { foldAccents: true });
+  if(!/[؀-ۿ]/.test(f)) return f;
+  return f.replace(/[ٱةىۀ]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "").normalize("NFC");
+}
+// The Arabic definite article: a word-initial ال before at least two more letters is
+// optional in search (كتاب finds الكتاب, and الكتاب finds كتاب). Applied to folded text.
+const stripArabicArticle = f => f.replace(/(^|\s)ال(?=\S{2,})/g, "$1");
+// A field's search forms: the folded text and, when it differs, the article-free text;
+// each with a whitespace-free copy (ns).
+function searchForms(x){
+  const f = x ? searchFold(x) : "";
+  return [...new Set([f, stripArabicArticle(f)])].map(v => ({ f: v, ns: v.replace(/\s/g, "") }));
+}
 const SEARCH_CACHE = new WeakMap();
 function searchFields(v){
   const src = [v.w, v.pron, v.en, ...(v.alt||[])].join("\u0001");
   let r = SEARCH_CACHE.get(v);
   if(r && r.src === src) return r;
-  const norm = x => x ? normalizeTyped(x, { foldAccents: true }) : "";
-  const pack = x => { const f = norm(x); return { f, ns: f.replace(/\s/g, "") }; };
-  const target = [v.w, v.pron, ...(v.alt||[])].filter(Boolean).map(pack);
+  const target = [v.w, v.pron, ...(v.alt||[])].filter(Boolean).flatMap(searchForms);
   const g = gloss(v);
-  const senses = g.split(/[,;]/).flatMap(x => [x, x.replace(/^\s*to\s+/i, "")]).map(pack);
-  r = { src, target, gloss: pack(g), senses };
+  const senses = g.split(/[,;]/).flatMap(x => [x, x.replace(/^\s*to\s+/i, "")]).flatMap(searchForms);
+  r = { src, target, gloss: searchForms(g), senses };
   SEARCH_CACHE.set(v, r);
   return r;
 }
 function searchWords(words, query, limit){
-  const q = normalizeTyped(query, { foldAccents: true }), qs = q.replace(/\s/g, "");
-  if(!q) return [];
-  const hit = x => x.f.includes(q) || (!!qs && x.ns.includes(qs));
-  const same = x => x.f === q || (!!qs && x.ns === qs);
+  const qv = searchForms(query).filter(x => x.f).map(x => ({ q: x.f, qs: x.ns }));
+  if(!qv.length) return [];
+  const hit = x => qv.some(({ q, qs }) => x.f.includes(q) || (!!qs && x.ns.includes(qs)));
+  const same = x => qv.some(({ q, qs }) => x.f === q || (!!qs && x.ns === qs));
+  const starts = x => qv.some(({ q }) => x.f.startsWith(q));
   const tiers = [[], [], [], []];
   (words||[]).forEach(v => {
     const r = searchFields(v);
-    if(!(r.target.some(hit) || hit(r.gloss))) return;
-    const t = r.target.some(same) ? 0 : r.senses.some(same) ? 1 : r.target.some(x => x.f.startsWith(q)) ? 2 : 3;
+    if(!(r.target.some(hit) || r.gloss.some(hit))) return;
+    const t = r.target.some(same) ? 0 : r.senses.some(same) ? 1 : r.target.some(starts) ? 2 : 3;
     tiers[t].push(v);
   });
   const out = [...tiers[0], ...tiers[1], ...tiers[2], ...tiers[3]];
@@ -1946,6 +1967,44 @@ function scriptGlyphIn(glyph, text){
   for(let i = 0; i + g.length <= t.length; i++) if(g.every((k, j) => t[i + j] === k)) return true;
   return false;
 }
+// Shaping clusters: the smallest runs of a word that may be split into separate elements
+// without changing how the word renders. Browsers shape each element's text separately
+// (joining context survives a boundary, a ligature does not), so a highlight or any other
+// element boundary inside a word must fall between clusters. A cluster is a grapheme
+// (base + marks: a haraka stays on its letter, a matra/nukta on its consonant), and then:
+//  - Arabic script: lam + alef (ل with ا أ إ آ ٱ ٲ ٳ ٵ, marks between allowed) is one
+//    mandatory ligature (لا). Tatweel between them blocks the ligature, so it splits.
+//  - Brahmic scripts: a grapheme ending in a virama (Devanagari ्, and the Bengali ..
+//    Sinhala viramas) joins the next one (क्ष, स्त्र, reph र्क). A ZWNJ after the virama
+//    asks for no conjunct and so splits (ZWJ still joins: the half form is shaped with it).
+// Nastaliq (ur) and fonts with discretionary ligatures can join more than this; the app
+// avoids element boundaries inside words entirely where the browser allows it
+// (app.html scriptHL), and this is the fallback granularity.
+const GRAPHEMES = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+function graphemes(s){
+  const t = String(s == null ? "" : s);
+  if(GRAPHEMES) return [...GRAPHEMES.segment(t)].map(x => x.segment);
+  const out = [];
+  for(const ch of t){ if(out.length && /[\p{M}‌‍]/u.test(ch)) out[out.length - 1] += ch; else out.push(ch); }
+  return out;
+}
+const LAM_END = /ل[ً-ٰٟ]*$/, ALEF_START = /^[اآأإٱٲٳٵ]/;
+const VIRAMA_END = /[्্੍્୍்్್്්]‍?$/;
+function shapingClusters(s){
+  const out = [];
+  for(const g of graphemes(s)){
+    const prev = out[out.length - 1];
+    if(prev !== undefined && ((LAM_END.test(prev) && ALEF_START.test(g)) || VIRAMA_END.test(prev))) out[out.length - 1] = prev + g;
+    else out.push(g);
+  }
+  return out;
+}
+// A unit's note as shown on its teach card and answer screen: none when it only repeats
+// the roman ("b" | "b"), compared trimmed and case-insensitively (normKey).
+function scriptUnitNote(unit){
+  const n = unit && unit.note != null ? String(unit.note) : "";
+  return n && normKey(n) !== normKey(String((unit && unit.roman) || "")) ? n : "";
+}
 // True when a word (its w or pron) contains any of the unit's glyphs (upper and lower).
 function scriptWordHas(unit, word){
   const gs = String((unit && unit.t) || "").trim().split(/\s+/).filter(Boolean);
@@ -2071,7 +2130,7 @@ function scriptItem(kind, unit, ctx){
   const exs = scriptExamples(unit, byId);
   const pickEx = () => exs[Math.floor(r() * exs.length)];
   const wordOf = e => { const w = byId[e.id] || {}; return { id: e.id, w: e.w, roman: e.roman, en: gloss(w) }; };
-  const reveal = { t: String(unit.t), glyph, name: unit.name != null ? String(unit.name) : "", roman, note: unit.note != null ? String(unit.note) : "", word: null };
+  const reveal = { t: String(unit.t), glyph, name: unit.name != null ? String(unit.name) : "", roman, note: scriptUnitNote(unit), word: null };
   const it = { kind: k, key: "x:" + unit.id, unitId: unit.id, show: null, hint: null, form: null, audio: null, say: null, audioUrl: null,
     wordId: null, options: null, answer: null, accept: null, reveal };
   const unitSound = when => { if(unitAudio){ it.audio = when; it.say = unitSay; it.audioUrl = unitUrl; } };
@@ -2525,7 +2584,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   SCRIPT_PROG_VERSION, SCRIPT_MASTERED, SCRIPT_SETS_PER_SESSION, REVIEW_SIZE_SCRIPT, SCRIPT_KINDS, scriptConfig,
   defaultScriptProg, validateScriptShape, normalizeScriptProg, ensureScript, scriptRecs, scriptSkipped, setScriptSkipped, answerScriptChoice,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
-  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, scriptSecondRight,
+  recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, graphemes, shapingClusters, scriptUnitNote, searchFold, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
   tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
