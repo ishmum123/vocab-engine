@@ -144,10 +144,11 @@ return {
   scriptDrillItem, scriptCtx, kindCtx: () => scriptKindCtx(), scriptTeachHTML, scriptChartHTML, scriptHL, drill,
   panelListeners: () => document.getElementById("panel")._listeners.click || [],
   ui, tf, glossHTML, glossBox, revealBlock, wordRowHTML, readItem, recallItem, typeItem, sentenceRowHTML, sentenceRevealBlock, startPlacement,
+  startPassage: (p, today, mode) => { tab = "read"; startPassage(p, today, mode); }, rd: () => RD,
 };`;
   const names = ["document","window","SpeechSynthesisUtterance","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
   const args = [document, window, window.SpeechSynthesisUtterance, { userAgent:"ScriptAppChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
-    function(){ return { play(){ played.push(this.src); return Promise.resolve(); }, pause(){} }; }, () => true, () => {}, fx.pack, fx.words, [], [], []];
+    function(){ return { play(){ played.push(this.src); return Promise.resolve(); }, pause(){} }; }, () => true, () => {}, fx.pack, fx.words, [], [], o.passages || []];
   if(o.script !== false){ names.push("SCRIPT"); args.push(fx.script); }
   Object.keys(o.extra || {}).forEach(k => { names.push(k); args.push(o.extra[k]); });
   if(o.console){ names.push("console"); args.push(o.console); }
@@ -767,6 +768,29 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     check("stage label as a pack fragment in UI lines is tf() (class tlf) at every site: Today plan + path strip, teach heading, Script chart, Progress row",
       sites.today.split(TLF).length - 1 >= 2 && sites.scriptTeach.includes(TLF) && sites.scriptTab.includes(TLF) && sites.progress.includes(TLF));
     check("placement options: meaning glosses with RTL fragments rendered through ui()", /class="tlf">/.test(optsMarkup(api)));
+    // Listening pass (engine-listen-mode) on an RTL pack: play rows, Play all / Show text,
+    // the revealed text, an audio-only question before and after "Show question", results.
+    {
+      const w = x => FA.words.find(y => y.w === x).id;
+      const LP = { id: "fp1", lv: "A1", title: "کتاب من", text: "این کتاب من است. نان و آب.",
+        sentences: [{ t: "این کتاب من است.", en: "This is my book (کتاب).", words: [w("کتاب")] }, { t: "نان و آب.", en: "Bread and water.", words: [w("نان"), w("آب")] }],
+        questions: [{ q: "این چیست؟", en: "What is this?", type: "mc", options: ["کتاب", "نان", "آب", "در"], answer: 0, words: [w("کتاب")], sentence: 0 },
+          { q: "نان و آب.", en: "Bread and water.", type: "tf", options: null, answer: true, words: [w("نان")], sentence: 1 }] };
+      const lb = await boot(FA, { passages: [LP] }); const la = lb.api;
+      la.startPassage(LP, false, "listen");
+      sites.listenScreen = la.html("panel");
+      la.el("ltext").click(); sites.listenText = la.html("pbox");
+      la.el("rdone").click();
+      const ao = la.rd().audioOnly;
+      for(let qi = 0; qi < LP.questions.length; qi++){
+        if(ao.indexOf(qi) >= 0 && !sites.listenQHidden){ sites.listenQHidden = la.html("panel"); la.el("qsh").click(); sites.listenQShown = la.html("qshwrap"); }
+        else sites["listenQ" + qi] = la.html("panel");
+        la.el("o").children[0].click(); la.el("nx").click();
+      }
+      sites.listenResults = la.html("panel");
+      check("rtl pack listening pass: play rows, a hidden question, results lines rendered (audited below)",
+        /id="ls1"/.test(sites.listenScreen) && /id="qsh"/.test(sites.listenQHidden || "") && /Listening pass<br>Text shown while listening/.test(sites.listenResults) && /· question shown/.test(sites.listenResults));
+    }
     Object.keys(sites).forEach(k => { const bad = rtlAudit(sites[k]); check(`rtl audit: ${k} has no bidi/font violations (${bad.length})`, bad.length === 0, bad.slice(0, 4).join("; ")); });
     check("gloss popover box is an LTR line (dir=ltr), the word inside it an isolated dir=rtl span", /^<div class="gloss" id="gloss" dir="ltr" hidden>/.test(sites.glossBox) && /<span class="gw" data-tl lang="fa" dir="rtl">/.test(sites.gloss));
     check("Today Learn line: the stage label is a tf() fragment (pack font, capped line-height)", /2\. Learn<\/td><td><bdi data-tl lang="fa" dir="rtl" class="tlf">الفبا<\/bdi>, set/.test(sites.today));

@@ -246,6 +246,8 @@
   .psent.hi{background:var(--ok-bg)}
   .psent .ptxt{flex:1 1 0;min-width:0;font-size:19px;line-height:1.7;overflow-wrap:anywhere}
   .psent .psay{width:36px;height:36px;font-size:14px}
+  .psent .lsay{text-align:start;min-height:40px;padding:8px 12px}
+  .psent .lsay.speaking{border-color:var(--ink)}
   .pchips{flex:0 0 100%;display:flex;flex-wrap:wrap;gap:6px}
   .pw{border-bottom:1px dotted var(--mute);cursor:pointer}
   .pw.on{background:var(--ok-bg);border-bottom-color:var(--ok)}
@@ -1653,8 +1655,9 @@ function audioSlot(make){
 // Optional pack data (passages.json, docs/PACK_SCHEMA.md "passages.json"). A level's
 // passages unlock once READ_UNLOCK of that level's words are learned; the unlock is
 // stored in prog.read.unlocked so it survives later changes. Reading state lives in
-// prog.read = { unlocked: {levelId: 1}, done: {passageId: {sc, n, d, x}} } and is absent
+// prog.read = { unlocked: {levelId: 1}, done: {passageId: {sc, n, d, x, l?}} } and is absent
 // until the learner first meets a passage, so older stored progress needs no migration.
+// l: 1 marks a latest attempt that was a listening pass (readPassMode); absent = reading.
 const READ_UNLOCK = 0.7;
 // Weights for "Weak words from this passage": misses added to prog.w[id].w.
 const READ_WEIGHT = { tapped: 2, wrong: 2, reopened: 1 };
@@ -1720,6 +1723,37 @@ function nextReadItem(passages, words, pack, prog, now){
     best = p; bestDay = day;
   });
   return best ? { p: best, reason: "reread" } : null;
+}
+// Listen mode (docs/PACK_SCHEMA.md "passages.json", Listening pass): how Today runs the
+// Read stage's item r ({p, reason} from nextReadItem). "listen" only for a spaced re-read
+// (reason "reread") on a device that can play every sentence (canListen: app.html checks
+// each sentence has a clip or a voice is usable), and only when the latest attempt was not
+// itself a listening pass (done[id].l), so re-reads alternate listen, read, listen...
+// Everything else, and every Read-tab passage, is an ordinary reading pass: "read".
+function readPassMode(r, prog, canListen){
+  if(!r || !r.p || r.reason !== "reread" || !canListen) return "read";
+  const done = (isObj(prog && prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
+  const rec = done[r.p.id];
+  return isObj(rec) && rec.l ? "read" : "listen";
+}
+// The questions of a listening pass that are audio-only (text behind "Show question"):
+// ceil(n/2) indexes, ascending, picked by a PRNG seeded from the passage id and the number
+// of previous attempts (done[id].x), so the same pass is stable across re-renders and
+// the next re-read picks another half.
+function hashSeed(str){
+  let h = 2166136261 >>> 0;
+  for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h;
+}
+function seededRng(seed){
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function listenAudioOnly(pid, attempts, n){
+  const k = Math.ceil((n || 0) / 2);
+  if(!(k > 0)) return [];
+  const idx = shuffle(Array.from({ length: n }, (_, i) => i), seededRng(hashSeed(`${pid}#${attempts || 0}`)));
+  return idx.slice(0, k).sort((a, b) => a - b);
 }
 // Length in words: whitespace tokens for spaced scripts, linked word tokens otherwise.
 function passageLength(p, pack){
@@ -1820,10 +1854,12 @@ function applyWeakWords(prog, entries, words, pack){
   return prog;
 }
 // Records a finished passage: sc right of n questions on date d ("YYYY-MM-DD"); x counts
-// attempts. The latest attempt's score is kept.
-function markPassageDone(prog, pid, sc, n, d){
+// attempts. The latest attempt's score is kept. listen: the attempt was a listening pass,
+// stored as l: 1 (absent for a reading pass, so reading-only records are unchanged).
+function markPassageDone(prog, pid, sc, n, d, listen){
   const st = readState(prog); const prev = st.done[pid];
   st.done[pid] = { sc, n, d: String(d), x: ((prev && prev.x) || 0) + 1 };
+  if(listen) st.done[pid].l = 1;
   return st.done[pid];
 }
 // Progress tab: per level with passages {lv, total, done, avg} where avg is the mean
@@ -1848,7 +1884,7 @@ function validateReadShape(r){
     for(const k of Object.keys(r.done)){
       const p = r.done[k];
       if(!isObj(p)) return `read.done.${k} must be an object`;
-      for(const f of ["sc","n","x"]) if(p[f] !== undefined && typeof p[f] !== "number") return `read.done.${k}.${f} must be a number`;
+      for(const f of ["sc","n","x","l"]) if(p[f] !== undefined && typeof p[f] !== "number") return `read.done.${k}.${f} must be a number`;
       if(p.d !== undefined && typeof p.d !== "string") return `read.done.${k}.d must be a string`;
     }
   }
@@ -3346,7 +3382,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
-  READ_UNLOCK, READ_WEIGHT, READ_REREAD_DAYS, readState, readingLevels, updateReadUnlocks, suggestPassage, nextReadItem, passageLength, passageSegments,
+  READ_UNLOCK, READ_WEIGHT, READ_REREAD_DAYS, readState, readingLevels, updateReadUnlocks, suggestPassage, nextReadItem, readPassMode, listenAudioOnly, passageLength, passageSegments,
   gradeQuestion, passageWeakWords, applyWeakWords, markPassageDone, readingStats,
   CHARS_PROG_VERSION, CHAR_SET_SIZE, CHAR_MASTERED, CHAR_BARE, REVIEW_SIZE_CHARS, CHAR_KINDS, charsConfig,
   defaultCharsProg, validateCharsShape, normalizeCharsProg, ensureChars, charRecs, markChar, answerCharChoice, setCharOrder,
@@ -3601,7 +3637,11 @@ function stopSpeaking(){
   if(tts) tts.stop();
   if(speakingBtn){ speakingBtn.classList.remove("speaking"); speakingBtn = null; }
 }
-function speak(text, btn, audioUrl){
+// onEnd (optional): called once when this sound finishes on its own (clip ended, or the
+// TTS utterance ended, including a failed clip's TTS fallback); never when a later speak()
+// or stopSpeaking() replaced it (speakGen), and not for a blocked autoplay or a clip that
+// failed with no voice to fall back to. The listening pass's "Play all" chains on it.
+function speak(text, btn, audioUrl, onEnd){
   stopSpeaking();
   const gen = speakGen;
   if(audioUrl){
@@ -3614,23 +3654,23 @@ function speak(text, btn, audioUrl){
       // "speaking" from a button the newer speak() reuses.
       const done = () => { disarm(); if(btn && gen === speakGen) btn.classList.remove("speaking"); };
       let settled = false;
-      const failed = () => { if(settled || gen !== speakGen) return; settled = true; done(); clipFailed(text, btn, audioUrl); };
+      const failed = () => { if(settled || gen !== speakGen) return; settled = true; done(); clipFailed(text, btn, audioUrl, onEnd); };
       // A clip that never fires "playing" (hung load, stalled start) falls back like a
       // failed one, once, after its player is stopped so it cannot start late on top.
       const disarm = VC.clipStartWatch(a, VC.CLIP_START_MS, () => { if(settled || gen !== speakGen) return; audioOut.stop(); failed(); }, TIMERS);
       clipDisarm = disarm;
-      a.onended = done; a.onerror = failed;
+      a.onended = () => { const live = !settled && gen === speakGen; settled = true; done(); if(live && onEnd) onEnd(); }; a.onerror = failed;
       const pr = a.play();
       if(pr && pr.catch) pr.catch(err => { if(err && (err.name === "NotAllowedError" || err.name === "AbortError")) done(); else failed(); });
       return;
     }catch(e){}
   }
-  speakTTS(text, btn);
+  speakTTS(text, btn, onEnd);
 }
 // Offline, a clip from this site may just not be cached yet (sw.js caches clips on first play);
 // a cross-origin clip (Tatoeba) is never cached, so it only ever needs a connection.
-function clipFailed(text, btn, url){
-  if(hasSpeech && text) { speakTTS(text, btn); return; }
+function clipFailed(text, btn, url, onEnd){
+  if(hasSpeech && text) { speakTTS(text, btn, onEnd); return; }
   audioHint(navigator.onLine !== false ? "This recording couldn't be played."
     : clipCrossOrigin(url) ? "Recording needs a connection." : "Offline: this recording isn't saved on this device yet.");
 }
@@ -3647,8 +3687,13 @@ function audioHint(msg){
 }
 // The voice is re-checked per utterance (VC.liveVoice): the one picked at the last
 // voiceschanged when still listed, else a fresh pick, else none (lang only).
-function speakTTS(text, btn){
+function speakTTS(text, btn, onEnd){
   if(!hasSpeech || !tts) return;
+  const gen = speakGen;
+  // onEnd once per speakTTS call, across ttsDriver's retry utterance: a cancelled or
+  // interrupted utterance (the retry's own cancel, or a newer speak) is not an end.
+  let fired = false;
+  const fire = () => { if(!fired && gen === speakGen){ fired = true; onEnd(); } };
   try{
     tts.say(() => {
       const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; u.rate = TTS_RATE;
@@ -3659,13 +3704,21 @@ function speakTTS(text, btn){
         u.onstart = () => btn.classList.add("speaking");
         u.onend = u.onerror = () => btn.classList.remove("speaking");
       }
+      if(onEnd){
+        const f = u.onend;
+        u.onend = e => { if(f) f(e); fire(); };
+        u.onerror = e => { if(f) f(e); if(!(e && (e.error === "canceled" || e.error === "interrupted"))) fire(); };
+      }
       return u;
     });
   }catch(e){}
 }
 const say = t => speak(t);
-const saySentence = (s, btn) => speak(s.t, btn, s.audio);
+const saySentence = (s, btn, onEnd) => speak(s.t, btn, s.audio, onEnd);
 const canHearSentence = s => hasSpeech || !!s.audio;
+// A passage can run as a listening pass (VC.readPassMode) on this device when every
+// sentence can be heard: its clip, or a usable voice.
+const canListenPassage = p => !!(p && p.sentences && p.sentences.length) && p.sentences.every(canHearSentence);
 // Recorded word clips (words[].audio, docs/AUDIO.md). Every site that speaks a pack word
 // goes through sayWord, and every "can this word be heard" gate through canHearWord, so a
 // word with a clip is playable with no voice. PACK_AUDIO (pack.json audio) means the pack
@@ -4605,7 +4658,7 @@ function todayRender(){
   // Read stage (VC.nextReadItem): a row only when a passage is available; Start today
   // runs exactly this one.
   const readNext = todayReadItem();
-  if(readNext) steps.push(["Read", null, readPlanLine(readNext)]);
+  if(readNext) steps.push([readNext.mode === "listen" ? "Listen" : "Read", null, readPlanLine(readNext)]);
   const choice = !!(snap && snap.choice);
   const xChoice = HAS_SCRIPT && !!(snap && snap.choice === "script");
   const xNotice = showScriptNotice();
@@ -4635,19 +4688,22 @@ function todayRender(){
   }
   $("go").onclick = () => { todayStepState = HAS_STAGES ? (todayPrep ? { step:0, snap: todayPrep.snap, review: todayPrep.review } : { step:0, snap: takeSnapshot() }) : { step:0 }; todayStepState.read = readNext; todayPrep = null; todayStep(); };
 }
-// The Read stage's passage ({p, reason} from VC.nextReadItem) or null: none without
-// passages.json. Records newly met unlock thresholds first, as the Read tab does.
+// The Read stage's passage ({p, reason, mode} from VC.nextReadItem) or null: none without
+// passages.json. Records newly met unlock thresholds first, as the Read tab does. mode is
+// VC.readPassMode: "listen" for a spaced re-read this device can play in full, else "read".
 function todayReadItem(){
   if(!HAS_PASSAGES) return null;
   refreshReadUnlocks();
-  return VC.nextReadItem(PASSAGE_LIST, WORDS, PACK, prog, todayISO());
+  const r = VC.nextReadItem(PASSAGE_LIST, WORDS, PACK, prog, todayISO());
+  if(r) r.mode = VC.readPassMode(r, prog, canListenPassage(r.p));
+  return r;
 }
 // The Read row of the Today plan: the passage title in target-language text (its reading
 // under pronFirst), level and length as UI text.
 function readPlanLine(r){
   const p = r.p;
   const t = pfRubyText(p.title, p.titleRuby) ? rubyTw(p.title, p.titleRuby) : tf(p.title);
-  return `${ui(r.reason === "reread" ? "1 passage to re-read: " : "1 passage: ")}${t}${ui(` (${levelLabel(p.lv)}, ${VC.passageLength(p, PACK)} words)`)}`;
+  return `${ui(r.mode === "listen" ? "1 passage to listen to: " : r.reason === "reread" ? "1 passage to re-read: " : "1 passage: ")}${t}${ui(` (${levelLabel(p.lv)}, ${VC.passageLength(p, PACK)} words)`)}`;
 }
 function enterPlacementFromToday(){ switchToTab("test", "Test"); testSel = "placement"; startPlacement(); }
 function enterFirstSoundsLessonFromToday(){
@@ -4714,7 +4770,8 @@ function todayStep(){
   }
   if(s === 5){
     const r = "read" in todayStepState ? todayStepState.read : todayReadItem();
-    if(r){ startPassage(r.p, true); return; }
+    // The voice can go between the plan and this step (voiceschanged): re-check it.
+    if(r){ startPassage(r.p, true, r.mode === "listen" && canListenPassage(r.p) ? "listen" : "read"); return; }
     return todayStep();
   }
   todayFinish();
@@ -4996,9 +5053,18 @@ function readRender(){
     }).join("")}`;
   P.querySelectorAll("[data-pid]").forEach(b => b.onclick = () => startPassage(PASSAGE_LIST.find(p => p.id === b.dataset.pid)));
 }
-function startPassage(p, today){
+// mode "listen" (Today's spaced re-read, VC.readPassMode): the listening pass. The passage
+// plays sentence by sentence with its text hidden (peekText: "Show text" was used), and
+// the audioOnly questions (VC.listenAudioOnly, seeded by passage id + previous attempts)
+// hide their text behind "Show question". Any other mode is the ordinary reading pass.
+function startPassage(p, today, mode){
   if(!p) return;
   RD = { p, tapped: [], glosses: {}, answers: [], qi: null, shown: false, resultsDone: false, today: !!today };
+  if(mode === "listen"){
+    const prev = prog.read && prog.read.done && prog.read.done[p.id];
+    Object.assign(RD, { mode: "listen", peekText: false, textShown: false, playing: false,
+      audioOnly: VC.listenAudioOnly(p.id, (prev && prev.x) || 0, p.questions.length) });
+  }
   readPassageScreen();
 }
 // One passage sentence: linked words as tappable spans (data-pw), words not visible in
@@ -5186,8 +5252,51 @@ function wirePassage(box, glossEl){
   });
   box.addEventListener("keydown", e => { const w = e.target.closest && e.target.closest("[data-pw]"); if(w && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); tap(w); } });
 }
+// The listening pass's passage screen: a numbered play row per sentence (its clip, else
+// TTS, as the Read tab's read-aloud), "Play all" (the rows in order, each started when the
+// last one ends; a tap on a row, "Stop", or leaving the screen ends it), and "Show text"
+// (the ordinary passage rows with tap-to-gloss; logged as RD.peekText).
+const listenRowsHTML = () => RD.p.sentences.map((s, i) => `<div class="psent" data-si="${i}"><button type="button" class="ghost lsay" id="ls${i}" aria-label="Play sentence ${i+1}">▶ Sentence ${i+1}</button></div>`).join("");
+function listenScreen(){
+  const p = RD.p, P = $("panel");
+  P.innerHTML = `<div class="row">${RD.today ? `<button id="rskip">Skip today</button>` : `<button id="rback">‹ passages</button>`}</div>
+    <h2 class="ptitle"${TA}>${rubyTextOr(p.title, p.titleRuby)}</h2>
+    <p class="q">Listening pass · ${escapeHtml(levelLabel(p.lv))} · ${p.sentences.length} sentence${p.sentences.length === 1 ? "" : "s"}. Listen, then answer the questions.</p>
+    <div class="row"><button id="lplay">${RD.playing ? "Stop" : "Play all"}</button><button id="ltext" aria-expanded="${RD.textShown}">${RD.textShown ? "Hide text" : "Show text"}</button></div>
+    ${glossBox()}
+    <div class="passage" id="pbox">${RD.textShown ? passageHTML(-1) : listenRowsHTML()}</div>
+    <div class="actions"><button class="next" id="rdone">Done listening</button></div>`;
+  wirePassage($("pbox"), $("gloss"));
+  const rd = RD;
+  const setPlaying = on => { rd.playing = on; const b = $("lplay"); if(b && RD === rd && rd.qi == null) b.textContent = on ? "Stop" : "Play all"; };
+  const wireRows = () => { if(rd.textShown) return; p.sentences.forEach((s, i) => { const b = $("ls"+i); if(b) b.onclick = () => { setPlaying(false); saySentence(s, b); }; }); };
+  const step = i => {
+    if(RD !== rd || rd.qi != null || !rd.playing) return;
+    if(i >= p.sentences.length){ setPlaying(false); return; }
+    saySentence(p.sentences[i], rd.textShown ? null : $("ls"+i), () => step(i+1));
+  };
+  wireRows();
+  $("lplay").onclick = () => {
+    if(rd.playing){ setPlaying(false); stopSpeaking(); return; }
+    setPlaying(true); step(0);
+  };
+  $("ltext").onclick = () => {
+    rd.textShown = !rd.textShown;
+    if(rd.textShown) rd.peekText = true;
+    $("pbox").innerHTML = rd.textShown ? passageHTML(-1) : listenRowsHTML();
+    $("gloss").hidden = true;
+    $("ltext").textContent = rd.textShown ? "Hide text" : "Show text";
+    $("ltext").setAttribute("aria-expanded", String(rd.textShown));
+    wireRows();
+  };
+  const leave = () => { rd.playing = false; stopSpeaking(); };
+  if(RD.today) $("rskip").onclick = () => { leave(); RD = null; todayStep(); };
+  else $("rback").onclick = () => { leave(); RD = null; readRender(); };
+  $("rdone").onclick = () => { leave(); RD.qi = 0; RD.shown = false; readQuestionScreen(); };
+}
 function readPassageScreen(){
   setScore(0,0); screenTop();
+  if(RD.mode === "listen"){ listenScreen(); return; }
   const p = RD.p, P = $("panel");
   P.innerHTML = `<div class="row">${RD.today ? `<button id="rskip">Skip today</button>` : `<button id="rback">‹ passages</button>`}</div>
     <h2 class="ptitle"${TA}>${rubyTextOr(p.title, p.titleRuby)}</h2>
@@ -5215,8 +5324,13 @@ function readQuestionScreen(){
   // The question is TTS only (no per-question clip in the pack schema), so it plays iff a
   // voice is usable, same "no voice -> no replay" rule as every other spoken site.
   const hearQ = hasSpeech;
+  // Listening pass: an audioOnly question (spoken, so only while a voice is usable) keeps
+  // its text and translation behind "Show question"; a tap before answering is logged (qh).
+  const qText = () => `<div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>`;
+  const qTr = () => q.en ? `<div id="qtrwrap">${rec.tr ? `<div class="q cue">${ui(q.en)}</div>` : `<button class="ghost" id="qtr" style="margin:8px 0">Show translation</button>`}</div>` : "";
+  const qHidden = RD.mode === "listen" && hearQ && RD.audioOnly.indexOf(qi) >= 0 && !rec.qh;
   P.innerHTML = `<div class="drill-body top"><p class="q">Question ${qi+1} / ${p.questions.length}</p>
-    <div class="med wd"${TA}>${rubyTextOr(q.q, q.ruby)}</div>${hearQ ? REPLAY_STAGE : ""}${q.en ? `<div id="qtrwrap">${rec.tr ? `<div class="q cue">${ui(q.en)}</div>` : `<button class="ghost" id="qtr" style="margin:8px 0">Show translation</button>`}</div>` : ""}
+    ${qHidden ? `<div id="qshwrap"><button class="ghost" id="qsh" style="margin:8px 0">Show question</button></div>${REPLAY_STAGE}` : `${qText()}${hearQ ? REPLAY_STAGE : ""}${qTr()}`}
     <div class="opts ${tf ? "" : "opts-w"}" id="o"></div>
     <div class="reveal" id="rv"></div>
     <button class="ghost" id="ptoggle" aria-expanded="${RD.shown}" style="margin-top:12px">${RD.shown ? "Hide passage" : "Show passage"}</button>
@@ -5225,12 +5339,18 @@ function readQuestionScreen(){
     </div><div class="actions"><button class="next" id="nx" style="display:none">${qi+1 < p.questions.length ? "Next" : "See results"}</button></div>`;
   wirePassage($("pbox"), $("gloss"));
   if(hearQ){ const qb = $("rpa"); speak(q.q, qb); qb.onclick = () => speak(q.q, qb); }
-  if(q.en){
-    const qtr = $("qtr");
+  const wireTr = () => {
+    const qtr = q.en && $("qtr");
     // Same "logged only before answering" rule as reopening the passage: a peek after the
     // question is already answered is just curiosity, not a hint the learner used.
     if(qtr) qtr.onclick = () => { if(rec.ok === null) rec.tr = true; $("qtrwrap").innerHTML = `<div class="q cue">${ui(q.en)}</div>`; };
-  }
+  };
+  wireTr();
+  if(qHidden) $("qsh").onclick = () => {
+    if(rec.ok === null) rec.qh = true;
+    $("qshwrap").innerHTML = qText() + qTr();
+    wireTr();
+  };
   $("ptoggle").onclick = () => {
     RD.shown = !RD.shown;
     if(RD.shown && rec.ok === null) rec.reopened = true; // logged: looked back before answering
@@ -5272,7 +5392,7 @@ function readQuestionScreen(){
 }
 function markPassageFinished(){
   const sc = RD.answers.filter(a => a && a.ok).length;
-  VC.markPassageDone(prog, RD.p.id, sc, RD.p.questions.length, todayISO());
+  VC.markPassageDone(prog, RD.p.id, sc, RD.p.questions.length, todayISO(), RD.mode === "listen");
   store.save();
 }
 const WHY_LABEL = { tapped: "tapped while reading", wrong: "missed question", reopened: "looked back" };
@@ -5282,9 +5402,9 @@ function readResults(){
   const sc = RD.answers.filter(a => a && a.ok).length;
   const weak = VC.passageWeakWords(p, { tapped: RD.tapped, answers: RD.answers }, WORDS_BY_ID);
   P.innerHTML = `<div class="done"><h2>${sc} / ${p.questions.length}</h2>
-    <p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
+    ${RD.mode === "listen" ? `<p class="q" id="lmode" style="margin-bottom:4px">Listening pass${RD.peekText ? "<br>Text shown while listening" : ""}</p>` : ""}<p class="q"${TA} style="margin-bottom:8px">${rubyTextOr(p.title, p.titleRuby)}</p>
     ${p.questions.map((q, i) => { const a = RD.answers[i] || {}; const s = p.sentences[q.sentence]; const hearS = canHearSentence(s);
-      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}${a.tr ? " · translation shown" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q cue" style="margin:2px 0 0">${ui(s.en)}</div>${hearS ? `<button type="button" class="replay" id="rr${i}" aria-label="Replay">${REPLAY_SVG}</button>` : ""}</div>`; }).join("")}
+      return `<div class="stmt"${TOKBOX}><div class="q" style="margin:0 0 4px;color:${a.ok ? "var(--ok)" : "var(--bad)"}">${a.ok ? "✓" : "✗"} Question ${i+1}${a.reopened ? " · looked back" : ""}${a.qh ? " · question shown" : ""}${a.tr ? " · translation shown" : ""}</div><div${TA}>${rubyTextOr(q.q, q.ruby)}</div><div style="margin-top:6px"${TA}><mark>${passagePlainHTML(s)}</mark></div><div class="q cue" style="margin:2px 0 0">${ui(s.en)}</div>${hearS ? `<button type="button" class="replay" id="rr${i}" aria-label="Replay">${REPLAY_SVG}</button>` : ""}</div>`; }).join("")}
     ${weak.length ? `<p class="q">Weak words from this passage${RD.today ? ". Ticked ones go to your next review." : ""}</p><div id="weak">${weak.map((w, i) => `<label class="wk"${DISP.rtl ? ' dir="rtl"' : ""}><input type="checkbox" data-wi="${i}" checked> ${glossHTML(w.id, RD.glosses && RD.glosses[w.id])} <span class="q"${UIA} style="margin:0;font-size:13px">${escapeHtml(w.why.map(x => WHY_LABEL[x]).join(", "))}</span></label>`).join("")}</div>
       ${RD.today ? "" : `<button class="next" id="addrev">Add to review</button>`}` : `<p class="q">No weak words from this passage.</p>`}
     ${RD.today ? `<button class="next" id="rcont" style="margin-top:10px">Continue</button></div>` : `<div id="addmsg" class="q" hidden></div>
@@ -5671,4 +5791,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:3090400401-1571601-->
+<!--ve-build:598003127-1579939-->

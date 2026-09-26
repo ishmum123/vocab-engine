@@ -4,7 +4,7 @@ A language-agnostic vocabulary trainer that builds to one self-contained HTML fi
 
 The app has these tabs:
 
-- **Today** runs one session: review 15 items with at least 40% production, learn the next set, listen 12, recall 8, 8 sentences, then read 1 passage. Each stage skips itself when its pool is too small. The Read stage appears only when the pack has passages and one is due (docs/PACK_SCHEMA.md "passages.json", Today): the first not-done passage at an unlocked level, else a spaced re-read. It has a "Skip today" button.
+- **Today** runs one session: review 15 items with at least 40% production, learn the next set, listen 12, recall 8, 8 sentences, then read 1 passage. Each stage skips itself when its pool is too small. The Read stage appears only when the pack has passages and one is due (docs/PACK_SCHEMA.md "passages.json", Today): the first not-done passage at an unlocked level, else a spaced re-read. A re-read alternates with a listening pass (the passage played sentence by sentence with the text hidden, half the questions audio-only) when every sentence can be heard on this device; the attempt is stored as `prog.read.done[id].l = 1`. It has a "Skip today" button.
 - **Words** is a browser with search and per-set drills.
 - **Sounds** shows pack lessons. It appears only when the pack has lessons.
 - **Test** has placement plus free tests.
@@ -37,6 +37,7 @@ tools/packbuilder/        shared corpus-based pack builder for language repos (i
 tests/engine_checks.js    Node checks, no dependencies
 tests/pron_aids_checks.js Node checks for the pronunciation aids (docs/PACK_SCHEMA.md "Pronunciation aids"), incl. a byte-identical control against main's engine
 tests/audio_checks.js     Node checks for recorded audio (docs/AUDIO.md): word call sites, fallback, sw.js audio cache
+tests/listen_mode_checks.js Node checks for the passage listening pass (docs/PACK_SCHEMA.md "Listening pass"), incl. a byte-identical no-voice control against engine-passage-audio
 tests/validate_pack_audio_checks.js  validator rules for pack.audio / words[].audio / passage sentence audio
 tests/flagoff_snapshot.js Golden harness proving hsk-merge work is a no-op for every pack without `characters` (see docs/HSK_MERGE.md); tests/golden/ holds the goldens
 dist/zh.html dist/sw.js   built zh trainer + its service worker (committed; the tests fail if either is stale)

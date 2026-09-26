@@ -176,5 +176,32 @@ check("isLegacyRecord: native and migrated progress are not", !VC.isLegacyRecord
 check("isLegacyRecord: false for a pack without legacy", !VC.isLegacyRecord(noLegacy, LEGACY, SEEDS["C mid-HSK2"]));
 check("input record is not mutated", (() => { const o = clone(SEEDS["HEAD"]); VC.migrateLegacy(PACK, LEGACY, o); return eq(o, SEEDS["HEAD"]); })());
 
+// prog.read.done[id].l (engine-listen-mode): an optional l:1 marks a listening pass. The
+// only stored-shape change: records without it load unchanged; with it they round-trip.
+console.log("\n[read.done.l] listening-pass marker");
+{
+  const readOld = { unlocked: { HSK1: 1 }, done: { p0001: { sc: 3, n: 5, d: "2026-09-01", x: 1 }, p0002: { sc: 5, n: 5, d: "2026-09-02", x: 2 } } };
+  const oldRaw = JSON.stringify({ v: VC.PROG_VERSION, w: {}, sets: {}, read: readOld });
+  const bo = VC.bootProg(oldRaw, PACK);
+  check("stored progress with pre-listen read.done records boots unchanged (no backup, no l added)", bo.backupRaw === null && eq(bo.prog.read, readOld) && Object.values(bo.prog.read.done).every(r => !("l" in r)));
+  const im = VC.applyImport(null, oldRaw, PACK);
+  check("import of pre-listen read.done records: unchanged", im.ok && eq(im.prog.read, readOld));
+  const p = clone(bo.prog);
+  VC.markPassageDone(p, "p0001", 4, 5, "2026-09-27", true);
+  check("a listening pass writes l:1 on that record only", eq(p.read.done.p0001, { sc: 4, n: 5, d: "2026-09-27", x: 2, l: 1 }) && eq(p.read.done.p0002, readOld.done.p0002));
+  const raw2 = JSON.stringify(p);
+  const ps = VC.parseStored(raw2), v = VC.validateProgShape(ps.data, PACK.levels.map(l => l.id));
+  check("parseStored + validateProgShape accept a record with l", ps.ok && v.ok);
+  const b2 = VC.bootProg(raw2, PACK);
+  check("record with l survives a save/boot round trip", b2.backupRaw === null && eq(b2.prog.read, p.read));
+  const i2 = VC.applyImport(null, raw2, PACK);
+  check("record with l survives export/import", i2.ok && eq(i2.prog.read, p.read));
+  VC.markPassageDone(p, "p0001", 5, 5, "2026-10-05");
+  check("a later reading pass replaces the record without l", eq(p.read.done.p0001, { sc: 5, n: 5, d: "2026-10-05", x: 3 }));
+  const bad = JSON.stringify({ read: { done: { p0001: { sc: 1, n: 5, d: "2026-09-27", x: 1, l: "yes" } } } });
+  check("a non-number l is rejected by validation (boot keeps a backup)", !VC.validateProgShape(JSON.parse(bad), []).ok && VC.bootProg(bad, PACK).backupRaw === bad);
+  check("progress carrying read (with l) is native, not legacy", !VC.isLegacyRecord(PACK, LEGACY, p));
+}
+
 console.log(`\n${passes} passed, ${fails} failed, ${skips} skipped`);
 process.exit(fails ? 1 : 0);
