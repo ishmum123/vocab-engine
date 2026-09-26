@@ -48,7 +48,7 @@ HAN = re.compile(r"[⺀-⿟々〇〡-〩〸-〻㐀-䶿一-鿿"
 
 
 def lk():
-    return ZhLinker(SHIPPED, COMPOUNDS, None, dict(READINGS))
+    return ZhLinker(SHIPPED, COMPOUNDS, dict(READINGS))
 
 
 def ruby(text, names=(), oop=None):
@@ -101,7 +101,7 @@ class Readings(unittest.TestCase):
 
     def test_char_overrides_for_a_lone_uncovered_character(self):
         # a one-character oop token: the HSK-context table, counted as an override
-        L = ZhLinker({}, (), None, {})
+        L = ZhLinker({}, (), {})
         toks = L.tag("了", "", L.declared({"oop": {"了": "x"}}))
         self.assertEqual(L.text_ruby("了", toks)[0][2], "le")
         self.assertEqual(L.ruby_override, {"了": 1})
@@ -111,14 +111,14 @@ class Readings(unittest.TestCase):
         self.assertEqual(L.text_ruby("着急", toks)[0][2], "zháojí")
 
     def test_di_rule(self):
-        L = ZhLinker({ID["高兴"]: SHIPPED[ID["高兴"]]}, (), None, {})
+        L = ZhLinker({ID["高兴"]: SHIPPED[ID["高兴"]]}, (), {})
         toks = L.tag("高兴地", "", L.declared({"oop": {"地": "x"}}))
         self.assertEqual(L.text_ruby("高兴地", toks)[1][2], "de")
         toks = L.tag("地", "", L.declared({"oop": {"地": "x"}}))
         self.assertEqual(L.text_ruby("地", toks)[0][2], "dì")
 
     def test_apostrophe_between_syllables(self):
-        L = ZhLinker({}, (), None, {})
+        L = ZhLinker({}, (), {})
         toks = L.tag("西安", "", L.declared({"names": ["西安"]}))
         self.assertEqual(L.text_ruby("西安", toks)[0][2], "Xī'ān")
 
