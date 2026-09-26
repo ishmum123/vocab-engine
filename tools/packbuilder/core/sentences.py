@@ -97,7 +97,7 @@ def homograph_table(words, sp):
 
 
 def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_of=None, epos_to_id=None,
-                   lemma_ids=None, en=None, homs=None, st=None, where=None):
+                   lemma_ids=None, en=None, homs=None, st=None, where=None, merged_out=None):
     """Word ids linked by (lemma, POS) in context, or None if the sentence
     has a content lemma outside the pack/top-3000.
 
@@ -105,7 +105,11 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
     linking occurrence (a word linked twice is recorded twice):
     ("tok", first token index, last token index, id) for token links and
     token-level phrases, ("chars", start, end, id) for a spec.multiword
-    phrase matched in `text` (Python str offsets). Links are unchanged."""
+    phrase matched in `text` (Python str offsets). Links are unchanged.
+
+    `merged_out`, when a set, gets the id of a word whose link came through
+    spec.drop_keys (a merged-away sense), one add per occurrence
+    (spec.merge_sense_examples)."""
     sp = lexicon.spec
     links = []
 
@@ -174,6 +178,8 @@ def sentence_links(toks, lexicon, key_to_id, allowed, text, groups=None, gender_
             wid = key_to_id.get((lem, g))
             if wid is None and sp.drop_keys.get((lem, g)):
                 wid = key_to_id.get(sp.drop_keys[(lem, g)])   # "dire di no", "o no" -> no (intj)
+                if wid is not None and merged_out is not None:
+                    merged_out.add(wid)
             if wid is None and epos_to_id and g in sp.group_kpos:
                 # no entry for this POS: the lemma's entry built from the same
                 # Wiktionary headword (come ADV "Come stai?" -> come "how",
@@ -289,6 +295,7 @@ def build_sentences(env, ctx, words, top3000):
     tok_forms = {}     # sid -> folded token surfaces (example_shows_word only)
     link_where = {}    # sid -> (token surfaces, sentence_links where records); spec.emit_ruby only
     spec_dropped = {}  # sid -> links before fix_links (spec.fix_links_floor only)
+    merge_sids = defaultdict(set)  # wid -> sids linked to it through a drop_keys merge (spec.merge_sense_examples only)
     for sid, toks in chain(iter_tagged(ctx["tagged"]), ctx.get("example_tagged", ())):
         text = rows[sid][1]
         if sp.untranslated_rows and not rows[sid][3]:
@@ -310,8 +317,12 @@ def build_sentences(env, ctx, words, top3000):
             st["length_out_of_range"] += 1
             continue
         where = [] if sp.emit_ruby else None
+        merged = set() if sp.merge_sense_examples else None
         links = sentence_links(toks, lexicon, key_to_id, allowed, text, groups, gender_of, epos_to_id,
-                               lemma_ids, rows[sid][3], homs, st, where=where)
+                               lemma_ids, rows[sid][3], homs, st, where=where, merged_out=merged)
+        if merged:
+            for wid in merged:
+                merge_sids[wid].add(sid)
         if links and rsi_ids & set(links):
             refl_by_sid[sid] = {key_to_id.get(r) for j, r in enumerate(lexicon.resolve_sentence(toks, groups))
                                 if r and r[1] == "VERB" and sp.carries_refl_clitic(toks, j)}
@@ -424,6 +435,13 @@ def build_sentences(env, ctx, words, top3000):
                 good.insert(0, bare[0])
             if not bare:
                 st["words_without_bare_form_example"] += 1
+        if sp.merge_sense_examples and wid in merge_sids and good:
+            # a word with a drop_keys-merged sense keeps >=1 example for that
+            # sense too, not only for its own primary sense (v1.2 QA, 2026-09-26)
+            merged_good = [s for s in good if s in merge_sids[wid]]
+            if merged_good and not any(s in merged_good for s in good[:2]):
+                good.remove(merged_good[0])
+                good.insert(min(1, len(good)), merged_good[0])
         for s in good[:2]:
             chosen[wid].append(s)
             use[s] += 1
