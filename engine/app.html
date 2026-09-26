@@ -848,6 +848,12 @@ function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 // popover (glossHTML, the Read-tab one) inside the nearest data-tokbox and speaks the word
 // only; the whole sentence is heard from its speaker button (sentSayHTML). No progress
 // effect. Never used inside answer buttons.
+// A multi-token pack word (PACK_SCHEMA.md sentences[].spans/passages[].spans: "a word may
+// have several spans, one per occurrence" — the builder emits one span per surface token
+// of a multi-word entry, के लिए as two adjacent spans sharing one wordId) renders one .tk
+// span per token, all sharing data-tok. A tap highlights every one of them, not only the
+// tapped token, so the whole word reads as one unit; the popover and speech still come
+// from the tapped token's own head/surface.
 function tokTapHTML(wordId, inner, head){
   const h = head ? ` data-ts="${escapeHtml(head.surface)}" data-tr="${escapeHtml(head.reading)}"` : "";
   return `<span class="tk" data-tok="${escapeHtml(wordId)}"${h} role="button" tabindex="0">${inner}</span>`;
@@ -871,6 +877,7 @@ function tokTap(t){
   if(box){
     box.querySelectorAll(".tk.on").forEach(x => x.classList.remove("on"));
     t.classList.add("on");
+    box.querySelectorAll(".tk").forEach(x => { if(x !== t && x.dataset && x.dataset.tok === t.dataset.tok) x.classList.add("on"); });
     let g = box.querySelector(".tokgloss");
     if(!g){ g = document.createElement("div"); g.className = "gloss tokgloss"; if(DISP.rtl) g.setAttribute("dir", "ltr"); box.appendChild(g); } // an LTR box, as glossBox
     g.innerHTML = html; g.hidden = false;

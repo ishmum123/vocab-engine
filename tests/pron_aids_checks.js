@@ -336,6 +336,41 @@ function walk(api, stopAt){
     check("keyboard: one keydown listener on #panel (Enter/Space on a tap); drill shortcuts skip a focused tap",
       api.panelListeners("keydown").length === 1 && api.onTok({ target: { closest: s => s === "[data-tok]" ? {} : null } }) && /!onShowWritten\(e\) && !tokOwns\(e\)\) drillKeyHandler/.test(appHtml));
     check("click delegation: still one bubbling click listener + the show-written capture listener", api.panelListeners("click").length === 2);
+    // Multi-token pack word highlight (hindi/TODO.md live check: "के लिए links as one
+    // entry but only the tapped half highlights"). PACK_SCHEMA.md sentences/passages
+    // spans: "a word may have several spans, one per occurrence" — a multi-token entry's
+    // builder-emitted spans are one .tk per token, all sharing data-tok. A tap on either
+    // token must mark every token of that word "on", not just the one tapped, and must
+    // still clear an unrelated word's highlight from a previous tap.
+    {
+      const mk = tokv => {
+        const e = { dataset: { tok: tokv }, _on: false, classList: {} };
+        e.classList.add = c => { if(c === "on") e._on = true; };
+        e.classList.remove = c => { if(c === "on") e._on = false; };
+        return e;
+      };
+      const half1 = mk(wid), half2 = mk(wid), other = mk("__other__"); other._on = true; // simulates a previous tap left `other` on
+      const mtBox = {
+        querySelectorAll(sel){
+          const all = [half1, half2, other];
+          if(sel === ".tk.on") return all.filter(x => x._on);
+          if(sel === ".tk") return all;
+          return [];
+        },
+        querySelector: () => null, appendChild(c){ return c; },
+      };
+      half1.closest = sel => sel === "[data-tokbox]" ? mtBox : null;
+      half2.closest = sel => sel === "[data-tokbox]" ? mtBox : null;
+      api.tokTap(half1);
+      check("multi-token word tap: tapping one token of a multi-token word highlights every token sharing its data-tok",
+        half1._on === true && half2._on === true);
+      check("multi-token word tap: a previous, unrelated tap's highlight is cleared", other._on === false);
+      // Tapping the word's OTHER token independently also lights up both (order-independent).
+      half1._on = false; half2._on = false;
+      api.tokTap(half2);
+      check("multi-token word tap: tapping the second token highlights both the same way",
+        half1._on === true && half2._on === true);
+    }
     // Teach examples (charTeach) and Words-list examples carry taps too.
     const cs = VC.nextCharSet(["1","2","3"], CHARACTERS, PACK, VC.normalizeProg({}, PACK));
     api.charTeach(cs, { label: "字" }, () => {});
