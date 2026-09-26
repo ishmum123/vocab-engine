@@ -101,6 +101,20 @@ class SpecFields(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_forced_file("casa\n[NOUN]\n")
 
+    def test_forced_file_level_annotation(self):
+        # word@LEVEL (ur: ماموں@A2) strips the level from the word list and records it
+        # separately; a plain word (no @) behaves exactly as before (backwards compatible)
+        parsed = parse_forced_file("[NOUN]\ncasa mamma@A2\n[VERB]\nessere@B1\n")
+        self.assertEqual(dict(parsed), {"NOUN": ["casa", "mamma"], "VERB": ["essere"]})
+        self.assertEqual(parsed.levels, {("mamma", "NOUN"): "A2", ("essere", "VERB"): "B1"})
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "tools").mkdir()
+            (Path(d) / "tools" / "forced_a1.txt").write_text("[NOUN]\ncasa mamma@A2\n")
+            sp = get_spec("it", d)
+            self.assertEqual(sp.a1_core, {"NOUN": ["casa", "mamma"]})
+            self.assertEqual(sp.forced_level, {("mamma", "NOUN"): "A2"})
+            self.assertIn(("mamma", "NOUN"), sp.forced)
+
 
 class LevelsAndIds(unittest.TestCase):
     BANDS = [("A1", 4), ("A2", 3), ("B1", 3)]
@@ -127,6 +141,19 @@ class LevelsAndIds(unittest.TestCase):
         chosen = [(f"c{i}", "X") for i in range(8)]
         lv = assign_levels([], chosen, bands)
         self.assertEqual([lv[k] for k in chosen], ["L1", "L1", "L2", "L2", "L3", "L3", "L4", "L4"])
+
+    def test_levels_forced_level(self):
+        # a forced key with a forced_level entry (ur: ماموں@A2) ships at that level
+        # instead of bands[0][0]; it also gives up its A1 slot, and takes an A2 one,
+        # so the chosen split shifts accordingly. Omitting forced_level (or an empty
+        # dict) reproduces the plain-forced formula exactly (test_levels above).
+        forced = [("f1", "NOUN"), ("f2", "NUM")]
+        chosen = [(f"c{i}", "NOUN") for i in range(8)]
+        lv = assign_levels(forced, chosen, self.BANDS, {("f2", "NUM"): "A2"})
+        self.assertEqual([lv[k] for k in forced], ["A1", "A2"])
+        # 4 A1 - 1 forced-A1 = 3 chosen at A1; 3 A2 - 1 forced-A2 = 2 chosen at A2; rest B1
+        self.assertEqual([lv[k] for k in chosen], ["A1", "A1", "A1", "A2", "A2", "B1", "B1", "B1"])
+        self.assertEqual(assign_levels(forced, chosen, self.BANDS, {}), assign_levels(forced, chosen, self.BANDS))
 
     def test_ids(self):
         words = [{"lemma": "casa", "pos": "noun"}, {"lemma": "casa", "pos": "noun"},

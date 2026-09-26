@@ -340,10 +340,18 @@ def build_words(env, ctx):
             second_diag.append(f"{lem} {g} '{gloss}' vs {first['group']} '{first['en']}' overlap={overlap:.2f}")
             nominalised = {g, first["group"]} == {"NOUN", "ADJ"} and \
                 re.search(r"\b(person|people|man|woman|one|soul)\b", gloss)
-            if gloss_stems(gloss) & gloss_stems(first["en"]) or first["group"] == g or \
-                    same_words(gloss, first["en"]) or nominalised or \
-                    top["score"] <= 0 or top["defn"] or top["demote"] or \
-                    overlap > SECOND_SENSE_OVERLAP:
+            # a same-sense signal (shared gloss stem, same POS group, a nominalised
+            # adjective, ...) always disqualifies; a weak-evidence signal (a low
+            # dictionary-sense score, a definitional sense, demotion, high translation
+            # overlap) is a heuristic for "not a distinct sense" that a hand-listed
+            # exemption may override once SECOND_ENTRY_SHARE already shows real,
+            # independent corpus support for both POS (a forced word's own sense often
+            # scores 0 for lack of bag evidence, same as high overlap: "to sing a song"
+            # keeps "song" in the translation of most "to sing" sentences)
+            same_sense = bool(gloss_stems(gloss) & gloss_stems(first["en"])) or first["group"] == g or \
+                same_words(gloss, first["en"]) or bool(nominalised)
+            weak_evidence = top["score"] <= 0 or top["defn"] or top["demote"] or overlap > SECOND_SENSE_OVERLAP
+            if same_sense or (weak_evidence and lem not in sp.second_entry_overlap_exempt):
                 if not forced or first["forced"]:
                     exclude("second POS entry without a distinct sense", lem); continue
                 del records[fk]              # the forced POS replaces a same-sense entry
@@ -423,7 +431,7 @@ def build_words(env, ctx):
                                                   for k, m in fem_folded.items()))
     if sp.level_floor or sp.level_ceiling:
         chosen = apply_level_floor(chosen, forced_ok, sp)    # id: colloquial words no lower than A2
-    level_of = assign_levels(forced_ok, chosen, sp.bands)
+    level_of = assign_levels(forced_ok, chosen, sp.bands, getattr(sp, "forced_level", None))
     final = forced_ok + chosen
     stat("words_pos_from_dictionary", sorted(records[k]["lemma"] for k in final if records[k].get("pos_from_dict")))
     rank_order = sorted(final, key=lambda k: (order.get(k, 10**9), k))
@@ -494,7 +502,7 @@ def build_words(env, ctx):
             chosen = [k for k in chosen if k not in moved] + moved
             if sp.level_floor or sp.level_ceiling:
                 chosen = apply_level_floor(chosen, forced_ok, sp)    # keep the floor after the move
-            level_of = assign_levels(forced_ok, chosen, sp.bands)
+            level_of = assign_levels(forced_ok, chosen, sp.bands, getattr(sp, "forced_level", None))
         stat("sensitive_glosses", {"cleaned": cleaned, "moved_to_top_level": sorted(records[k]["lemma"] for k in moved),
                                    "forced_unresolved": forced_hits})
 
@@ -575,7 +583,7 @@ def apply_word_ceiling(records, forced_ok, chosen, level_of, sp):
         return chosen, level_of
     floor = {**(sp.level_floor or {}), **{k: top for k in hit}}
     chosen = apply_level_floor(chosen, forced_ok, sp, floor)
-    return chosen, assign_levels(forced_ok, chosen, sp.bands)
+    return chosen, assign_levels(forced_ok, chosen, sp.bands, getattr(sp, "forced_level", None))
 
 
 def apply_level_floor(chosen, forced_ok, sp, floor=None):
@@ -583,8 +591,10 @@ def apply_level_floor(chosen, forced_ok, sp, floor=None):
     it): a chosen key ranked into an earlier band moves to the start of its
     floor band (the keys it passes move up one place each)."""
     floor = sp.level_floor if floor is None else floor
-    start, acc = {}, -len(forced_ok)
+    forced_counts = Counter((getattr(sp, "forced_level", None) or {}).get(k, sp.bands[0][0]) for k in forced_ok)
+    start, acc = {}, 0
     for lv, n in sp.bands:
+        acc -= forced_counts.get(lv, 0)
         start[lv] = max(acc, 0)
         acc += n
     out = [k for k in chosen if k not in floor]
@@ -608,15 +618,20 @@ def apply_level_floor(chosen, forced_ok, sp, floor=None):
     return out
 
 
-def assign_levels(forced_ok, chosen, bands):
-    """Level per key: every forced key goes to the first band, which the
-    rank-ordered chosen keys then fill up; later bands take the next
-    band-size keys each, and the last band takes the rest."""
-    level_of = {k: bands[0][0] for k in forced_ok}
-    limits, acc = [], bands[0][1] - len(forced_ok)
+def assign_levels(forced_ok, chosen, bands, forced_level=None):
+    """Level per key: every forced key goes to the first band (or, if it's a key of
+    `forced_level` {(lemma, group): level}, to that level instead - ur: ماموں@A2), which
+    the rank-ordered chosen keys then fill up; later bands take the next band-size keys
+    each (minus whatever level_of already gave a forced key at that band), and the last
+    band takes the rest. `forced_level` empty/omitted reproduces the old formula exactly."""
+    forced_level = forced_level or {}
+    level_of = {k: forced_level.get(k, bands[0][0]) for k in forced_ok}
+    forced_counts = Counter(level_of.values())
+    limits, acc = [], bands[0][1] - forced_counts.get(bands[0][0], 0)
     for lv, n in bands[:-1]:
         limits.append((acc, lv))
-        acc += bands[len(limits)][1]
+        nxt_lv, nxt_n = bands[len(limits)]
+        acc += nxt_n - forced_counts.get(nxt_lv, 0)
     for i, k in enumerate(chosen):
         level_of[k] = next((lv for lim, lv in limits if i < lim), bands[-1][0])
     return level_of

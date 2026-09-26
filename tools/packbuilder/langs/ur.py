@@ -677,6 +677,7 @@ EXTRA_LEX_SRC = """
 قیام|noun|stay; establishment|qayām
 زائد|adj|extra, more than|zā'id
 گندا|adj|dirty|gandā
+پھوپھی|noun|paternal aunt (father's sister)|phūphī
 """
 # stem + auxiliary/vector and pronoun + postposition written as one word
 # (کردیا, ہوگیا, آرہا, جاسکتا, کرکے, آپکو, اسکا): tagged as two words.
@@ -1099,6 +1100,7 @@ class Urdu(LanguageSpec):
         canon = lambda w: w if " " in w else alt.get(fold(w), [fold(w)])[0]
         self.a1_core = {g: [canon(w) for w in ws] for g, ws in self.a1_core.items()}
         self.forced = list(dict.fromkeys((canon(w), g) for w, g in self.forced))
+        self.forced_level = {(canon(w), g): lvl for (w, g), lvl in self.forced_level.items()}
         return res
 
     # ---- spelling / frequency --------------------------------------------------
@@ -2306,9 +2308,13 @@ class Urdu(LanguageSpec):
             rows.append([GEN_SID_BASE + len(rows), ur.strip(), "", en2, None, None])
         return rows
 
-    # one pack entry carries two POS whose glosses share no word (core keeps one entry per
-    # lemma unless the second holds 20% of its tokens): گانا verb "to sing; song" (QA 2026-09-26)
-    MERGED_POS = {"گانا": "VERB"}
+    # a deverbal noun/verb pair whose senses are genuinely distinct despite the second
+    # POS's translations often reusing the first entry's word (گانا noun "song" vs verb
+    # "to sing": every "to sing a song" sentence's English keeps "song", which the core
+    # gate reads as no distinct sense; SECOND_ENTRY_SHARE alone already admits the pair,
+    # 50/50 in the tagged corpus) (core: second_entry_overlap_exempt; QA 2026-09-26)
+    second_entry_overlap_exempt = {"گانا"}
+    MERGED_POS = {}
     OBLIG_AFTER = {"ہے", "ہیں", "تھی", "تھا", "تھے", "تھیں", "ہو", "ہوگی", "ہوگا", "ہوں", "پڑی", "پڑا", "پڑے",
                    "پڑتی", "پڑتا", "پڑتے", "پڑے", "پڑے گی", "چاہیے", "چاہیئے"}
     CROSS_POS = {"NOUN": ("ADJ",), "ADJ": ("NOUN", "ADV"), "ADV": ("ADJ",),

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -187,6 +188,20 @@ class AudioBuild(unittest.TestCase):
         new = set(self.manifest()["files"].values())
         self.assertFalse(old & new)                                   # every clip has a new URL
         self.assertFalse(any((self.root / "audio" / f).exists() for f in old))
+
+    def test_peak_change_rerenders_everything_and_is_recorded(self):
+        self.run_audio()
+        old = set(self.manifest()["files"].values())
+        _, stub = self.run_audio(sp=spec(peak=-3.0))
+        self.assertEqual(len(stub.calls), 7)                              # every clip re-keyed
+        new = set(self.manifest()["files"].values())
+        self.assertFalse(old & new)
+        self.assertFalse(any((self.root / "audio" / f).exists() for f in old))
+        self.assertEqual(self.manifest()["peak"], -3.0)
+
+    def test_peak_must_not_exceed_0_dbfs(self):
+        with self.assertRaises(SystemExit):
+            self.run_audio(sp=spec(peak=0.5))
 
     def test_text_edit_rerenders_only_that_item(self):
         self.run_audio()
@@ -384,6 +399,60 @@ class AudioBuild(unittest.TestCase):
     def test_fa_spec_has_audio_config(self):
         cfg = audio.config(get_spec("fa", str(self.root), load=False))
         self.assertEqual((cfg["voice"], cfg["version"], cfg["bitrate"]), ("fa_IR-ganji_adabi-medium", 1, "24k"))
+
+
+class PiperRendererFfmpegCommand(unittest.TestCase):
+    """PiperRenderer.render's ffmpeg invocations, without Piper or a real ffmpeg: a stub voice
+    writes silence to the wav, and subprocess.run is stubbed to report a measured peak so the
+    encode command's -af filter can be checked directly."""
+
+    def render_with_measured_peak(self, measured_dbfs, peak_cfg=-1.0, short=True):
+        renderer = audio.PiperRenderer.__new__(audio.PiperRenderer)
+        renderer.cfg = dict(audio.DEFAULTS, voice="xx", version=1, licence="CC0", peak=peak_cfg)
+        renderer.SC = lambda **kw: kw
+
+        class FakeVoice:
+            def synthesize_wav(self, text, wf, syn_config=None):
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(22050)
+                wf.writeframes(b"\x00\x00" * 100)
+        renderer.voice = FakeVoice()
+
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            if "volumedetect" in cmd:
+                return SimpleNamespace(
+                    stderr=f"[Parsed_volumedetect_0] max_volume: {measured_dbfs} dB\n".encode())
+            return SimpleNamespace(returncode=0)
+
+        with tempfile.TemporaryDirectory() as d, \
+             unittest.mock.patch("packbuilder.audio.subprocess.run", side_effect=fake_run):
+            renderer.render("hello", short, Path(d) / "clip.opus")
+        return calls
+
+    def test_encode_command_includes_measured_peak_gain(self):
+        detect_cmd, encode_cmd = self.render_with_measured_peak("-6.0")
+        self.assertIn("volumedetect", detect_cmd)
+        af = encode_cmd[encode_cmd.index("-af") + 1]
+        # target -1.0 dBFS - measured -6.0 dBFS = +5.0 dB of gain
+        self.assertIn("volume=5.00dB", af)
+        self.assertIn("adelay=150,apad=pad_dur=0.25", af)   # short-item padding still applied
+
+    def test_never_boosts_past_0_dbfs(self):
+        # Already louder than target (the +0.9 dBFS finding this class covers): gain is negative,
+        # so the encoded peak lands at target, never above 0 dBFS.
+        _, encode_cmd = self.render_with_measured_peak("0.9")
+        af = encode_cmd[encode_cmd.index("-af") + 1]
+        self.assertIn("volume=-1.90dB", af)
+
+    def test_sentence_gets_no_padding_filter_but_still_normalises(self):
+        _, encode_cmd = self.render_with_measured_peak("-3.0", short=False)
+        af = encode_cmd[encode_cmd.index("-af") + 1]
+        self.assertNotIn("adelay", af)
+        self.assertIn("volume=2.00dB", af)
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ tests/validate_pack_audio_checks.js  validator rules for pack.audio / words[].au
 tests/flagoff_snapshot.js Golden harness proving hsk-merge work is a no-op for every pack without `characters` (see docs/HSK_MERGE.md); tests/golden/ holds the goldens
 dist/zh.html dist/sw.js   built zh trainer + its service worker (committed; the tests fail if either is stale)
 docs/PACK_SCHEMA.md       pack format (authoritative)
-docs/AUDIO.md             recorded audio (Piper clips): findings, engine/SW/builder design, rollout
+docs/AUDIO.md             recorded audio (Piper clips): findings, engine/SW/builder design, rollout, peak normalisation
 TODO.md                   known gaps and follow-ups
 ```
 
