@@ -554,6 +554,21 @@ const AR_SEARCH_MAP = { "ٱ":"ا", "ٲ":"ا", "ٳ":"ا", "ٵ":"ا", "ٶ":"و", "
 function foldDevanagari(f){
   return f.normalize("NFD").replace(/़/g, "").replace(/ँ/g, "ं").normalize("NFC");
 }
+// A reduplicated or doubled-word query or entry ("dhīre dhīre", "धीरे धीरे", "kabhī
+// kabhī") folds to its single token, so search treats a reduplicated spelling, its
+// hyphenated form (already turned to a space above) and the bare word as one and the
+// same phrase in both directions: the bare form is a substring of the doubled one either
+// way once both are folded down to one token, and a doubled query still matches an entry
+// stored bare. Consecutive identical whitespace-delimited tokens collapse to one; this
+// runs after every script fold (so accents/nukta/Arabic variants are already unified and
+// two spellings of "the same" token compare equal) and is a no-op for scripts written
+// without spaces (zh/ja/ko han text has no tokens to collapse).
+function foldReduplication(f){
+  const parts = f.split(" ");
+  const out = [];
+  parts.forEach(p => { if(!out.length || out[out.length - 1] !== p) out.push(p); });
+  return out.join(" ");
+}
 function searchFold(s){
   // Nasal tildes over a romanised vowel (kahā̃) are how this pack's roman pron marks
   // nasalisation; loose ASCII typing spells that with a trailing n (kahan), so convert
@@ -563,9 +578,11 @@ function searchFold(s){
   const pre = String(s == null ? "" : s).normalize("NFD").replace(/̃/g, "n").normalize("NFC").replace(/-/g, " ");
   let f = normalizeTyped(pre, { foldAccents: true });
   if(/[ऀ-ॿ]/.test(f)) f = foldDevanagari(f);
-  if(!/[؀-ۿ]/.test(f)) return f;
-  return f.replace(/[ٱ-ٳٵ-ٸةىۀۃه]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "")
-    .replace(/[كي]/g, c => ARABIC_VARIANTS[c]).replace(/ے(?=\s|$)/g, "ی").normalize("NFC");
+  if(/[؀-ۿ]/.test(f)){
+    f = f.replace(/[ٱ-ٳٵ-ٸةىۀۃه]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "")
+      .replace(/[كي]/g, c => ARABIC_VARIANTS[c]).replace(/ے(?=\s|$)/g, "ی").normalize("NFC");
+  }
+  return foldReduplication(f);
 }
 // The Arabic definite article: a word-initial ال before at least two more letters is
 // optional in search (كتاب finds الكتاب, and الكتاب finds كتاب). Applied to folded text.

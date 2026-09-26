@@ -1766,6 +1766,34 @@ async function swChecks(){
   check("hi search: chandrabindu folds to anusvara (हैँ finds हैं)", hids("हैँ").includes("hain"));
   check("hi search: hyphen/space-insensitive reduplication (धीरे धीरे finds धीरे-धीरे, and धीरे alone still finds it)",
     hids("धीरे धीरे").includes("dhire") && hids("धीरे").includes("dhire"));
+  // Class: reduplicated/doubled-token query <-> index fold, both directions, every script
+  // (hindi/TODO.md live check). foldReduplication collapses consecutive identical
+  // whitespace tokens on both the query side and the stored-field side of searchFold, so a
+  // reduplicated spelling, its hyphenated form and the bare word are all one search phrase.
+  check("reduplication fold is symmetric: a doubled query finds a bare-stored entry, and a bare query still finds a doubled/hyphenated entry",
+    VC.searchFold("धीरे धीरे") === VC.searchFold("धीरे") && VC.searchFold("धीरे-धीरे") === VC.searchFold("धीरे") &&
+    VC.searchWords([{ id:"bare", w:"धीरे", en:"slowly" }], "धीरे धीरे").map(v=>v.id).includes("bare"));
+  const HW2 = [
+    { id:"kabhi_bare", w:"कभी", en:"sometimes" },
+    { id:"kabhi_dup", w:"कभी कभी", en:"sometimes (redup.)" },
+  ];
+  const hids2 = q => VC.searchWords(HW2, q).map(v => v.id);
+  check("hi reduplication: a doubled query (kabhī kabhī / कभी-कभी) finds the bare-stored entry too",
+    hids2("कभी कभी").includes("kabhi_bare") && hids2("कभी-कभी").includes("kabhi_bare"));
+  check("Latin roman reduplication (pron field): dhire dhire <-> dhire fold to the same phrase",
+    VC.searchFold("dhire dhire") === VC.searchFold("dhire") &&
+    VC.searchWords([{ id:"r", w:"धीरे", pron:"dhīre", en:"slowly" }], "dhire dhire").map(v=>v.id).includes("r") &&
+    VC.searchWords([{ id:"r2", w:"धीरे धीरे", pron:"dhīre dhīre", en:"slowly (redup.)" }], "dhire").map(v=>v.id).includes("r2"));
+  check("Cyrillic reduplication: repeated identical token folds to one (е́ле-е́ле-style doubling), distinct adjacent words are untouched",
+    VC.searchFold("едва едва") === VC.searchFold("едва") && VC.searchFold("темно и тихо") === "темно и тихо");
+  check("Arabic-script reduplication: کبھی کبھی folds like Devanagari, distinct words stay distinct",
+    VC.searchFold("کبھی کبھی") === VC.searchFold("کبھی") && VC.searchFold("کتاب اچھا") === "کتاب اچھا");
+  check("no-space scripts (zh/ja) are untouched by reduplication fold: no whitespace to split on, doubled hanzi (高高) is one atomic string either way",
+    VC.searchFold("高高") === "高高" && VC.searchFold("私私") === "私私");
+  const KW = [{ id:"annyeong", w:"안녕", en:"hi" }, { id:"annyeong_dup", w:"안녕 안녕", en:"hi (redup.)" }];
+  const kids = q => VC.searchWords(KW, q).map(v => v.id);
+  check("hangul reduplication (space-separated syllable blocks, like the roman/Devanagari case): 안녕 안녕 folds to 안녕, matching either stored form",
+    VC.searchFold("안녕 안녕") === VC.searchFold("안녕") && kids("안녕 안녕").includes("annyeong") && kids("안녕").includes("annyeong_dup"));
   check("typed-answer checking is untouched: nukta stays a distinct letter there (normalizeTyped does not fold it)",
     VC.normalizeTyped("जरूर", { foldAccents: true }) !== VC.normalizeTyped("ज़रूर", { foldAccents: true }));
 
