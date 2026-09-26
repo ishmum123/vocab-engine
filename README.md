@@ -15,7 +15,7 @@ The question types are:
 - **hear:** hear the word, then pick its meaning.
 - **read:** see the word, then pick its meaning.
 - **recall:** see the meaning, then pick the word.
-- **type:** see the meaning, then type the word.
+- **type:** see the meaning, then type the word. A pack with `typing: "pron"` (zh) alternates two tagged kinds here instead. "Type the pinyin" is silent and tones are optional. "Type the characters" plays the word first. See docs/PACK_SCHEMA.md "Pronunciation aids".
 - **gap:** fill a cloze sentence, by picking or typing.
 
 ## Layout

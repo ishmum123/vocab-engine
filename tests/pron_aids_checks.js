@@ -184,7 +184,7 @@ function walk(api, stopAt){
       if(it.kind === "type"){
         seen.push({ where: it.key, kind: "type", it, html: P });
         const w = BY_ID[it.key.slice(2)];
-        api.el("tin").value = it.label.startsWith("Type the reading") ? w.pron : w.w; api.el("submit").click();
+        api.el("tin").value = it.label === "Type the pinyin" ? w.pron : w.w; api.el("submit").click();
         seen.push({ where: it.key + " reveal", html: api.html("rv") }); api.el("nx").click(); continue;
       }
       const btns = api.el("o").children;
@@ -233,13 +233,15 @@ function walk(api, stopAt){
     const T = [
       ["xuésheng", "xuésheng", "ok"], ["XUÉSHENG", "xuésheng", "ok"], ["xue2sheng5", "xuésheng", "ok"], ["xue2sheng0", "xuésheng", "ok"], ["xue2sheng", "xuésheng", "ok"],
       ["xue2 sheng5", "xuésheng", "ok"], ["xué sheng", "xuésheng", "ok"], ["xuesheng", "xuésheng", "tones"], ["xue sheng", "xuésheng", "tones"],
-      ["xue2sheng1", "xuésheng", "wrong"], ["xue3sheng", "xuésheng", "wrong"], ["xuexi", "xuésheng", "wrong"],
+      ["xue2sheng1", "xuésheng", "tonesDiff"], ["xue3sheng", "xuésheng", "tonesDiff"], ["xuexi", "xuésheng", "wrong"], ["xueshen", "xuésheng", "wrong"],
+      ["nǐhǎo", "nǐ hǎo", "ok"], ["nihao", "nǐ hǎo", "tones"], ["ni3hao3", "nǐ hǎo", "ok"], ["ni2hao3", "nǐ hǎo", "tonesDiff"], ["nihao5", "nǐ hǎo", "tonesDiff"], ["níhǎo", "nǐ hǎo", "tonesDiff"], ["nihaoo", "nǐ hǎo", "wrong"],
+      ["yi1hui4r5", "yīhuìr", "ok"], ["yihuir", "yīhuìr", "tones"], ["yi2hui4r", "yīhuìr", "tonesDiff"], ["yi1hui4", "yīhuìr", "wrong"], ["lv3", "lǜ", "tonesDiff"],
       ["lv4", "lǜ", "ok"], ["lu:4", "lǜ", "ok"], ["lü4", "lǜ", "ok"], ["lu4", "lǜ", "wrong"], ["qu4", "qù", "ok"], ["qü4", "qù", "ok"],
       ["yi4dian3r", "yìdiǎnr", "ok"], ["yi4dianr3", "yìdiǎnr", "ok"], ["yidianr", "yìdiǎnr", "tones"],
       ["xi1an1", "Xī'ān", "ok"], ["Xī’ān", "Xī'ān", "ok"], ["xian", "Xī'ān", "tones"], ["ma", "ma", "ok"], ["ma5", "ma", "ok"], ["", "ma", "wrong"], ["  ", "nǐ", "wrong"],
     ];
     const badT = T.filter(([i, p, e]) => VC.checkPronTyped(i, p) !== e);
-    check(`checkPronTyped: marked, numbered (neutral 5/0/none, r before/after digit), ü as v/u:, case/apostrophe/space-insensitive; toneless = "tones" (${badT.length} bad${badT[0] ? ": " + JSON.stringify(badT[0]) : ""})`, badT.length === 0);
+    check(`checkPronTyped: marked, numbered (neutral 5/0/none, r before/after digit), ü as v/u:, case/apostrophe/space-insensitive; toneless = "tones", other tones = "tonesDiff", other letters = "wrong" (${badT.length} bad${badT[0] ? ": " + JSON.stringify(badT[0]) : ""})`, badT.length === 0);
     // Every word: its pron, its generated numbered form and its toneless form.
     let nb = 0;
     WORDS.forEach(w => {
@@ -279,26 +281,52 @@ function walk(api, stopAt){
     // Options: every word-choice option label (recall, gap) is coloured.
     const wordOpts = seen.filter(x => x.kind === "mc" && /opts-w/.test(x.html)).flatMap(x => x.opts);
     check(`word-choice options are coloured readings (${wordOpts.length} labels)`, wordOpts.length > 0 && wordOpts.every(o => tspans(o) > 0 && !uncoloured(o).length));
-    // Typed reading items reached the walk (the production slot) and played through.
+    // Typed items reached the walk (the production slot) and played through: both kinds,
+    // alternating in each plan (reading first), never a written blank.
     const typed = seen.filter(x => x.kind === "type");
-    check(`typed-reading items appear in the Today walk's production slots (${typed.length}) and never type a written word or blank`,
-      typed.length > 0 && typed.every(x => x.it.label === "Type the reading (tone marks or numbers)" && x.it.key.startsWith("w:")));
+    const tLabels = typed.map(x => x.it.label);
+    check(`typed items appear in the Today walk's production slots, both kinds (${tLabels.filter(l => l === "Type the pinyin").length} pinyin, ${tLabels.filter(l => l === "Type the characters").length} characters) and only word keys`,
+      typed.length > 1 && tLabels.every(l => l === "Type the pinyin" || l === "Type the characters") && tLabels.includes("Type the pinyin") && tLabels.includes("Type the characters") && typed.every(x => x.it.key.startsWith("w:")));
     check("no typed gap item (gapType) in the walk", !seen.some(x => x.kind === "type" && x.it.key.startsWith("s:")));
     const w = BY_ID["w0077"]; // 学生 xuésheng
+    // Plan order picks the item: 1st type slot pinyin, 2nd characters, 3rd pinyin.
+    const tPlan = [{ kind: "type", word: w }, { kind: "recall", word: w }, { kind: "type", word: w }, { kind: "type", word: w }];
+    const tItems = tPlan.map(api.itemFromPlan);
+    check("itemFromPlan as a map callback: type slots alternate Type the pinyin / Type the characters in plan order",
+      tItems.map(x => x.label).join("|") === "Type the pinyin|Which word is this?|Type the characters|Type the pinyin");
     const it = api.itemFromPlan({ kind: "type", word: w });
-    check("type slot -> typed-reading item: gloss stimulus + replay button, no written form, no lang on the input",
-      it.kind === "type" && it.html.includes(VC.escapeHtml(VC.gloss(w))) && /id="rp2"/.test(it.html) && !HAN.test(stripTags(it.html)) && it.inputTA === "" && /tone marks or numbers/.test(it.placeholder));
-    check("typed-reading check: marked and numbered right, toneless wrong", it.check("xuésheng") && it.check("xue2sheng") && !it.check("xuesheng") && !it.check("xue2sheng1"));
-    check("toneless answer: a 'tones missing' note with the coloured marked form; none otherwise",
-      it.feedback("xuesheng") === `<div class="diff">tones missing: <span class="tpron">${VC.toneHTML(w.pron)}</span></div>` && it.feedback("xuexi") === "" && it.feedback("xue2sheng") === "");
-    // Drive one typed item through the renderer: toneless -> wrong, note + reveal shown.
-    const { api: a2 } = await boot({ seed: 3 });
+    check("pinyin item: gloss stimulus, 'pinyin · tones optional' tag, no audio markup (no replay/speaker, no mount), no written form, Latin input (lang=en)",
+      it.kind === "type" && it.label === "Type the pinyin" && it.html.includes(VC.escapeHtml(VC.gloss(w))) && /class="ktag"><b>pinyin<\/b> · tones optional</.test(it.html)
+      && !/id="rp2"|id="sp"|class="replay|class="speaker|data-wid/.test(it.html) && !it.mount && !HAN.test(stripTags(it.html)) && it.inputTA === ' lang="en"' && it.placeholder === "pinyin, tones optional…");
+    check("pinyin check: marked, numbered, toneless and other tones right; other letters wrong", it.check("xuésheng") && it.check("xue2sheng") && it.check("xuesheng") && it.check("xue2sheng1") && it.check("XUE3 SHENG") && !it.check("xuexi") && !it.check("xueshen"));
+    check("pinyin feedback: toneless or other tones -> a 'tones:' note with the coloured marked form; none when exact or wrong",
+      it.feedback("xuesheng") === `<div class="diff">tones: <span class="tpron">${VC.toneHTML(w.pron)}</span></div>` && it.feedback("xue4sheng") === it.feedback("xuesheng") && it.feedback("xuexi") === "" && it.feedback("xue2sheng") === "" && it.feedback("xuésheng") === "");
+    const wi = tItems[2];
+    check("characters item: gloss stimulus, 'characters' tag, replay button + autoplay mount, target-language input (no lang=en), characters placeholder",
+      wi.kind === "type" && wi.label === "Type the characters" && wi.html.includes(VC.escapeHtml(VC.gloss(w))) && /class="ktag"><b>characters<\/b>/.test(wi.html)
+      && /id="rp2"/.test(wi.html) && typeof wi.mount === "function" && !HAN.test(stripTags(wi.html)) && wi.inputTA === undefined && wi.placeholder === "characters…");
+    check("characters check: the written form (and alt forms) right, the reading or another word wrong", wi.check(w.w) && wi.check(" " + w.w + " ") && !wi.check(w.pron) && !wi.check("学习") && (w.alt || []).every(a => wi.check(a)));
+    // Drive both items through the renderer, with the spoken log.
+    const { api: a2, spoken } = await boot({ seed: 3 });
     a2.setProg(seedPF());
-    const r = runTyped(a2, w, "xuesheng");
-    check("renderer: toneless answer counted wrong, reveal shows you typed + tones missing + the coloured reading",
-      r.wrong && /you typed: xuesheng/.test(r.rv) && /tones missing:/.test(r.rv) && r.rv.includes(VC.toneHTML(w.pron)) && /placeholder="tone marks or numbers…"/.test(r.html) && !/id="tin"[^>]*lang=/.test(r.html));
-    const r2 = runTyped(a2, w, "xue2sheng5");
-    check("renderer: numbered answer counted right", !r2.wrong && !/tones missing/.test(r2.rv));
+    const s0 = spoken.length;
+    const r = runTyped(a2, w, "xuesheng", 0, spoken);
+    check("renderer, pinyin: nothing spoken before the answer; toneless counted right, no 'you typed', tones note + coloured reading",
+      r.spokenBefore === 0 && !r.wrong && !/you typed/.test(r.rv) && /tones: /.test(r.rv) && r.rv.includes(VC.toneHTML(w.pron)) && /placeholder="pinyin, tones optional…"/.test(r.html) && /id="tin"[^>]*lang="en"/.test(r.html) && !/id="rp2"/.test(r.html));
+    const r2 = runTyped(a2, w, "xue4sheng1", 0, spoken);
+    check("renderer, pinyin: other tones counted right with the tones note", !r2.wrong && /tones: /.test(r2.rv) && r2.spokenBefore === 0);
+    const r3 = runTyped(a2, w, "xue2sheng5", 0, spoken);
+    check("renderer, pinyin: numbered answer counted right, no note", !r3.wrong && !/tones: /.test(r3.rv));
+    const r4 = runTyped(a2, w, "xuexi", 0, spoken);
+    check("renderer, pinyin: other letters counted wrong, 'you typed' shown", r4.wrong && /you typed: xuexi/.test(r4.rv));
+    const r5 = runTyped(a2, w, w.w, 1, spoken);
+    check(`renderer, characters: the word spoken once on mount (autoplay), zh input attributes, placeholder; written form counted right (spoken before answer: ${r5.spokenBefore})`,
+      r5.spokenBefore === 1 && r5.spokenText[0] === w.w && !r5.wrong && /id="rp2"/.test(r5.html) && /id="tin"[^>]*data-tl lang="zh[^"]*"/.test(r5.html) && /placeholder="characters…"/.test(r5.html) && s0 >= 0);
+    const r6 = runTyped(a2, w, w.pron, 1, spoken);
+    check("renderer, characters: typing the reading counted wrong", r6.wrong);
+    // A word with no pron gets the characters item in either slot.
+    const np = Object.assign({}, w, { pron: "" });
+    check("no pron: both type slots give the characters item", [0, 1].every(i => a2.itemFromPlan({ kind: "type", word: np }, i, [{ kind: "type" }, { kind: "type" }]).label === "Type the characters"));
 
   } catch(e){ check(`section threw: ${e.message}`, false); }
 
@@ -768,9 +796,15 @@ function walk(api, stopAt){
 
 // Runs the typed item for word w as a one-item drill through the app's renderer and
 // answers `value`: the rendered item, the reveal, and whether it counted wrong.
-function runTyped(api, w, value){
-  api.drill1(api.itemFromPlan({ kind: "type", word: w }));
+// slot (optional): 0 = the pinyin item (the default), 1 = the characters item.
+// spoken (optional): the boot's spoken log; spokenBefore counts what was spoken between
+// mount and the answer (autoplay), spokenText what it was.
+function runTyped(api, w, value, slot, spoken){
+  const plan = [{ kind: "type", word: w }, { kind: "type", word: w }];
+  const k0 = spoken ? spoken.length : 0;
+  api.drill1(api.itemFromPlan(plan[slot || 0], slot || 0, plan));
   const html = api.html("panel");
+  const spokenText = spoken ? spoken.slice(k0) : [];
   api.el("tin").value = value; api.el("submit").click();
-  return { html, rv: api.html("rv"), wrong: api.getD().miss.length > 0 };
+  return { html, rv: api.html("rv"), wrong: api.getD().miss.length > 0, spokenBefore: spokenText.length, spokenText };
 }
