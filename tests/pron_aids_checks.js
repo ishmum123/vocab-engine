@@ -368,6 +368,7 @@ function walk(api, stopAt){
       ["hiragana typed for a katakana pron", "こーひー", "コーヒー", "ok"], ["exact katakana", "コーヒー", "コーヒー", "ok"],
       ["half-width katakana", "ｺｰﾋｰ", "コーヒー", "ok"], ["spaces around/inside", " たべ る ", "たべる", "ok"],
       ["affix mark omitted", "ねん", "〜ねん", "ok"], ["affix mark typed", "〜ねん", "〜ねん", "ok"],
+      ["standalone voicing mark ゛ (U+309B, not the combining U+3099) recomposes with its base kana", "は゛す", "バス", "ok"],
       ["ー missing (long vowel spelled out)", "こうひい", "コーヒー", "wrong"], ["ー missing", "コヒー", "コーヒー", "wrong"],
       ["extra ー", "たべるー", "たべる", "wrong"], ["small kana as full size", "きやく", "きゃく", "wrong"], ["full size as small", "きゃく", "きやく", "wrong"],
       ["voicing mark missing", "はす", "バス", "wrong"], ["other kana", "たべた", "たべる", "wrong"], ["prefix only", "たべ", "たべる", "wrong"],
@@ -394,6 +395,18 @@ function walk(api, stopAt){
       && JSON.stringify(VC.affixAlts("-(이)랑")) === JSON.stringify(["(이)랑", "이랑", "랑"]));
     check("affixAlts: a hypothetical word combining a slash and a parenthetical group per alternative still yields both bare alternatives, so a learner can type either without its optional syllable",
       (() => { const a = VC.affixAlts("-(으)로/(이)나"); return a.includes("(으)로") && a.includes("(이)나") && a.includes("으로") && a.includes("로") && a.includes("이나") && a.includes("나"); })());
+    check("writtenTypedFold: NFKC-folds half-width kana to full-width and unifies ～ to 〜; katakana/hiragana untouched (unlike kanaFold)",
+      VC.writtenTypedFold("ﾃﾚﾋﾞ") === "テレビ" && VC.writtenTypedFold("～年") === "〜年" && VC.writtenTypedFold("〜年") === "〜年"
+      && VC.writtenTypedFold("テレビ") === "テレビ" && VC.writtenTypedFold("てれび") === "てれび");
+    check("acceptTyped: a no-tones written item accepts half-width kana and either affix tilde once writtenTypedFold is applied to the typed value (as writtenTypeItem now does)",
+      (() => {
+        const jaPack = { typing: { caseSensitive: false, accents: "lenient" } };
+        const tv = { id: "w9010", w: "テレビ", alt: null };
+        const affixWord = { id: "w9011", w: "〜年", alt: null };
+        return VC.acceptTyped(VC.writtenTypedFold("ﾃﾚﾋﾞ"), tv, jaPack, VC.affixAlts(tv.w)) === true
+          && VC.acceptTyped("ﾃﾚﾋﾞ", tv, jaPack, VC.affixAlts(tv.w)) === false // unfolded half-width does not match on its own
+          && VC.acceptTyped(VC.writtenTypedFold("～年"), affixWord, jaPack, VC.affixAlts(affixWord.w)) === true;
+      })());
     {
       const KO_WORDS = path.join(ROOT, "..", "korean", "pack", "words.json");
       if(fs.existsSync(KO_WORDS)){

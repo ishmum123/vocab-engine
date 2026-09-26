@@ -1133,11 +1133,16 @@ function pronTypeItem(entry){
 }
 function writtenTypeItem(entry){
   const hear = canHearWord(entry);
+  // No-tones pron packs (ja) only, and never a Latin reading: NFKC-fold the typed value
+  // first, so half-width kana (ﾃﾚﾋﾞ) matches full-width (テレビ) and either affix-mark
+  // tilde matches whichever 〜/～ the written form uses (VC.writtenTypedFold). acceptTyped
+  // itself and Latin/tones packs are untouched.
+  const foldTyped = !TONES && !LATIN_PRON.test(entry.pron || "") ? VC.writtenTypedFold : (v => v);
   return { kind:"type", key:"w:"+entry.id, label:"Type the characters",
     html: `${kindTag("characters", hear ? "listen" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
     placeholder: "characters…",
     mount: () => { if(hear){ const b = $("rp2"); sayWord(entry, b); b.onclick = () => sayWord(entry, b); } },
-    check: val => VC.acceptTyped(val, entry, PACK, VC.affixAlts(entry.w), WORDS), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(foldTyped(val), entry, PACK, VC.affixAlts(entry.w), WORDS), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // The characters item only for a word whose written form is on display (dispWord: under

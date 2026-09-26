@@ -2600,8 +2600,11 @@ function kanaFold(s){
 }
 // Comparison key for a reading typed without tones: kanaFold, normalizeTyped (case,
 // whitespace, apostrophes), then everything but letters, marks and digits removed (spaces,
-// the affix mark 〜 of 〜ねん, the middle dot ・).
-function plainPronKey(s){ return normalizeTyped(kanaFold(s)).replace(/[^\p{L}\p{M}\p{N}]/gu, ""); }
+// the affix mark 〜 of 〜ねん, the middle dot ・), then NFC again: a standalone voicing
+// mark (U+309B ゛, not the combining U+3099) NFKC-decomposes inside kanaFold to a space
+// plus the combining mark, so stripping the space above leaves the combining mark right
+// after its base kana; NFC here recomposes them (は + ゛ + す -> ばす, matching バス).
+function plainPronKey(s){ return normalizeTyped(kanaFold(s)).replace(/[^\p{L}\p{M}\p{N}]/gu, "").normalize("NFC"); }
 // A written form without its affix mark: 〜年 -> 年 (wave dash or full-width tilde at
 // either end), so a typed suffix/prefix word needs no 〜. The form itself when it has none.
 // Affix marks in the written form a learner should not have to type: Japanese \u301c/\uff5e
@@ -2637,6 +2640,16 @@ function affixAlts(w){
   parts.forEach(p => out.push(...parenAlts(p)));
   return out;
 }
+// A typed "characters" answer, NFKC-folded (half-width kana ﾃﾚﾋﾞ -> full-width テレビ) with
+// ～ (full-width tilde) unified to 〜 (wave dash), the affix mark a pack's written forms
+// actually use: either may be typed for either. The tilde swap runs before NFKC, since
+// NFKC's own compatibility mapping turns ～ into a bare ASCII "~" (〜 has no such
+// mapping), which would make it unmatchable by either the ～ or 〜 spelling afterwards.
+// Used only on the written item of a no-tones typing:"pron" pack (ja): unlike kanaFold, it never folds
+// katakana to hiragana, since the written form's spelling (テレビ, not てれび) must still
+// match exactly. Never applied to a Latin pack (no half-width/tilde concern there) or a
+// tones pack (zh), whose written check is unaffected.
+function writtenTypedFold(s){ return String(s == null ? "" : s).replace(/～/g, "〜").normalize("NFKC"); }
 // pack.typing "pron": the typed item a plan's "type" slot (a word's production slot) is.
 // The type slots alternate in plan order, reading first: "pron" (type the reading, silent,
 // tones optional), then "written" (type the characters, the word's audio played). Plan
@@ -2835,7 +2848,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
   recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, graphemes, shapingClusters, scriptUnitNote, scriptUnitHeadName, searchFold, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
-  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, kanaFold, plainPronKey, affixBare, affixAlts, typeSlotKind, joinReadings, composeSpanReading, spanReadingText,
+  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, kanaFold, plainPronKey, affixBare, affixAlts, writtenTypedFold, typeSlotKind, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;
