@@ -181,6 +181,27 @@ Implemented in `tools/packbuilder/audio.py` (tests: `packbuilder/tests/test_audi
 - Smoke-tested 2026-09-26 on a copy of the Persian pack (`--limit 3`, real Piper): 3 Opus clips, URLs,
   pack.audio, manifest; validator 0 errors. `--check` on the real pack: 5610 wanted, 5610 missing.
 
+## Ezafe override pass (Persian, phase 3)
+
+Generator: `persian/tools/ezafe_say.py` (committed in the persian repo; needs stanza 1.14 + the fa models in
+`.cache/stanza`, and piper-tts for espeak). It writes `tools/audio_say.json` for the sentences and passage
+sentences; run it again after editing either file, then `packbuilder audio` re-renders only changed items.
+- **Parse:** Stanza fa (UD Persian-Seraji) tokenize/mwt/pos/lemma/depparse. For each arc head→dep with deprel
+  `amod`, `nmod` or `nmod:poss` where dep follows head, the word just before dep's subtree gets the ezafe.
+- **Skipped:** that word not NOUN/PROPN/ADJ/DET, or a clitic split (دوستم); dep's subtree starting with
+  ADP/CCONJ/SCONJ/PUNCT; indefinite -ی (word ends in ی, lemma does not: روزی, نیرویی); dep a written-apart
+  suffix (اش, شان, ها, ریزی ...); the idiom به نظر + ADJ; an ezafe already written (ِ, ٔ, final ای/وی).
+- **Spelling** (checked on espeak phonemes): consonant + kasre (پارکِ → pârke); silent ه + hamza above
+  (خانهٔ → xâneye); spoken ه or و + kasre, decided by espeak's own reading of the bare word (ماهِ → mâhe,
+  not mâhye; عضوِ → ozve, not ozvi); ی + ZWNJ + ی (کشتی‌ی → kashtiye; کشتیِ gives koshtie); vowel ا/و + ی
+  (دانشجوی, هوای). The ی additions change letters, so `--check` lists them as notes.
+- **Coverage (2026-09-26):** 3575 distinct texts, 1508 overridden (42%), 1929 ezafe marks. Precision: 20 random
+  overrides phoneme-checked, 19 right; the one wrong class (به نظر کافی می‌رسد) got the idiom guard. Recall is
+  unmeasured: parser misses and flat:name chains (حضرت محمد, ایالات متحده) stay unmarked.
+- **Stress is not addressed.** espeak-ng's fa stress is kept as is, except where an ezafe mark shifts it
+  (the kasre also moves the stress off the linked word, as in phase 1). Fix individual items by hand-editing `audio_say.json` (the generator overwrites
+  the file, so hand edits belong in the generator as rules or must be re-applied).
+
 ## Rollout
 
 1. **Phase 2 — engine + builder + tests (done, branch fa-audio-2).** Tests: `tests/audio_checks.js` (core,
@@ -188,7 +209,9 @@ Implemented in `tools/packbuilder/audio.py` (tests: `packbuilder/tests/test_audi
    `tests/validate_pack_audio_checks.js`, `packbuilder/tests/test_audio.py`.
 2. **Phase 3 — render, publish, live check.** Full Persian render (5610 files: 2000 words, 3025 sentences,
    552 passage sentences, 33 units). Measured estimate with ganji_adabi: ~14 min in one process
-   (3025×0.11 s + 552×0.18 s + 2033×0.033 s synth + 5610×0.058 s encode); ~43.5 MB. Then a QA pass on a
+   (3025×0.11 s + 552×0.18 s + 2033×0.033 s synth + 5610×0.058 s encode); ~43.5 MB. Measured 2026-09-26 (persian beefd3b):
+   5610 clips, 43.5 MB, 1652 s wall (27.5 min, about twice the estimate); `--check` exit 0, validate_pack
+   0 errors; GitHub Pages serves `.opus` as `audio/ogg` with 200, and 206 for a Range request. Then a QA pass on a
    stratified sample (ear + ASR round-trip to flag outliers), `audio_say.json` fixes, publish the persian
    repo, live check on the phone (Listen drill, Words tap, passage read-aloud, offline replay of a played clip)
    and an iPhone (Opus playback, Range through the worker), and the `.opus` MIME type Pages serves.
