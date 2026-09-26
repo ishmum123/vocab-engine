@@ -143,6 +143,7 @@ return {
   hasScript: () => HAS_SCRIPT, scriptTab: () => SCRIPT_TAB, byId: () => SCRIPT_BYID,
   scriptDrillItem, scriptCtx, kindCtx: () => scriptKindCtx(), scriptTeachHTML, scriptChartHTML, scriptHL, drill,
   panelListeners: () => document.getElementById("panel")._listeners.click || [],
+  ui, tf, glossHTML, glossBox, revealBlock, wordRowHTML, readItem, recallItem: typeof recallItem === "function" ? recallItem : null,
 };`;
   const names = ["document","window","SpeechSynthesisUtterance","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES"];
   const args = [document, window, window.SpeechSynthesisUtterance, { userAgent:"ScriptAppChecks/1.0" }, undefined, localStorage, () => ({ matches:false }), fn => setTimeout(fn, 0),
@@ -156,6 +157,37 @@ return {
 }
 
 const count = (s, re) => (s.match(re) || []).length;
+// RTL rendering rules (docs/PACK_SCHEMA.md "RTL rendering"), checked on rendered markup
+// with a tag-stack walk. Returns the violations:
+//   bidi:  a text node with Latin letters whose nearest dir ancestor is dir=rtl (UI text
+//          in the target text's bidi context; dir=ltr/auto or <bdi> nearer isolates it);
+//   font:  RTL-script text outside any data-tl element (no pack font), or Latin text
+//          inside a data-tl element with no data-ui element in between (pack font);
+//   mixed: one text node holding both RTL-script and Latin letters (never isolated).
+const RTL_TXT = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+function rtlAudit(html){
+  const stack = [], bad = [], VOID = new Set(["input","br","img","hr","meta","link","path","rect","circle","polygon"]);
+  for(const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>|([^<]+)/g)){
+    if(m[4] !== undefined){
+      const t = stripTags(m[4]); if(!t.trim()) continue;
+      const latin = /[A-Za-z]/.test(t), rtl = RTL_TXT.test(t);
+      const nd = [...stack].reverse().find(e => e.dir || e.tag === "bdi");
+      const ti = stack.map(e => e.tl).lastIndexOf(true);
+      if(latin && nd && nd.dir === "rtl") bad.push(`bidi: "${t.trim()}" in dir=rtl <${nd.tag}>`);
+      if(rtl && ti < 0) bad.push(`font: "${t.trim()}" outside data-tl`);
+      if(latin && ti >= 0 && !stack.slice(ti).some(e => e.ui)) bad.push(`font: "${t.trim()}" inside data-tl <${stack[ti].tag}>`);
+      if(latin && rtl) bad.push(`mixed: "${t.trim()}"`);
+      continue;
+    }
+    const tag = m[2].toLowerCase();
+    if(m[1]){ const i = stack.map(e => e.tag).lastIndexOf(tag); if(i >= 0) stack.length = i; continue; }
+    if(VOID.has(tag) || /\/\s*$/.test(m[3])) continue;
+    stack.push({ tag, dir: (m[3].match(/\bdir="(\w+)"/) || [])[1], tl: /\bdata-tl\b/.test(m[3]), ui: /\bdata-ui\b/.test(m[3]) });
+  }
+  return bad;
+}
+// Option buttons are built with createElement: audit each as its markup.
+const optsMarkup = api => (api.el("o") ? api.el("o").children : []).map(b => `<button${b.dir ? ` dir="${b.dir}"` : ""}>${b.innerHTML}</button>`).join("");
 const stripTags = h => h.replace(/<[^>]+>/g, "").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&");
 const segsOf = h => [...h.matchAll(/<div class="seg">[\s\S]*?<\/i><\/div>([\s\S]*?)<\/div>/g)].map(m => stripTags(m[1]));
 const learnLine = h => stripTags((h.match(/2\. Learn<\/td><td>([\s\S]*?)<\/td>/) || [])[1] || "");
@@ -459,8 +491,9 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
       !/class="xnm"/.test(dhN.match(/<div class="xhead"[\s\S]*?<\/div>/)[0]) && nItem.reveal.name === "");
     const rnN = FX.fa(); const ru3 = rnN.script.units.find(u => u.id === "fa-be"); ru3.name = "be";
     const rbN = await boot(rnN);
+    // (A Latin name in an RTL pack is UI text: plain, no dir=rtl / pack-font bdi; RTL rendering rules.)
     check("... a head name that differs from the roman is kept on both",
-      /class="xnm"[^<]*<bdi[^>]*>be<\/bdi>/.test(rbN.api.scriptTeachHTML(ru3)) && VC.scriptItem("symSound", ru3, { units: rnN.script.units, words: rnN.words }).reveal.name === "be");
+      /class="xnm">be<\/span>/.test(rbN.api.scriptTeachHTML(ru3)) && VC.scriptItem("symSound", ru3, { units: rnN.script.units, words: rnN.words }).reveal.name === "be");
     // RTL answer block: one edge for every line (root flag + rule), LTR packs untouched.
     check("rtl pack: root carries data-tlrtl, and .reveal/.rvb align right under it", fb.document.documentElement._attrs["data-tlrtl"] === "" && /:root\[data-tlrtl\] \.reveal,:root\[data-tlrtl\] \.rvb\{text-align:right\}/.test(appHtml));
     check("ltr pack (ko): no data-tlrtl on the root", kb.document.documentElement._attrs["data-tlrtl"] === undefined);
@@ -695,6 +728,47 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     check(`${lang}: 390px proxy: teach head ${wide.w}px (${wide.id}) and widest chart cell ${Math.round(cell)}px fit`, wide.w <= 358 && cell <= 336);
     b.api.goto("sounds");
     check(`${lang}: Script tab chart has every unit`, count(b.api.html("panel"), /data-xopen/g) === units.length);
+  }
+
+  // ---------------------------------------------------------------- [14] RTL rendering rules
+  console.log("\n[14] RTL rendering rules: bidi isolation and pack font on rendered markup (fa-like)");
+  {
+    const FA = FX.fa();
+    const bk = FA.words.find(w => w.w === "کتاب"); bk.en = "book (کتاب‌ها: books)";
+    FA.script.notes[0].body = "Short vowels are not written: کتاب is read ketâb.";
+    const b = await boot(FA); const api = b.api;
+    const rr = api.ui(bk.en);
+    check("ui(): each RTL run in a gloss is its own <bdi data-tl lang dir=rtl class=tlf>, the English around it escaped, text unchanged",
+      rr === 'book (<bdi data-tl lang="fa" dir="rtl" class="tlf">کتاب‌ها</bdi>: books)' && stripTags(rr) === bk.en);
+    check("ui(): a Latin-only string is exactly escapeHtml", api.ui("a <b> & 'c'") === VC.escapeHtml("a <b> & 'c'"));
+    check("VC.rtlRuns: runs join back to the input, spaces/ZWNJ inside a run kept, none for Latin",
+      VC.rtlRuns("x حروفِ تہجی, y").map(r => r.t).join("") === "x حروفِ تہجی, y" && VC.rtlRuns("x حروفِ تہجی, y").filter(r => r.rtl).length === 1 &&
+      VC.rtlRuns("abc").length === 1 && !VC.rtlRuns("abc")[0].rtl && VC.rtlRuns("").length === 0 && VC.rtlRuns("(bound: لـ)")[1].t === "لـ");
+    check("VC.fontStackOf: generic families dropped (Latin falls to the UI stack), null when none named",
+      VC.fontStackOf({ fontFamily: '"Noto Nastaliq Urdu", serif' }) === '"Noto Nastaliq Urdu"' && VC.fontStackOf({ fontFamily: "Vazirmatn, \"Noto Naskh Arabic\", sans-serif" }) === 'Vazirmatn, "Noto Naskh Arabic"' &&
+      VC.fontStackOf({ fontFamily: "serif" }) === null && VC.scriptDisplay(FA.pack).fontStack === "Vazirmatn");
+    const sites = {};
+    sites.gloss = api.glossHTML(bk.id);
+    sites.glossBox = api.glossBox();
+    sites.reveal = api.revealBlock(bk);
+    sites.wordRow = api.wordRowHTML(bk, "wl");
+    api.drill([api.readItem(bk)], () => {});
+    sites.meaningItem = api.html("panel") + optsMarkup(api);
+    answer(api, true); sites.meaningReveal = api.html("rv");
+    const unit = FA.script.units.find(u => u.id === "fa-be");
+    sites.teachCard = api.scriptTeachHTML(unit);
+    VC.answerScriptChoice(api.getProg(), true); api.today();
+    sites.today = api.html("panel");
+    Object.keys(sites).forEach(k => { const bad = rtlAudit(sites[k]); check(`rtl audit: ${k} has no bidi/font violations (${bad.length})`, bad.length === 0, bad.slice(0, 4).join("; ")); });
+    check("gloss popover box is an LTR line (dir=ltr), the word inside it an isolated dir=rtl span", /^<div class="gloss" id="gloss" dir="ltr" hidden>/.test(sites.glossBox) && /<span class="gw" data-tl lang="fa" dir="rtl">/.test(sites.gloss));
+    check("Today Learn line: the stage label is a tf() fragment (pack font, capped line-height)", /2\. Learn<\/td><td><bdi data-tl lang="fa" dir="rtl" class="tlf">الفبا<\/bdi>, set/.test(sites.today));
+    check("meaning options with an RTL fragment: button stays LTR, fragment isolated", /<button><b class="num">\d<\/b>book \(<bdi data-tl lang="fa" dir="rtl" class="tlf">/.test(optsMarkup(api)) || /book \(<bdi[^>]*class="tlf">/.test(sites.meaningItem));
+    // Deliberately broken markup trips the audit (the audit itself is live).
+    check("rtl audit catches Latin in a dir=rtl block, RTL outside data-tl, and Latin inside data-tl",
+      rtlAudit('<div dir="rtl">79 words</div>').length === 1 && rtlAudit("<p>learn کتاب</p>").length === 2 && rtlAudit('<div data-tl lang="fa" dir="rtl">ketâb</div>').length === 2);
+    // LTR packs: the helpers are the old markup.
+    const kb = await boot(FX.ko());
+    check("LTR pack: ui() is escapeHtml, tf() is tw(), glossBox has no dir", kb.api.ui("x (아이)") === "x (아이)" && kb.api.tf("아이") === '<bdi data-tl lang="ko">아이</bdi>' && !/dir=/.test(kb.api.glossBox()));
   }
 
   console.log(`\n${fails ? "FAILED" : "ALL PASSED"}: ${passes} passed, ${fails} failed`);

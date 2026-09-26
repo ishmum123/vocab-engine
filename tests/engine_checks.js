@@ -1334,7 +1334,7 @@ const __wrappedAnnounce = announce;
 announce = function(h){ __announced = h; return __wrappedAnnounce.apply(this, arguments); };
 return {
   getAnnounced:()=>__announced,
-  glossHTML, glossBox, startPassage, readResults, passageSentenceHTML, getRD:()=>RD, getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
+  glossHTML, glossBox, startPassage, readResults, readRender, getProg:()=>prog, passageSentenceHTML, getRD:()=>RD, getHasSpeech:()=>hasSpeech, getRenderCalls:()=>__renderCalls, hearItem, hearSentence, readItem, typeItem, dnext,
   setHasSpeech: v => { hasSpeech = v; },
   setQueueAndNext:(items, onDone) => { D = { q: items.slice(), right:0, seen:0, miss:[], onDone: onDone||(()=>{}), summary:null }; dnext(); },
 };`;
@@ -1461,15 +1461,16 @@ return {
     await tick(); await tick();
   }catch(e){ check(`pack.fonts link scenario does not throw (got: ${e.message})`, false); }
 
-  // RTL gloss popover: for pack.rtl the #gloss container is dir=rtl (word at the right
-  // edge, pron/gloss after it in reading order) with pron and the English gloss as LTR
-  // runs; ltr packs get exactly the old markup.
+  // RTL gloss popover: for pack.rtl the #gloss container is an LTR line (dir=ltr, even
+  // inside an RTL block) holding the word as an isolated dir=rtl span, then pron and the
+  // English gloss as LTR runs, so a wrapping gloss never interleaves with the word
+  // (docs/PACK_SCHEMA.md "RTL rendering"); ltr packs get exactly the old markup.
   try{
     const wid = WORDS.find(w => w.pron).id;
     const ltr = bootAppSync([{ lang:"zh-CN", name:"x" }]).api;
     const rtl = bootAppSync([{ lang:"zh-CN", name:"x" }], { pack: Object.assign({}, PACK, { rtl: true }) }).api;
     const rg = rtl.glossHTML(wid), lg = ltr.glossHTML(wid);
-    check("rtl pack: #gloss container has dir=rtl", /^<div class="gloss" id="gloss" dir="rtl" hidden><\/div>$/.test(rtl.glossBox()));
+    check("rtl pack: #gloss container is dir=ltr", /^<div class="gloss" id="gloss" dir="ltr" hidden><\/div>$/.test(rtl.glossBox()));
     check("rtl pack: gloss word is rtl, English gloss and pron spans are dir=ltr",
       /<span class="gw" data-tl lang="[^"]+" dir="rtl">/.test(rg) && /<span class="ge" dir="ltr">/.test(rg) && /<span class="gp" dir="ltr">/.test(rg));
     check("ltr pack: #gloss container and gloss spans carry no dir (unchanged)",
@@ -1479,6 +1480,32 @@ return {
       (appHtml.match(/\$\{glossBox\(\)\}/g) || []).length === 2 && !/<div class="gloss" id="gloss" hidden>/.test(appHtml));
     await tick(); await tick();
   }catch(e){ check(`rtl gloss scenario does not throw (got: ${e.message})`, false); }
+
+  // RTL rendering rules on the Read screens (docs/PACK_SCHEMA.md "RTL rendering"): with
+  // pack.rtl no Latin text node sits with dir=rtl as its nearest dir ancestor (the
+  // Read-list meta "79 words" rendered "words 79" inside the dir=rtl title button); UI
+  // lines inside such a block carry dir=ltr + data-ui. LTR packs: no data-ui at all.
+  try{
+    const latinInRtl = html => { const stack = [], bad = [];
+      for(const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>|([^<]+)/g)){
+        if(m[4] !== undefined){ const nd = [...stack].reverse().find(e => e.dir || e.tag === "bdi"); if(/[A-Za-z]/.test(m[4]) && nd && nd.dir === "rtl") bad.push(m[4].trim()); continue; }
+        const tag = m[2].toLowerCase();
+        if(m[1]){ const i = stack.map(e => e.tag).lastIndexOf(tag); if(i >= 0) stack.length = i; continue; }
+        if(["input","br","img","path","rect","circle"].includes(tag) || /\/\s*$/.test(m[3])) continue;
+        stack.push({ tag, dir: (m[3].match(/\bdir="(\w+)"/) || [])[1] });
+      }
+      return bad; };
+    const rtlB = await bootApp([{ lang:"zh-CN", name:"x" }], { passages: PASSAGES, pack: Object.assign({}, PACK, { rtl: true }) });
+    const ltrB = await bootApp([{ lang:"zh-CN", name:"x" }], { passages: PASSAGES });
+    const panelOf = b => b.document.getElementById("panel").innerHTML;
+    const screens = b => { const out = {}; const pr = b.api.getProg(); pr.read = Object.assign({ done: {} }, pr.read, { unlocked: Object.fromEntries(PACK.levels.map(l => [l.id, 1])) }); b.api.readRender(); out.readList = panelOf(b); b.api.startPassage(PASSAGES[0]); out.passage = panelOf(b); b.api.readResults(); out.results = panelOf(b); return out; };
+    const rs = screens(rtlB), ls = screens(ltrB);
+    check("rtl pack: Read-list meta line is dir=ltr data-ui inside the dir=rtl title button",
+      /<button data-pid="[^"]+" dir="rtl"><span>[\s\S]*?<span class="q" dir="ltr" data-ui style="display:block;margin:0;font-size:13px">\d+ words<\/span>/.test(rs.readList));
+    Object.keys(rs).forEach(k => { const bad = latinInRtl(rs[k]); check(`rtl pack: ${k} has no Latin text whose nearest dir is rtl (${bad.length})`, bad.length === 0, bad.slice(0, 3).join(" | ")); });
+    check("ltr pack: Read screens carry no data-ui / tlf markup (unchanged)", Object.values(ls).every(h => !/data-ui|class="tlf"/.test(h)));
+    await tick(); await tick();
+  }catch(e){ check(`rtl read screens scenario does not throw (got: ${e.message})`, false); }
 
   // Span display glosses (spans[i][3]) reach the tap-to-gloss popover, the screen-reader
   // announcement and the results weak-word list; a span without one, and a pack without

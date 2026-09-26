@@ -637,9 +637,36 @@ function fontsHref(pack){
   const fam = ok.map(f => "family=" + f.trim().replace(/ +/g, "+")).join("&");
   return { href: `https://fonts.googleapis.com/css2?${fam}&display=swap`, rejected };
 }
-// Everything the UI needs to mark target-language text: {lang, rtl, fontFamily, lineHeight}.
+// The pack font stack the UI prepends to its own (--wfont = <this>, UI stack): the named
+// families of fontFamilyOf with generic keywords (serif, sans-serif, ...) dropped, so a
+// Latin run inside target text (pron, roman, a number) falls through to the UI font
+// instead of a generic serif. null when no named family is left.
+const GENERIC_FAMILY_RE = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|math|emoji|fangsong|ui-serif|ui-sans-serif|ui-monospace|ui-rounded)$/i;
+function fontStackOf(pack){
+  const f = fontFamilyOf(pack); if(!f) return null;
+  const named = f.split(",").map(x => x.trim()).filter(x => x && !GENERIC_FAMILY_RE.test(x));
+  return named.length ? named.join(", ") : null;
+}
+// Everything the UI needs to mark target-language text: {lang, rtl, fontFamily, fontStack, lineHeight}.
 function scriptDisplay(pack){
-  return { lang: targetLang(pack), rtl: !!(pack && pack.rtl === true), fontFamily: fontFamilyOf(pack), lineHeight: lineHeightOf(pack) };
+  return { lang: targetLang(pack), rtl: !!(pack && pack.rtl === true), fontFamily: fontFamilyOf(pack), fontStack: fontStackOf(pack), lineHeight: lineHeightOf(pack) };
+}
+// RTL packs (docs/PACK_SCHEMA.md "RTL rendering"): a UI/English string (gloss, note,
+// label) split into runs, each run of right-to-left script (Hebrew/Arabic blocks, with
+// the spaces, ZWNJ/ZWJ and marks between its letters) flagged rtl, so the UI can isolate
+// it in its own <bdi> and the English around it keeps its order. Joined, the runs'
+// text is the input. [] for "" / null.
+const RTL_CH = "\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF";
+const RTL_RUN_RE = new RegExp(`[${RTL_CH}](?:[${RTL_CH}\u200C\u200D\\s]*[${RTL_CH}])?`, "g");
+function rtlRuns(s){
+  const str = s == null ? "" : String(s), out = [];
+  let i = 0, m; RTL_RUN_RE.lastIndex = 0;
+  while((m = RTL_RUN_RE.exec(str))){
+    if(m.index > i) out.push({ t: str.slice(i, m.index), rtl: false });
+    out.push({ t: m[0], rtl: true }); i = m.index + m[0].length;
+  }
+  if(i < str.length) out.push({ t: str.slice(i), rtl: false });
+  return out;
 }
 
 // ------------------------------------------------------------------ placement
@@ -2601,7 +2628,7 @@ function migrateLegacy(pack, legacyMap, oldRecord){
 const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   levelIds, levelIndexMap, levelLabel, setSizeOf, wordsByLevel, nSets,
   meaningOpts, wordOpts, gapOpts, sentenceOpts, bareForm, packArticles, articleCut, trailingCut, citationArticles, articleAgreement, visibleArticle, gapChoices, exampleSentences, unitExampleSentences, rubyCovers, highlightParts, searchWords, pronShown, audioSlot, TEST_MIN_WORDS,
-  targetLang, fontFamilyOf, lineHeightOf, fontsHref, scriptDisplay,
+  targetLang, fontFamilyOf, fontStackOf, lineHeightOf, fontsHref, scriptDisplay, rtlRuns,
   foldAccents, normalizeTyped, typingEnabled, typingLenientFor, acceptTyped,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
