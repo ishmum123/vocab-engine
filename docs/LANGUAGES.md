@@ -58,7 +58,7 @@ Scout findings per language: sources, licences, counts, and pipeline gotchas. It
 - Audio: 6,420 clips, only 27 permissive → TTS ja-JP only
 - Tokeniser: SudachiPy mode C + SudachiDict-core (Apache-2.0); alt fugashi+unidic-lite (MIT)
 - JLPT lists (elzup/jlpt-word-list MIT but provenance unclear) → sanity only; N5≈A1 N4≈A2 N3≈B1
-- Gotchas: lemma = dictionary form; pron = kana reading (+romaji optional); particles/aux/copula = functionWords; counters bound morphemes; casual register skew; showPron toggle for kana; typing: null; spaced:false in pack (no spaces) — engine cloze substring mode
+- Gotchas: lemma = dictionary form; pron = kana reading (+romaji optional); particles/aux/copula = functionWords; counters bound morphemes; casual register skew; showPron toggle for kana; typing "pron" since 2026-09-26 (typed kana reading + typed written form); spaced:false in pack (no spaces) — engine cloze substring mode
 
 # Korean (ko / Tatoeba kor) — verified 2026-09-23
 - hermitdave ko_full.txt 688,129 rows, eojeol units (particles attached) → lemmatise via spaCy before ranking

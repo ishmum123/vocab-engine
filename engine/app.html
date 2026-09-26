@@ -1109,21 +1109,24 @@ function typeItem(entry){
 //  - pronTypeItem ("Type the <pack.tones>", else "Type the reading"): meaning shown, silent (no replay, no autoplay:
 //    audio would give the reading away). Tones optional: VC.checkPronTyped's "ok",
 //    "tones" (none typed) and "tonesDiff" (other tones) all count as right; the last two
-//    get a note with the tone-coloured marked form. Latin keyboard (lang="en").
+//    get a note with the tone-coloured marked form. Latin keyboard (lang="en") for a Latin
+//    reading. Without pack.tones (ja kana): "ok" or "wrong" only, katakana and hiragana
+//    interchangeable, target-language input so the kana IME comes up.
 //  - writtenTypeItem ("Type the characters"): meaning shown and the word's audio played
 //    once (replay button, as hear items); type the written form (VC.acceptTyped, alt forms
-//    accepted). Target-language input attributes (TA) so the keyboard switches.
+//    and the form without its affix mark, 年 for 〜年, accepted). Target-language input attributes (TA) so the keyboard switches.
 // The characters item needs the written form on display (pronFirst: a word still shown
 // by its reading gets the reading item in both slots). A word with no pron always gets the
 // characters item; no written form either: recall.
 const PRON_NOUN = TONES ? PACK.tones : "reading"; // the reading system's name (pack.tones), else "reading"
+const LATIN_PRON = /\p{Script=Latin}/u; // a Latin-script reading gets a Latin input; any other (e.g. kana) the target-language one
 const kindTag = (tag, sub) => `<div class="ktag"${UIA}><b>${escapeHtml(tag)}</b>${sub ? ` · ${escapeHtml(sub)}` : ""}</div>`;
 function pronTypeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:`Type the ${PRON_NOUN}`,
     html: `${kindTag(PRON_NOUN, TONES ? "tones optional" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
-    placeholder: TONES ? `${PRON_NOUN}, tones optional…` : `${PRON_NOUN}…`, inputTA: ' lang="en"',
-    check: val => VC.checkPronTyped(val, entry.pron) !== "wrong",
-    feedback: val => { const v = VC.checkPronTyped(val, entry.pron); return v === "tones" || v === "tonesDiff" ? `<div class="diff">tones: <span class="tpron">${readingHTML(entry.pron)}</span></div>` : ""; },
+    placeholder: TONES ? `${PRON_NOUN}, tones optional…` : `${PRON_NOUN}…`, inputTA: LATIN_PRON.test(entry.pron) ? ' lang="en"' : undefined,
+    check: val => VC.checkPronTyped(val, entry.pron, PACK) !== "wrong",
+    feedback: val => { const v = VC.checkPronTyped(val, entry.pron, PACK); return v === "tones" || v === "tonesDiff" ? `<div class="diff">tones: <span class="tpron">${readingHTML(entry.pron)}</span></div>` : ""; },
     reveal: revealBlock(entry), onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 function writtenTypeItem(entry){
@@ -1132,7 +1135,7 @@ function writtenTypeItem(entry){
     html: `${kindTag("characters", hear ? "listen" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
     placeholder: "characters…",
     mount: () => { if(hear){ const b = $("rp2"); sayWord(entry, b); b.onclick = () => sayWord(entry, b); } },
-    check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(val, entry, PACK, [VC.affixBare(entry.w)]), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // The characters item only for a word whose written form is on display (dispWord: under

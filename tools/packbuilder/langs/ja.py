@@ -31,7 +31,7 @@ Lemmas:
   ranking picks the entry, and finalize_words shows that entry's reading.
 
 Display: pron = kana reading (hiragana; katakana words keep katakana).
-typing null (no typed drill), spaced false (cloze and highlighting match
+typing "pron" (typed kana reading, silent, and typed written form, spoken), spaced false (cloze and highlighting match
 substrings), pack.compounds lists the corpus units a shorter pack form must
 not be matched inside.
 
@@ -646,7 +646,7 @@ class Japanese(LanguageSpec):
     }
     versions = {"corpus": "c1", "tag": "t22", "lex": "l1"}
 
-    typing = None                # no typed drill (kana/kanji input is out of scope)
+    typing = "pron"              # typed reading (kana, silent) alternating with typed word (spoken); PACK_SCHEMA typing "pron"
     show_pron = True             # kana reading toggle
     use_audio = False            # 27 permissive clips only: TTS ja-JP throughout
     target_len = {"A1": 6, "A2": 8, "B1": 9}
