@@ -132,8 +132,6 @@ expectError("script.json unknown key", "ko", fx => { fx.script.extra = 1; }, /ER
   check("warning: say missing on a sound:true unit (tts on)", r.status === 0 && /WARN  script unit ko-a has sound but no say/.test(r.out), r.out);
   const fa = FX.fa(); const r2 = runValidate(mkPack(fa));
   check("no say warning when pack.script.tts is false", r2.status === 0 && !/has sound but no say/.test(r2.out), r2.out);
-  check("warning: pack.script.tts false is flagged (voices are detected at runtime)", /WARN  pack\.script\.tts is false/.test(r2.out), r2.out);
-  check("no tts-false warning when pack.script.tts is true", !/pack\.script\.tts is false/.test(r.out), r.out);
   const ja = FX.ja(); unit(ja, "ja-ji").confuse = []; unit(ja, "ja-dji").confuse = [];
   const r3 = runValidate(mkPack(ja));
   check("warning: same group and roman with no confuse link", r3.status === 0 && /WARN  script units ja-ji and ja-dji share group 'dakuten' and roman 'ji' with no confuse link/.test(r3.out), r3.out);

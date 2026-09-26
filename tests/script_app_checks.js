@@ -355,8 +355,9 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     r = await one(withAudio, "soundSym", "fa-be");
     check(`a recorded audio clip plays even with tts:false (speaker shown, clip played: ${JSON.stringify(r.played)})`, /id="sp"/.test(r.h) && r.played.length === 1 && r.spoken.length === 0);
 
-    // fa as shipped: tts true + consonant-with-fatha carriers; whether it speaks is decided
-    // by the browser's voice list (Android Chrome has fa-IR, Apple/Windows do not)
+    // a fa-like pack with tts true + carriers (fa itself ships tts false): whether it speaks
+    // is decided by getVoices() having a voice for the pack's lang, never by an utterance
+    // "succeeding" (onend fires silently for a lang-tag-only request with no voice)
     const faLive = () => { const f = FX.fa(); f.pack.script.tts = true;
       f.script.units.forEach(u => { u.say = "اآوی".includes(u.t) ? u.t : u.t + "\u064E"; }); return f; };
     r = await one(faLive(), "soundSym", "fa-be");
@@ -373,6 +374,13 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     check("fa tts:true, voice list without fa: teach card has no play button", !/xplay/.test(nb.api.scriptTeachHTML(faLive().script.units.find(u => u.id === "fa-be"))));
     r = await one(faLive(), "soundSym", "fa-be", { voices: [] });
     check("fa tts:true, empty voice list = not loaded yet: sound items stay on", /id="sp"/.test(r.h));
+    // the stub's speak() "succeeds" for any utterance; a voice list without fa must still be no voice
+    const LANGLESS = [{ lang:"en-US", name:"e" }, { lang:"", name:"Google" }, { name:"x" }, { lang:"far", name:"f" }];
+    r = await one(faLive(), "soundSym", "fa-be", { voices: LANGLESS });
+    check("fa tts:true, voices without an fa lang (lang-less/unrelated only): no speaker, nothing spoken", !/id="sp"/.test(r.h) && r.spoken.length === 0);
+    check("speechUsable: a lang-tag-only request is not a voice (no fa in getVoices -> false; fa or fa-IR -> true)",
+      VC.speechUsable(true, LANGLESS, "fa-IR") === false && VC.speechUsable(true, [{ lang:"fa" }], "fa-IR") === true
+      && VC.speechUsable(true, [{ lang:"fa_IR" }], "fa-IR") === true && VC.pickVoice(LANGLESS, "fa-IR") === null);
   }
 
   // ---------------------------------------------------------------- [7] teach-card rows

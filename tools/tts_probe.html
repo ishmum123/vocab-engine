@@ -34,7 +34,7 @@
 </head>
 <body>
 <h1>TTS probe: script primer carriers</h1>
-<p class="mut">Tap a candidate to hear it. Duration is measured from onstart to onend. Under 120 ms, an error, or no end within 3 s marks it unusable. The number cannot tell you <em>what</em> was said: listen and note right/wrong yourself.</p>
+<p class="mut">Tap a candidate to hear it. Duration is measured from onstart to onend. Under 120 ms, an error, or no end within 3 s marks it unusable. With no installed voice for the language, a lang-tag-only row is marked no-voice even if it "ends": the browser fires the events silently. The number cannot tell you <em>what</em> was said: listen and note right/wrong yourself.</p>
 <div class="row">
   <button id="runAll">Run all (selected voice per language)</button>
   <button id="runAllVoices">Run all × every voice</button>
@@ -123,8 +123,17 @@ function loadVoices() {
   });
 }
 
+// A lang-tag-only request with no installed voice for that language still fires
+// onstart/onend (Android Chrome: silent, ~270 ms), so timing alone is not evidence.
+// Without a matching voice in getVoices(), an "ok" is downgraded to "no-voice".
+function hasVoiceFor(tag) {
+  const base = String(tag || "").replace(/_/g, "-").toLowerCase().split("-")[0];
+  return !!synth && synth.getVoices().some(v => String(v.lang || "").replace(/_/g, "-").toLowerCase().split("-")[0] === base);
+}
+
 function speakMeasure(text, tag, voice) {
-  return new Promise(resolve => {
+  return new Promise(res => {
+    const resolve = r => res(!voice && r.status === "ok" && !hasVoiceFor(tag) ? Object.assign(r, { status: "no-voice" }) : r);
     if (!synth) return resolve({ ms: 0, status: "no-speechSynthesis" });
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);

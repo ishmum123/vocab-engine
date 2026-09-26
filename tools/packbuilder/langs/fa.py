@@ -1736,12 +1736,12 @@ class Persian(LanguageSpec):
     qa_proper_re = r"\b(Iran|Tehran|Persia|Islam|Muhammad|God|Allah)\b"
 
     # ---- script primer ------------------------------------------------------
-    # tts true = "a voice may exist; the app detects it at runtime" (never a hard off).
-    # Android Chrome has fa-IR (phone ear-check 2026-09: carrier تَ and هفت spoke);
-    # Apple and Windows have none, and there the app falls back to the no-voice items
-    # (docs/SCRIPT_PRIMER.md ss0, ss5). A recorded per-unit `audio` (Piper) is the later path.
+    # tts false: no fa voice on Apple, Windows, Google TTS or the user's Android
+    # (ear-check 2026-09-26: silent). Probe onend events fire silently for lang-tag-only
+    # requests, so duration is not evidence (docs/SCRIPT_PRIMER.md ss0, ss5).
+    # A recorded per-unit `audio` (Piper) is the later path.
     script = {"stages": [{"key": "abjad", "label": "الفبا"}],
-              "setsPerSession": 2, "mastered": 3, "tts": True,
+              "setsPerSession": 2, "mastered": 3, "tts": False,
               "learnKinds": ["symSound", "formFind"],
               "reviewKinds": ["symSound", "formMatch", "formFind", "wordRead"],
               "testKinds": {"symSound": 35, "formMatch": 25, "wordRead": 25, "symType": 15}}
@@ -1774,7 +1774,7 @@ class Persian(LanguageSpec):
 
     def script_say(self, unit):
         """Carrier (docs/SCRIPT_PRIMER.md ss5): a consonant with fatha (بَ), the long
-        vowel letters bare. Spoken only where the browser has an fa voice."""
+        vowel letters bare. Unused while pack.script.tts is false."""
         g = unit["t"]
         return g if g in "اآوی" else g + "َ"
 

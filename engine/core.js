@@ -928,6 +928,8 @@ function pickVoice(voices, lang){
 // reported its voice list — a voice for the pack's language (a zh word read by an
 // English voice is worse than showing it). An empty list means "not loaded yet /
 // unknown": optimistic, since some browsers never populate it but still speak.
+// Only getVoices() counts as evidence: an utterance with just a lang tag and no
+// installed voice still fires onstart/onend on Android Chrome, silently.
 function speechUsable(apiPresent, voices, lang){
   if(!apiPresent) return false;
   if(!voices || !voices.length) return true;

@@ -12,12 +12,12 @@ Probed 2026-09-26 against `../{korean,russian,persian,japanese}/pack`:
 |---|---|---|---|
 | ko | 0 of 2000 | none | ko-KR on Apple, Google, Samsung (not probed for bare jamo) |
 | ru | 2000 | Cyrillic with stress marks (`тако́й`), not Latin | ru-RU common |
-| fa | 1980 | Latin, packbuilder scheme (`â`, `kh`, `sh`, `q`, `gh`, `'`) | runtime-detected: Android Chrome has fa-IR (phone ear-check 2026-09-26: carrier تَ and هفت spoke), Apple and Windows have none (TODO "Generated audio") |
+| fa | 1980 | Latin, packbuilder scheme (`â`, `kh`, `sh`, `q`, `gh`, `'`) | none on Apple, Windows, Google TTS or the user's Android phone (ear-check 2026-09-26: silent, no fa voice listed) (TODO "Generated audio") |
 | ja | 2000 | kana, not romaji | ja-JP common |
 
 Consequences:
 - The pack's words carry no Latin romanisation except in fa. The primer's romanisation comes from `script.json` itself: per symbol, and per example word as emitted by packbuilder.
-- fa must work with no audio at all, since Apple and Windows have no fa voice. Every audio kind has a text fallback, and there is a per-unit `audio` hook for the Piper plan. fa ships `pack.script.tts` true: the app speaks where the browser has an fa voice (Android) and falls back elsewhere.
+- fa must work with no audio at all. Every audio kind has a text fallback, and there is a per-unit `audio` hook for the Piper plan.
 - ja A1 has 10 katakana words, and the first one is A1 word 229 (set 23). Katakana is needed inside A1 (question 2).
 - ko A1 has 342 of 600 words with no final consonant before the last block (나, 우리, 가다). Early example words come from these, so no sound-change rule is needed to read them.
 
@@ -61,7 +61,7 @@ Each item scores one unit's record, `prog.script.u[id]`. Options are 4, shuffled
 
 **Silent units.** A unit with `sound:false` (ru ь ъ, ja っ ー) never gets `symSound`, `soundSym` or `symType`. It gets `wordRead` and `wordHear` on its examples, and its teach card carries the rule.
 
-**No voice.** Where there is no voice, as for fa on Apple and Windows, `soundSym` shows `roman` and `wordHear` becomes `wordRead`. A unit or example with a recorded `audio` URL plays it instead of TTS, through the existing `speak(text, btn, audioUrl)`.
+**No voice.** Where there is no voice, as for fa today, `soundSym` shows `roman` and `wordHear` becomes `wordRead`. A unit or example with a recorded `audio` URL plays it instead of TTS, through the existing `speak(text, btn, audioUrl)`.
 
 **Distractors** for symbol options come from `scriptOpts`. The pool is units of the same stage and `group`, either already recorded or in the current set. The preference order is:
 1. The unit's `confuse` list (ㅏ/ㅑ/ㅓ, б/в/ь, ш/щ, ب/پ/ت/ث, さ/き, シ/ツ, ソ/ン).
@@ -176,7 +176,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
   "learnKinds":["symSound","soundSym"], "reviewKinds":["symSound","soundSym","compose","wordRead"],
   "testKinds":{"symSound":35,"soundSym":25,"wordRead":25,"symType":15} }
 ```
-`tts` means "a voice may exist; detect it at runtime". The app speaks only when the browser's voice list has a voice for `pack.tts` (an empty list counts as still loading). `tts` false is a hard off that treats every `say` as absent even where a voice exists. No shipped pack uses it, and the validator warns on it (decision 2026-09-26, after fa shipped false and the phone turned out to have an fa voice).
+`tts` false means every `say` is treated as absent. It is set from the §5 probe per language, and it is false for fa. With `tts` true the app still speaks only when `getVoices()` lists a voice for `pack.tts` (`speechUsable`; an empty list counts as still loading). An utterance that merely "ends" is not evidence of a voice.
 
 ## 4. Progress model
 
@@ -241,7 +241,7 @@ If fewer than 3 remain, the pool is padded from the `confuse` list even when tho
    - ru: bare б, carrier ба, name бэ.
    - ja: bare は, っ, ー, ゃ, plus きゃ.
    - fa: bare ب, carrier بَ, name "be".
-3. The probe cannot tell which reading was spoken. `tools/tts_probe.html` (dev only) lists every candidate with a play button. The user listens on the phone and marks right or wrong. That sheet decides `say`, and `pack.script.tts`. Expected results, unverified: ko voices read bare jamo as names or not at all, so ko uses carriers. ru bare letters read as names, so ru uses carriers. ja bare kana are fine except は/へ as particles and small kana. fa: no voice on the Mac, but Android Chrome has fa-IR and the ear-check confirmed carrier تَ and the word هفت (2026-09-26). The probe decides `say` only. `pack.script.tts` stays true for every language because voices vary by device and are detected at runtime.
+3. The probe cannot tell which reading was spoken. `tools/tts_probe.html` (dev only) lists every candidate with a play button. The user listens on the phone and marks right or wrong. That sheet decides `say`, and `pack.script.tts`. Expected results, unverified: ko voices read bare jamo as names or not at all, so ko uses carriers. ru bare letters read as names, so ru uses carriers. ja bare kana are fine except は/へ as particles and small kana. fa has no voice: the Mac lists none, and on the user's Android phone (2026-09-26) nothing played and no fa voice was listed. The probe's fa rows read "ok" at about 270 ms with voice "(lang tag only)". Those were false positives: Android Chrome fires onstart/onend silently for a lang-tag-only request with no installed voice. Duration is therefore not evidence. The probe now marks such a row `no-voice` when `getVoices()` has no voice for the language, and the app's `speechUsable` has always required one.
 
 ## 6. Tests, browser walk, briefs
 
