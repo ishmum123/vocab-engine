@@ -1114,7 +1114,7 @@ function typeItem(entry){
 //    once (replay button, as hear items); type the written form (VC.acceptTyped, alt forms
 //    accepted). Target-language input attributes (TA) so the keyboard switches.
 // The characters item needs the written form on display (pronFirst: a word still shown
-// by its reading gets the pinyin item in both slots). A word with no pron always gets the
+// by its reading gets the reading item in both slots). A word with no pron always gets the
 // characters item; no written form either: recall.
 const PRON_NOUN = TONES ? PACK.tones : "reading"; // the reading system's name (pack.tones), else "reading"
 const kindTag = (tag, sub) => `<div class="ktag"${UIA}><b>${escapeHtml(tag)}</b>${sub ? ` · ${escapeHtml(sub)}` : ""}</div>`;
@@ -1137,7 +1137,7 @@ function writtenTypeItem(entry){
 }
 // The characters item only for a word whose written form is on display (dispWord: under
 // pronFirst, a word below its character tier shows its reading only, so its characters
-// were never shown); such a word gets the pinyin item in both slots.
+// were never shown); such a word gets the reading item in both slots.
 function pronSlotItem(entry, slot){
   const shown = !!entry.w && !dispWord(entry).isPron;
   if(shown && (slot === "written" || !entry.pron)) return writtenTypeItem(entry);

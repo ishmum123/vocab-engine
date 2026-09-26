@@ -116,40 +116,40 @@
     "hear",
     "read",
     "gap",
-    "gap",
     "hear",
     "read",
     "read",
     "hear",
+    "gapType",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "hear",
+    "gapType",
+    "hear",
+    "hear",
+    "hear",
+    "read",
+    "gapType",
+    "hear",
+    "read",
+    "read",
+    "gapType",
+    "read",
+    "hear",
     "gap",
     "hear",
-    "hear",
-    "hear",
-    "hear",
-    "hear",
-    "hear",
-    "hear",
-    "hear",
-    "hear",
-    "gap",
+    "gapType",
     "hear",
     "hear",
     "hear",
     "hear",
     "read",
-    "gap",
-    "hear",
-    "hear",
     "read",
-    "read",
-    "gap",
-    "hear",
-    "read",
-    "hear",
-    "gap",
-    "gap",
-    "hear",
-    "gap",
     "hear",
     "hear"
    ]
@@ -220,11 +220,11 @@
    },
    "reviewPlan": [
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0003"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0009"
     },
     {
@@ -270,19 +270,19 @@
      "id": "w0010"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0005"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0009"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0008"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0002"
     },
     {
@@ -298,40 +298,40 @@
     "read",
     "hear",
     "gap",
-    "gap",
-    "gap",
-    "hear",
-    "gap",
-    "hear",
+    "gapType",
+    "gapType",
     "read",
-    "gap",
     "gap",
     "read",
     "read",
     "hear",
     "gap",
-    "gap",
     "read",
     "hear",
     "gap",
-    "gap",
     "hear",
     "hear",
     "hear",
-    "gap",
-    "hear",
+    "gapType",
     "hear",
     "gap",
-    "gap",
-    "gap",
-    "hear",
+    "gapType",
     "hear",
     "read",
     "read",
     "read",
-    "gap",
+    "gapType",
     "hear",
     "hear",
+    "read",
+    "hear",
+    "hear",
+    "gapType",
+    "gapType",
+    "hear",
+    "hear",
+    "gapType",
+    "gapType",
     "hear",
     "read",
     "hear"
@@ -432,7 +432,7 @@
      "id": "w0005"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w1331"
     },
     {
@@ -468,11 +468,11 @@
      "id": "w1330"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0028"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w1308"
     },
     {
@@ -490,7 +490,7 @@
      "id": "w0007"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0010"
     },
     {
@@ -498,11 +498,11 @@
      "id": "w0005"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0030"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w1301"
     },
     {
@@ -510,7 +510,7 @@
      "id": "w1308"
     },
     {
-     "kind": "recall",
+     "kind": "type",
      "id": "w0016"
     },
     {
@@ -521,44 +521,44 @@
    "sentenceKindSequence": [
     "read",
     "hear",
-    "gap",
+    "gapType",
+    "gapType",
     "hear",
-    "gap",
-    "hear",
-    "hear",
-    "gap",
-    "hear",
+    "gapType",
     "read",
     "hear",
-    "gap",
-    "hear",
+    "gapType",
     "read",
     "gap",
-    "gap",
-    "gap",
-    "hear",
+    "gapType",
     "hear",
     "hear",
     "hear",
     "read",
     "read",
-    "gap",
-    "hear",
+    "gapType",
     "read",
     "hear",
-    "gap",
-    "hear",
+    "gapType",
     "hear",
     "read",
     "gap",
-    "gap",
     "hear",
-    "gap",
-    "hear",
-    "gap",
+    "gapType",
     "gap",
     "read",
-    "read"
+    "read",
+    "hear",
+    "hear",
+    "hear",
+    "read",
+    "read",
+    "read",
+    "read",
+    "hear",
+    "gap",
+    "read",
+    "gap"
    ]
   }
  ]
