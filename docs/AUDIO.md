@@ -238,6 +238,16 @@ sentences; run it again after editing either file, then `packbuilder audio` re-r
 4. **Urdu** (`ur`): Piper lists `ur_PK-fasih-medium` and `ur_PK-aegis_female-medium`, both marked MIT.
    Urdu shares Persian's unvocalised-script issues (ezafe, short vowels), so plan the same `audio_say.json` pass.
    Voice lists checked against rhasspy/piper-voices voices.json on 2026-09-26.
+   Phase 1 measured 2026-09-26 (`.cache/ur-audio/`, samples on port 8012): both voices MIT per MODEL_CARD
+   (fasih: male, base hi_IN-rohan fine-tuned on the UAT Urdu dataset, dataset licence unstated; aegis_female:
+   no training data disclosed); espeak-ng `ur` phonemes, no warnings. Whisper-small CER sentences/words:
+   fasih 0.20/0.27, aegis_female 0.13/0.29. ~3.0–3.2 KB/s; projected ~60–63 MB and ~20 min for the full pack
+   (2000 words, 3023 sentences, 592 passage sentences, 40 units). Tatoeba Urdu has only 14 audio rows in
+   total (`ur.py` use_audio False). Override classes: Urdu-Indic digits are silently dropped by espeak-ur →
+   write Latin digits in the spoken text (3 pack sentences); izafat is voiced when marked with kasre (and
+   already before a vowel-initial dependent), one real pack case; ں vs ن is a source-text matter. Voice
+   choice is the user's ear; Android ships a Urdu Google voice (user check 2026-09-26), so recorded clips
+   mainly serve Macs/iPhones.
 
 ## Decisions (2026-09-26)
 
