@@ -377,7 +377,28 @@ function walk(api, stopAt){
     check(`checkPronTyped without tones (kana table, ${T.length} rows): katakana = hiragana, half-width folded, spaces/〜 ignored; ー, small kana, voicing exact; digits and romaji wrong (${badK.length} bad${badK[0] ? ": " + JSON.stringify(badK[0]) : ""})`, badK.length === 0);
     check("checkPronTyped with a tones pack (zh) or no pack: the pinyin path, unchanged",
       VC.checkPronTyped("xue2sheng", "xuésheng", PACK) === "ok" && VC.checkPronTyped("xuesheng", "xuésheng", PACK) === "tones" && VC.checkPronTyped("xue4sheng", "xuésheng") === "tonesDiff" && VC.checkPronTyped("たべる1", "たべる") === "tonesDiff");
-    check("affixBare: 〜/～ stripped at either end only; no mark: unchanged", VC.affixBare("〜年") === "年" && VC.affixBare("～さん") === "さん" && VC.affixBare("お〜") === "お" && VC.affixBare("年〜年") === "年〜年" && VC.affixBare("学生") === "学生");
+    check("affixBare: 〜/～/- stripped at either end only; no mark: unchanged", VC.affixBare("〜年") === "年" && VC.affixBare("～さん") === "さん" && VC.affixBare("お〜") === "お" && VC.affixBare("年〜年") === "年〜年" && VC.affixBare("学生") === "学生"
+      && VC.affixBare("-이다") === "이다" && VC.affixBare("가-") === "가" && VC.affixBare("-이/가") === "이/가");
+    check("affixBare: an inner hyphen (not at either edge) is a real character, never stripped",
+      VC.affixBare("धीरे-धीरे") === "धीरे-धीरे" && VC.affixBare("कौन-सा") === "कौन-सा");
+    check("affixAlts: no affix mark -> []; 〜 word -> bare form only; ko hyphen word with no slash -> bare form only",
+      VC.affixAlts("学生").length === 0 && VC.affixAlts("धीरे-धीरे").length === 0
+      && VC.affixAlts("〜年").length === 1 && VC.affixAlts("〜年")[0] === "年"
+      && VC.affixAlts("-이다").length === 1 && VC.affixAlts("-이다")[0] === "이다");
+    check("affixAlts: ko slash word -> bare slash form plus each alternative on its own, entry.w itself not repeated",
+      JSON.stringify(VC.affixAlts("-이/가")) === JSON.stringify(["이/가", "이", "가"])
+      && JSON.stringify(VC.affixAlts("-은/는")) === JSON.stringify(["은/는", "은", "는"]));
+    check("acceptTyped: a Korean-shaped word ('typing' object, no 'pron') accepts w, the affix-bare form and each slash alternative, but not an unrelated string",
+      (() => {
+        const koPack = { typing: { caseSensitive: false, accents: "lenient" } };
+        const entry = { w: "-이/가", alt: null };
+        const extra = VC.affixAlts(entry.w);
+        return VC.acceptTyped("-이/가", entry, koPack, extra) === true
+          && VC.acceptTyped("이/가", entry, koPack, extra) === true
+          && VC.acceptTyped("이", entry, koPack, extra) === true
+          && VC.acceptTyped("가", entry, koPack, extra) === true
+          && VC.acceptTyped("나", entry, koPack, extra) === false;
+      })());
     const { api: aj, spoken } = await boot({ pack: jp, words, sentences: [], units, passages: [], voices: [{ lang: "ja-JP", name: "j" }] });
     const base = () => VC.normalizeProg({ sets: { A1: 3 }, placedOnce: true, sessions: 5 }, jp);
     const atTier = ids => { const pm = base(); ids.forEach(id => { const u = units.find(x => x.words[0] === id); VC.ensureChars(pm).c[u.id] = { r: 5, w: 0, s: 5 }; }); return pm; };

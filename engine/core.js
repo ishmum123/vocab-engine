@@ -2529,7 +2529,25 @@ function kanaFold(s){
 function plainPronKey(s){ return normalizeTyped(kanaFold(s)).replace(/[^\p{L}\p{M}\p{N}]/gu, ""); }
 // A written form without its affix mark: 〜年 -> 年 (wave dash or full-width tilde at
 // either end), so a typed suffix/prefix word needs no 〜. The form itself when it has none.
-function affixBare(w){ return String(w == null ? "" : w).replace(/^[\u301c\uff5e]+|[\u301c\uff5e]+$/g, ""); }
+// Affix marks in the written form a learner should not have to type: Japanese \u301c/\uff5e
+// (noun-modifier tilde) and the ASCII hyphen (Korean particle words like -\uc774\ub2e4, -\uc774/\uac00).
+// Only a leading or trailing run is an affix mark; stripped from either end, never both
+// meanings at once mattering since the anchors are independent. An inner hyphen (Hindi
+// \u0927\u0940\u0930\u0947-\u0927\u0940\u0930\u0947, \u0915\u094c\u0928-\u0938\u093e) or inner tilde (\u5e74\u301c\u5e74) is a real character, never touched.
+function affixBare(w){ return String(w == null ? "" : w).replace(/^[\u301c\uff5e-]+|[\u301c\uff5e-]+$/g, ""); }
+// Extra accepted written forms for a word whose display form carries a leading/trailing
+// affix mark (see affixBare): the bare form with the affix stripped, plus \u2014 when that
+// bare form is itself a "/"-separated set of alternatives (Korean particle pairs like
+// -\uc774/\uac00 -> \uc774/\uac00 -> \uc774, \uac00) \u2014 each alternative on its own. Returns [] when the word has
+// no affix mark (bare === original), so callers can splice this straight into acceptTyped's
+// `extra` list without conditionals. entry.w itself (with its affix mark, e.g. -\uc774/\uac00) is
+// already checked by acceptTyped, so it is not repeated here.
+function affixAlts(w){
+  const s = String(w == null ? "" : w);
+  const bare = affixBare(s);
+  if(bare === s) return [];
+  return bare.indexOf("/") >= 0 ? [bare, ...bare.split("/")] : [bare];
+}
 // pack.typing "pron": the typed item a plan's "type" slot (a word's production slot) is.
 // The type slots alternate in plan order, reading first: "pron" (type the reading, silent,
 // tones optional), then "written" (type the characters, the word's audio played). Plan
@@ -2728,7 +2746,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   scriptNotice, dismissScriptNotice, markScript, scriptMastered, scriptStageUnits, scriptSets, scriptSetTaught, nextScriptSets, scriptStages,
   recordedScriptUnits, scriptActive, scriptPool, showScriptChoice, scriptKindShape, scriptKindFits, scriptKindFor, pickScriptKind, scriptFamily, SCRIPT_MIN_OPTIONS, scriptGlyph, scriptGlyphKeys, scriptGlyphIn, scriptWordHas, graphemes, shapingClusters, scriptUnitNote, scriptUnitHeadName, searchFold, scriptSecondRight,
   scriptOpts, scriptRomanOpts, scriptExamples, scriptWordOpts, scriptJoinedForms, scriptItem, learnScriptPlan, scriptReviewScore, scriptTestPlan,
-  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, kanaFold, plainPronKey, affixBare, typeSlotKind, joinReadings, composeSpanReading, spanReadingText,
+  tonesOn, stripMarks, syllableTone, markSyllable, splitSyllable, splitReading, toneHTML, pronTypingOn, pronKey, numberedForms, checkPronTyped, kanaFold, plainPronKey, affixBare, affixAlts, typeSlotKind, joinReadings, composeSpanReading, spanReadingText,
   LEGACY_DROPPED, legacyBackupKey, isLegacyRecord, migrateLegacy };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.VocabCore = API;

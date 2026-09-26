@@ -1096,11 +1096,12 @@ function recallItem(entry){
     opts: [entry.id, ...ds.map(d=>d.id)], a: entry.id, optHtml: wordOptHtml(byId, o => byId[o].w), optsT: true, reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
-// type — meaning shown; type the word (normalised per pack.typing, alt forms accepted).
+// type — meaning shown; type the word (normalised per pack.typing, alt forms and any
+// affix-bare/slash-alternative forms from VC.affixAlts accepted, e.g. 이 or 가 for -이/가).
 function typeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:"Type the word",
     html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
-    check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(val, entry, PACK, VC.affixAlts(entry.w)), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // pack.typing "pron": the word's production slot (kindMix "type", the slot recall also
@@ -1114,7 +1115,8 @@ function typeItem(entry){
 //    interchangeable, target-language input so the kana IME comes up.
 //  - writtenTypeItem ("Type the characters"): meaning shown and the word's audio played
 //    once (replay button, as hear items); type the written form (VC.acceptTyped, alt forms
-//    and the form without its affix mark, 年 for 〜年, accepted). Target-language input attributes (TA) so the keyboard switches.
+//    and any affix-bare/slash-alternative forms from VC.affixAlts, 年 for 〜年 or 이/가 for
+//    -이/가, accepted). Target-language input attributes (TA) so the keyboard switches.
 // The characters item needs the written form on display (pronFirst: a word still shown
 // by its reading gets the reading item in both slots). A word with no pron always gets the
 // characters item; no written form either: recall.
@@ -1135,7 +1137,7 @@ function writtenTypeItem(entry){
     html: `${kindTag("characters", hear ? "listen" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
     placeholder: "characters…",
     mount: () => { if(hear){ const b = $("rp2"); sayWord(entry, b); b.onclick = () => sayWord(entry, b); } },
-    check: val => VC.acceptTyped(val, entry, PACK, [VC.affixBare(entry.w)]), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(val, entry, PACK, VC.affixAlts(entry.w)), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // The characters item only for a word whose written form is on display (dispWord: under
