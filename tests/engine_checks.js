@@ -1966,36 +1966,53 @@ async function swChecks(){
   check("guard: strict mode unchanged (exact accepted, folded rejected, with and without words)",
     VC.acceptTyped("ما", AR[3], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR, null, AR) && !VC.acceptTyped("انا", AR[0], STR));
   // German-only ASCII substitutions (ä/ö/ü/ß -> ae/oe/ue/ss), gated to pack.key === "de".
+  // Each target is folded BOTH ways: the digraph (ä -> ae) and the plain accent strip
+  // (ä -> a, the fold every other Latin-script pack already gets) are both compared
+  // against the typed text, so a learner who drops the umlaut entirely ("mude") and one
+  // who substitutes the digraph ("muede") are both accepted. The typed text itself is
+  // never digraph-folded, so a genuine "ae"/"oe" (Aerobic) is never mistaken for ä/ö.
   const LEVELS3 = [{ id:"A1" }, { id:"A2" }, { id:"B1" }];
   const LEN_DE = { key:"de", typing:{ accents:"lenient" }, levels:LEVELS3 };
   const STR_DE = { key:"de", typing:{ accents:"strict" }, levels:LEVELS3 };
   const LEN_DE_B1 = { key:"de", typing:{ accents:"lenient", strictFromLevel:"B1" }, levels:LEVELS3 };
-  check("German ASCII fold: Muede typed for müde accepted (lenient, A1)",
-    VC.acceptTyped("Muede", { id:"m", w:"müde", lv:"A1" }, LEN_DE));
-  check("German ASCII fold: Strasse typed for Straße accepted (lenient)",
-    VC.acceptTyped("Strasse", { id:"s", w:"Straße", lv:"A1" }, LEN_DE));
-  check("German ASCII fold: exact ä/ö/ü/ß spelling still accepted",
-    VC.acceptTyped("müde", { id:"m", w:"müde", lv:"A1" }, LEN_DE) && VC.acceptTyped("Straße", { id:"s", w:"Straße", lv:"A1" }, LEN_DE));
-  check("German ASCII fold: strict mode never folds ae/oe/ue/ss",
-    !VC.acceptTyped("Muede", { id:"m", w:"müde", lv:"A1" }, STR_DE) && VC.acceptTyped("müde", { id:"m", w:"müde", lv:"A1" }, STR_DE));
-  check("German ASCII fold: muede rejected for a B1 müde word once typing.strictFromLevel is B1 (lenient window closed)",
-    !VC.acceptTyped("muede", { id:"m", w:"müde", lv:"B1" }, LEN_DE_B1) && VC.acceptTyped("müde", { id:"m", w:"müde", lv:"B1" }, LEN_DE_B1) &&
-    VC.acceptTyped("muede", { id:"m2", w:"müde", lv:"A1" }, LEN_DE_B1));
-  check("German ASCII fold is German-only: muede rejected for müde on a non-de pack (fixture lang it)",
-    !VC.acceptTyped("muede", { id:"m", w:"müde", lv:"A1" }, { key:"it", typing:{ accents:"lenient" }, levels:LEVELS3 }));
+  check("German ASCII fold: both mude (plain accent strip) and muede (digraph) typed for müde accepted (lenient, A1)",
+    VC.acceptTyped("mude", { id:"m", w:"müde", lv:"A1" }, LEN_DE) && VC.acceptTyped("Muede", { id:"m", w:"müde", lv:"A1" }, LEN_DE));
+  check("German ASCII fold: Strasse (digraph) and Straße (exact) typed for Straße accepted; strase (neither fold) is not",
+    VC.acceptTyped("Strasse", { id:"s", w:"Straße", lv:"A1" }, LEN_DE) && VC.acceptTyped("Straße", { id:"s", w:"Straße", lv:"A1" }, LEN_DE) &&
+    !VC.acceptTyped("strase", { id:"s", w:"Straße", lv:"A1" }, LEN_DE));
+  check("German ASCII fold: strict mode never folds ae/oe/ue/ss, and not the plain accent strip either",
+    !VC.acceptTyped("Muede", { id:"m", w:"müde", lv:"A1" }, STR_DE) && !VC.acceptTyped("mude", { id:"m", w:"müde", lv:"A1" }, STR_DE) &&
+    VC.acceptTyped("müde", { id:"m", w:"müde", lv:"A1" }, STR_DE));
+  check("German ASCII fold: muede/mude rejected for a B1 müde word once typing.strictFromLevel is B1 (lenient window closed)",
+    !VC.acceptTyped("muede", { id:"m", w:"müde", lv:"B1" }, LEN_DE_B1) && !VC.acceptTyped("mude", { id:"m", w:"müde", lv:"B1" }, LEN_DE_B1) &&
+    VC.acceptTyped("müde", { id:"m", w:"müde", lv:"B1" }, LEN_DE_B1) && VC.acceptTyped("muede", { id:"m2", w:"müde", lv:"A1" }, LEN_DE_B1));
+  check("German ASCII fold (the digraph half) is German-only: muede rejected for müde on a non-de pack (fixture lang it); mude (plain strip) still works everywhere",
+    !VC.acceptTyped("muede", { id:"m", w:"müde", lv:"A1" }, { key:"it", typing:{ accents:"lenient" }, levels:LEVELS3 }) &&
+    VC.acceptTyped("mude", { id:"m", w:"müde", lv:"A1" }, { key:"it", typing:{ accents:"lenient" }, levels:LEVELS3 }));
   check("normalizeTyped without germanAscii leaves ä/ö/ü/ß to the plain accent strip (ü -> u, not ue)",
     VC.normalizeTyped("müde", { foldAccents:true }) === "mude");
   check("foldGermanAscii is the identity without German letters, and maps ä/ö/ü/ß/Ä/Ö/Ü on their own",
     VC.foldGermanAscii("perché") === "perché" && VC.foldGermanAscii("müde Straße") === "muede Strasse" &&
     VC.foldGermanAscii("Übung") === "Uebung");
-  // Collision guard for the German ASCII fold: a synthetic pair (the real german pack has
-  // none at the time of writing; the guard is generic and already covers this class).
-  const DE_MASSE = { id:"masse", w:"Masse", lv:"A1" }, DE_MASSE2 = { id:"maße", w:"Maße", lv:"A1" };
-  const DE_W = [DE_MASSE, DE_MASSE2];
-  check("guard de: Maße rejected for Masse and vice versa (ß/ss collision); each exact form accepted; without words list the fold accepts",
-    !VC.acceptTyped("Maße", DE_MASSE, LEN_DE, null, DE_W) && !VC.acceptTyped("Masse", DE_MASSE2, LEN_DE, null, DE_W) &&
-    VC.acceptTyped("Masse", DE_MASSE, LEN_DE, null, DE_W) && VC.acceptTyped("Maße", DE_MASSE2, LEN_DE, null, DE_W) &&
-    VC.acceptTyped("Maße", DE_MASSE, LEN_DE));
+  check("German ASCII fold never runs on the typed text: Aerobic (a real word with ae) is accepted exactly, and Ärobic (typed with ä) does not match it",
+    VC.acceptTyped("Aerobic", { id:"a", w:"Aerobic", lv:"A1" }, LEN_DE) && !VC.acceptTyped("Ärobic", { id:"a", w:"Aerobic", lv:"A1" }, LEN_DE));
+  // Collision guard: the digraph fold is additive, so every collision the plain accent
+  // strip already created for German (docs/PACK_SCHEMA.md's collision table) still
+  // exists and is still caught by the same generic guard.
+  const DE_SCHON = { id:"w0054", w:"schon", lv:"A1" }, DE_SCHOEN = { id:"w0109", w:"schön", lv:"A1" };
+  const DE_ZAHLEN = { id:"w0671", w:"zahlen", lv:"A2" }, DE_ZAEHLEN = { id:"w0706", w:"zählen", lv:"A2" };
+  const DE_W1 = [DE_SCHON, DE_SCHOEN], DE_W2 = [DE_ZAHLEN, DE_ZAEHLEN];
+  check("guard de: schon rejected for schön and vice versa (still collide via the plain accent strip); each exact form accepted; without words list the fold accepts",
+    !VC.acceptTyped("schön", DE_SCHON, LEN_DE, null, DE_W1) && !VC.acceptTyped("schon", DE_SCHOEN, LEN_DE, null, DE_W1) &&
+    VC.acceptTyped("schon", DE_SCHON, LEN_DE, null, DE_W1) && VC.acceptTyped("schön", DE_SCHOEN, LEN_DE, null, DE_W1) &&
+    VC.acceptTyped("schön", DE_SCHON, LEN_DE));
+  check("guard de: zahlen rejected for zählen and vice versa; each exact form accepted",
+    !VC.acceptTyped("zählen", DE_ZAHLEN, LEN_DE, null, DE_W2) && !VC.acceptTyped("zahlen", DE_ZAEHLEN, LEN_DE, null, DE_W2) &&
+    VC.acceptTyped("zahlen", DE_ZAHLEN, LEN_DE, null, DE_W2) && VC.acceptTyped("zählen", DE_ZAEHLEN, LEN_DE, null, DE_W2));
+  check("guard de: a real 'ss' word (Masse) folds into a real ß word (Maße) via the digraph and is still guarded; the reverse spelling (typed ß for a real ss word) never matches at all",
+    (() => { const MASSE = { id:"masse", w:"Masse", lv:"A1" }, MASSE2 = { id:"maße", w:"Maße", lv:"A1" }, W = [MASSE, MASSE2];
+      return !VC.acceptTyped("Masse", MASSE2, LEN_DE, null, W) && VC.acceptTyped("Masse", MASSE, LEN_DE, null, W) &&
+        VC.acceptTyped("Maße", MASSE2, LEN_DE, null, W) && !VC.acceptTyped("Maße", MASSE, LEN_DE); })());
 })();
 
 appBootChecks.catch(e => { console.error("app boot checks crashed:", e); fails++; })

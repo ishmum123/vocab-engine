@@ -557,11 +557,15 @@ function foldLenientLetters(s){
   return s.normalize("NFD").replace(/[\u0653-\u0655]/g, "").replace(LENIENT_RE, c => LENIENT_LETTERS[c])
     .replace(/[\u0643\u064a]/g, c => ARABIC_VARIANTS[c]).normalize("NFC");
 }
-// German-only ASCII substitutions (opts.germanAscii, gated in acceptTyped to pack.key ===
-// "de"): a learner on a non-German keyboard types ae/oe/ue/ss for \u00e4/\u00f6/\u00fc/\u00df. Folded on both
-// sides, on the pre-foldAccents string, so \u00e4 -> "ae" (not the bare "a" foldAccents would
-// otherwise strip it to) and typed \u00e4 still folds to the same "ae" key. No other pack's
-// text contains these letters, but the fold is gated by pack anyway, not by script, so a
+// German-only ASCII substitutions (opts.germanAscii, applied in acceptTyped to each
+// TARGET only, gated to pack.key === "de"): a learner on a non-German keyboard types
+// ae/oe/ue/ss for \u00e4/\u00f6/\u00fc/\u00df. Run on the pre-foldAccents string, so \u00e4 -> "ae" (not the
+// bare "a" foldAccents would otherwise strip it to). acceptTyped compares the typed text,
+// which is never digraph-folded (a real "ae"/"oe" typed, as in Aerobic, must stay ASCII
+// text and never become \u00e4/\u00f6), against EACH target folded both with and without this
+// pass, so both the digraph spelling (Muede) and the plain accent-stripped spelling every
+// other Latin-script pack already accepts (Mude) match \u00e4\u00f6\u00fc\u00df words. No other pack's text
+// contains these letters, but the fold is gated by pack anyway, not by script, so a
 // future non-German pack with an \u00e4/\u00f6/\u00fc/\u00df loanword is unaffected unless it opts in.
 const GERMAN_ASCII = { "\u00e4":"ae", "\u00f6":"oe", "\u00fc":"ue", "\u00df":"ss",
   "\u00c4":"Ae", "\u00d6":"Oe", "\u00dc":"Ue" };
@@ -633,8 +637,13 @@ function guardIndex(words, caseSensitive){
 // si or s+ZWJ+i for sí, are wrong). A pointing key the target shares stays accepted:
 // замок for за́мок passes even when замо́к is also a pack word (typed замо́к does not).
 // امس for أمس and perche for perché are fine. The German pack (pack.key === "de") also
-// folds ä/ö/ü/ß to ae/oe/ue/ss on both sides (GERMAN_ASCII, foldGermanAscii), so a learner
-// on a non-German keyboard can type "Muede"/"Strasse" for müde/Straße; same guard applies.
+// folds each target (never the typed text) to ae/oe/ue/ss on top of the plain accent
+// strip, so a learner on a non-German keyboard can type "Muede" or "Strasse" for
+// müde/Straße; the plain accent-stripped spelling ("mude") a learner who just drops the
+// umlaut types still matches too, exactly as it already did for every other Latin-script
+// pack, and every collision that spelling created (schon/schön, zahlen/zählen) still
+// exists and is still caught by the guard below. The typed text is never fed the German
+// digraph fold itself: a genuine "ae" (Aerobic) must never turn into ä.
 function acceptTyped(input, entry, pack, extra, words){
   const t = (pack && pack.typing) || {};
   const cs = !!t.caseSensitive, lenient = typingLenientFor(entry, pack);
@@ -645,9 +654,11 @@ function acceptTyped(input, entry, pack, extra, words){
   const targetStrict = targets.map(x => normalizeTyped(x, strict));
   if(targetStrict.includes(got)) return true;
   if(!lenient) return false;
-  const full = { caseSensitive: cs, foldAccents: true, germanAscii: pack && pack.key === "de" };
+  const isDe = !!(pack && pack.key === "de");
+  const full = { caseSensitive: cs, foldAccents: true };
+  const fullDe = { caseSensitive: cs, foldAccents: true, germanAscii: true };
   const gotL = normalizeTyped(input, full);
-  if(!gotL || !targets.some(x => normalizeTyped(x, full) === gotL)) return false;
+  if(!gotL || !targets.some(x => normalizeTyped(x, full) === gotL || (isDe && normalizeTyped(x, fullDe) === gotL))) return false;
   if(!Array.isArray(words)) return true;
   const other = e => e !== entry && !(e.id != null && e.id === entry.id);
   const idx = guardIndex(words, cs);
@@ -5421,4 +5432,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:1614149603-1555408-->
+<!--ve-build:150104843-1556311-->
