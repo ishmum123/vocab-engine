@@ -1191,6 +1191,10 @@ function ttsDriver(ss, o){
   // the retry/poll timers stop()/say() sweep on every call, so it fires regardless of what
   // else the driver does (or doesn't do) in the meantime.
   let gen = 0, cur = null, timers = [], cancelled = false, cancelledTimer = null;
+  // Utterances the driver itself cancelled to retry (never started): an engine that fires
+  // onend (not an error) on cancel makes that look like a finished utterance, so callers
+  // that chain on the end (app.html speakTTS onEnd) ask dropped(u) first.
+  const droppedSet = typeof WeakSet === "function" ? new WeakSet() : null;
   const clear = () => { timers.forEach(t => { try{ clrT(t); }catch(e){} }); timers = []; };
   const busy = () => !!(ss.speaking || ss.pending);
   const markCancelled = () => {
@@ -1228,13 +1232,13 @@ function ttsDriver(ss, o){
         if(ss.speaking){ alive = true; return; }
         waited += opt.pollMs;
         if(waited < opt.watchMs){ timers.push(setT(poll, opt.pollMs)); return; }
-        if(!ss.speaking && !ss.pending){ cur = null; markCancelled(); try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
+        if(!ss.speaking && !ss.pending){ cur = null; if(droppedSet) droppedSet.add(u); markCancelled(); try{ ss.cancel(); }catch(e){} timers.push(setT(() => go(true), opt.deferMs)); }
       };
       timers.push(setT(poll, opt.pollMs));
     };
     if(hadWork) timers.push(setT(() => go(false), opt.deferMs)); else go(false);
   }
-  return { say, stop, current: () => cur };
+  return { say, stop, current: () => cur, dropped: u => !!(droppedSet && droppedSet.has(u)) };
 }
 // Recorded clip start watchdog (docs/AUDIO.md): a clip that has not fired "playing" within
 // ms of play() (a hung load, a stalled start) is reported once through onFail. Armed only
@@ -1301,8 +1305,9 @@ function audioSlot(make){
 // Optional pack data (passages.json, docs/PACK_SCHEMA.md "passages.json"). A level's
 // passages unlock once READ_UNLOCK of that level's words are learned; the unlock is
 // stored in prog.read.unlocked so it survives later changes. Reading state lives in
-// prog.read = { unlocked: {levelId: 1}, done: {passageId: {sc, n, d, x}} } and is absent
+// prog.read = { unlocked: {levelId: 1}, done: {passageId: {sc, n, d, x, l?}} } and is absent
 // until the learner first meets a passage, so older stored progress needs no migration.
+// l: 1 marks a latest attempt that was a listening pass (readPassMode); absent = reading.
 const READ_UNLOCK = 0.7;
 // Weights for "Weak words from this passage": misses added to prog.w[id].w.
 const READ_WEIGHT = { tapped: 2, wrong: 2, reopened: 1 };
@@ -1368,6 +1373,39 @@ function nextReadItem(passages, words, pack, prog, now){
     best = p; bestDay = day;
   });
   return best ? { p: best, reason: "reread" } : null;
+}
+// Listen mode (docs/PACK_SCHEMA.md "passages.json", Listening pass): how Today runs the
+// Read stage's item r ({p, reason} from nextReadItem). "listen" only for a spaced re-read
+// (reason "reread") on a device that can play every sentence (canListen: app.html checks
+// each sentence has a clip or a voice is usable), and only when the latest attempt was not
+// itself a listening pass (done[id].l), so re-reads alternate listen, read, listen...
+// Everything else, and every Read-tab passage, is an ordinary reading pass: "read".
+function readPassMode(r, prog, canListen){
+  if(!r || !r.p || r.reason !== "reread" || !canListen) return "read";
+  const done = (isObj(prog && prog.read) && isObj(prog.read.done)) ? prog.read.done : {};
+  const rec = done[r.p.id];
+  return isObj(rec) && rec.l ? "read" : "listen";
+}
+// The questions of a listening pass that are audio-only (text behind "Show question"):
+// ceil(n/2) indexes, ascending. The question order is a shuffle seeded by the passage id
+// alone, rotated by the number of previous attempts (done[id].x), and the first ceil(n/2)
+// taken: stable for one pass across re-renders, and for n >= 2 consecutive attempts never
+// pick the same set (the rotation shifts the window by one position each time).
+function hashSeed(str){
+  let h = 2166136261 >>> 0;
+  for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h;
+}
+function seededRng(seed){
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function listenAudioOnly(pid, attempts, n){
+  const k = Math.ceil((n || 0) / 2);
+  if(!(k > 0)) return [];
+  const idx = shuffle(Array.from({ length: n }, (_, i) => i), seededRng(hashSeed(String(pid))));
+  const r = (((attempts || 0) % n) + n) % n;
+  return idx.slice(r).concat(idx.slice(0, r)).slice(0, k).sort((a, b) => a - b);
 }
 // Length in words: whitespace tokens for spaced scripts, linked word tokens otherwise.
 function passageLength(p, pack){
@@ -1468,10 +1506,12 @@ function applyWeakWords(prog, entries, words, pack){
   return prog;
 }
 // Records a finished passage: sc right of n questions on date d ("YYYY-MM-DD"); x counts
-// attempts. The latest attempt's score is kept.
-function markPassageDone(prog, pid, sc, n, d){
+// attempts. The latest attempt's score is kept. listen: the attempt was a listening pass,
+// stored as l: 1 (absent for a reading pass, so reading-only records are unchanged).
+function markPassageDone(prog, pid, sc, n, d, listen){
   const st = readState(prog); const prev = st.done[pid];
   st.done[pid] = { sc, n, d: String(d), x: ((prev && prev.x) || 0) + 1 };
+  if(listen) st.done[pid].l = 1;
   return st.done[pid];
 }
 // Progress tab: per level with passages {lv, total, done, avg} where avg is the mean
@@ -1496,7 +1536,7 @@ function validateReadShape(r){
     for(const k of Object.keys(r.done)){
       const p = r.done[k];
       if(!isObj(p)) return `read.done.${k} must be an object`;
-      for(const f of ["sc","n","x"]) if(p[f] !== undefined && typeof p[f] !== "number") return `read.done.${k}.${f} must be a number`;
+      for(const f of ["sc","n","x","l"]) if(p[f] !== undefined && typeof p[f] !== "number") return `read.done.${k}.${f} must be a number`;
       if(p.d !== undefined && typeof p.d !== "string") return `read.done.${k}.d must be a string`;
     }
   }
@@ -2994,7 +3034,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,
-  READ_UNLOCK, READ_WEIGHT, READ_REREAD_DAYS, readState, readingLevels, updateReadUnlocks, suggestPassage, nextReadItem, passageLength, passageSegments,
+  READ_UNLOCK, READ_WEIGHT, READ_REREAD_DAYS, readState, readingLevels, updateReadUnlocks, suggestPassage, nextReadItem, readPassMode, listenAudioOnly, passageLength, passageSegments,
   gradeQuestion, passageWeakWords, applyWeakWords, markPassageDone, readingStats,
   CHARS_PROG_VERSION, CHAR_SET_SIZE, CHAR_MASTERED, CHAR_BARE, REVIEW_SIZE_CHARS, CHAR_KINDS, charsConfig,
   defaultCharsProg, validateCharsShape, normalizeCharsProg, ensureChars, charRecs, markChar, answerCharChoice, setCharOrder,

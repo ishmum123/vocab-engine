@@ -1555,7 +1555,7 @@ return {
       ltr.glossBox() === '<div class="gloss" id="gloss" hidden></div>' && !/dir=/.test(lg) && /<span class="ge">/.test(lg));
     check("app.html: .gloss aligns text-align:start", /\.gloss\{[^}]*text-align:start/.test(appHtml));
     check("app.html: both passage screens use glossBox() (no hard-coded #gloss markup left)",
-      (appHtml.match(/\$\{glossBox\(\)\}/g) || []).length === 2 && !/<div class="gloss" id="gloss" hidden>/.test(appHtml));
+      (appHtml.match(/\$\{glossBox\(\)\}/g) || []).length === 3 && !/<div class="gloss" id="gloss" hidden>/.test(appHtml));
     await tick(); await tick();
   }catch(e){ check(`rtl gloss scenario does not throw (got: ${e.message})`, false); }
 
@@ -1648,8 +1648,15 @@ return {
     check("all done, missed one 2 days ago: no Read row yet (7-day rule)", !readRow(b.api.getHtml("panel")));
     pr.read.done[PASSAGES[5].id].sc = 0;
     b.api.today();
+    // A voice is usable here, so the spaced re-read is a listening pass (VC.readPassMode);
+    // after a listening attempt (l: 1) the next re-read is a reading pass again.
+    const lrow = (b.api.getHtml("panel").match(/<tr><td>6\. Listen<\/td><td>([\s\S]*?)<\/td><\/tr>/) || [])[1];
+    check(`all done, missed one 8 days ago, voice usable: Listen row offers it as a listening pass (${lrow && lrow.replace(/<[^>]+>/g, "")})`, !!lrow && !readRow(b.api.getHtml("panel")) && lrow.startsWith("1 passage to listen to: ") && lrow.includes(VC.escapeHtml(PASSAGES[5].title)));
+    pr.read.done[PASSAGES[5].id].l = 1;
+    b.api.today();
     const rrow = readRow(b.api.getHtml("panel"));
-    check(`all done, missed one 8 days ago: Read row offers it as a re-read (${rrow && rrow.replace(/<[^>]+>/g, "")})`, !!rrow && rrow.startsWith("1 passage to re-read: ") && rrow.includes(VC.escapeHtml(PASSAGES[5].title)));
+    check(`all done, missed one 8 days ago, last attempt a listening pass: Read row offers it as a re-read (${rrow && rrow.replace(/<[^>]+>/g, "")})`, !!rrow && rrow.startsWith("1 passage to re-read: ") && rrow.includes(VC.escapeHtml(PASSAGES[5].title)));
+    delete pr.read.done[PASSAGES[5].id].l;
     await tick(); await tick();
     // RTL: the plan line passes the shared RTL audit; UI parts isolated, title in pack font.
     const RP0 = JSON.parse(JSON.stringify(PASSAGES[0])); RP0.title = "خانه (آزمون)";
