@@ -285,10 +285,24 @@ function walk(api, stopAt){
     // alternating in each plan (reading first), never a written blank.
     const typed = seen.filter(x => x.kind === "type");
     const tLabels = typed.map(x => x.it.label);
-    check(`typed items appear in the Today walk's production slots, both kinds (${tLabels.filter(l => l === "Type the pinyin").length} pinyin, ${tLabels.filter(l => l === "Type the characters").length} characters) and only word keys`,
-      typed.length > 1 && tLabels.every(l => l === "Type the pinyin" || l === "Type the characters") && tLabels.includes("Type the pinyin") && tLabels.includes("Type the characters") && typed.every(x => x.it.key.startsWith("w:")));
+    // The walk's words are all below their character tier (shown by their reading), so
+    // every type slot is the pinyin item: characters never asked before they were shown.
+    const walkProg = api.getProg();
+    const belowBad = typed.filter(x => VC.displayForm(BY_ID[x.it.key.slice(2)], CHARACTERS, walkProg, PACK).isPron && x.it.label !== "Type the pinyin");
+    check(`typed items appear in the Today walk's production slots, only word keys; a below-tier word never gets "Type the characters" (${tLabels.filter(l => l === "Type the pinyin").length} pinyin, ${tLabels.filter(l => l === "Type the characters").length} characters, ${belowBad.length} bad)`,
+      typed.length > 1 && tLabels.every(l => l === "Type the pinyin" || l === "Type the characters") && belowBad.length === 0 && typed.every(x => x.it.key.startsWith("w:")));
     check("no typed gap item (gapType) in the walk", !seen.some(x => x.kind === "type" && x.it.key.startsWith("s:")));
     const w = BY_ID["w0077"]; // 学生 xuésheng
+    // At tier: the word's character unit has a mastered record, so its written form shows.
+    const wUnit = CHARACTERS.find(u => (u.words || []).includes(w.id));
+    const atTier = () => { const pm = seedPF(); VC.ensureChars(pm).c[wUnit.id] = { r: 5, w: 0, s: 5 }; return pm; };
+    const below = seedPF();
+    api.setProg(below);
+    const bPlan = [{ kind: "type", word: w }, { kind: "type", word: w }, { kind: "type", word: w }];
+    check("below tier (shown by its reading): every type slot gives Type the pinyin, never the characters",
+      VC.displayForm(w, CHARACTERS, below, PACK).isPron && bPlan.map(api.itemFromPlan).every(x => x.label === "Type the pinyin"));
+    api.setProg(atTier());
+    check("at tier: the written form is on display", !VC.displayForm(w, CHARACTERS, api.getProg(), PACK).isPron);
     // Plan order picks the item: 1st type slot pinyin, 2nd characters, 3rd pinyin.
     const tPlan = [{ kind: "type", word: w }, { kind: "recall", word: w }, { kind: "type", word: w }, { kind: "type", word: w }];
     const tItems = tPlan.map(api.itemFromPlan);
@@ -308,7 +322,7 @@ function walk(api, stopAt){
     check("characters check: the written form (and alt forms) right, the reading or another word wrong", wi.check(w.w) && wi.check(" " + w.w + " ") && !wi.check(w.pron) && !wi.check("学习") && (w.alt || []).every(a => wi.check(a)));
     // Drive both items through the renderer, with the spoken log.
     const { api: a2, spoken } = await boot({ seed: 3 });
-    a2.setProg(seedPF());
+    a2.setProg(atTier());
     const s0 = spoken.length;
     const r = runTyped(a2, w, "xuesheng", 0, spoken);
     check("renderer, pinyin: nothing spoken before the answer; toneless counted right, no 'you typed', tones note + coloured reading",
@@ -326,6 +340,9 @@ function walk(api, stopAt){
     check("renderer, characters: typing the reading counted wrong", r6.wrong);
     // A word with no pron gets the characters item in either slot.
     const np = Object.assign({}, w, { pron: "" });
+    a2.setProg(below);
+    check("below tier, characters slot rendered: the pinyin item, nothing spoken before the answer", (() => { const r7 = runTyped(a2, w, "xuesheng", 1, spoken); return /Type the pinyin/.test(r7.html) && r7.spokenBefore === 0 && !r7.wrong; })());
+    a2.setProg(atTier());
     check("no pron: both type slots give the characters item", [0, 1].every(i => a2.itemFromPlan({ kind: "type", word: np }, i, [{ kind: "type" }, { kind: "type" }]).label === "Type the characters"));
 
   } catch(e){ check(`section threw: ${e.message}`, false); }

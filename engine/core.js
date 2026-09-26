@@ -2518,6 +2518,8 @@ function checkPronTyped(input, pron){
 // tones optional), then "written" (type the characters, the word's audio played). Plan
 // order is already fixed by the plan builders' rng, so no randomness is added and every
 // plan is unchanged; i undefined (a lone item) is "pron".
+// The app still gives a "written" slot the reading item when the word's written form is
+// not on display (pronFirst: a word below its character tier is shown by its reading).
 function typeSlotKind(plan, i){
   let n = 0;
   for(let j = 0; j < (i || 0); j++) if(plan && plan[j] && plan[j].kind === "type") n++;
