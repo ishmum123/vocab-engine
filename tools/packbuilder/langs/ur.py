@@ -677,6 +677,7 @@ EXTRA_LEX_SRC = """
 قیام|noun|stay; establishment|qayām
 زائد|adj|extra, more than|zā'id
 گندا|adj|dirty|gandā
+پھوپھی|noun|paternal aunt (father's sister)|phūphī
 """
 # stem + auxiliary/vector and pronoun + postposition written as one word
 # (کردیا, ہوگیا, آرہا, جاسکتا, کرکے, آپکو, اسکا): tagged as two words.
@@ -1099,6 +1100,7 @@ class Urdu(LanguageSpec):
         canon = lambda w: w if " " in w else alt.get(fold(w), [fold(w)])[0]
         self.a1_core = {g: [canon(w) for w in ws] for g, ws in self.a1_core.items()}
         self.forced = list(dict.fromkeys((canon(w), g) for w, g in self.forced))
+        self.forced_level = {(canon(w), g): lvl for (w, g), lvl in self.forced_level.items()}
         return res
 
     # ---- spelling / frequency --------------------------------------------------
