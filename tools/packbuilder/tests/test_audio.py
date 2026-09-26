@@ -398,7 +398,7 @@ class AudioBuild(unittest.TestCase):
 
     def test_fa_spec_has_audio_config(self):
         cfg = audio.config(get_spec("fa", str(self.root), load=False))
-        self.assertEqual((cfg["voice"], cfg["version"], cfg["bitrate"]), ("fa_IR-ganji_adabi-medium", 1, "24k"))
+        self.assertEqual((cfg["voice"], cfg["version"], cfg["bitrate"]), ("fa_IR-ganji_adabi-medium", 2, "24k"))
 
 
 class PiperRendererFfmpegCommand(unittest.TestCase):
