@@ -704,7 +704,15 @@ class Hindi(LanguageSpec):
     }
     versions = {"corpus": "c1", "tag": "t3", "lex": "l1"}
 
-    typing = None
+    # Typed production on (2026-09-26): lenient accents fold the Devanagari
+    # nukta (PACK_SCHEMA.md typing.accents), which is optional in common
+    # writing, so a learner who omits it is not marked wrong. strictFromLevel
+    # is null: the nukta stays optional at every level, there being no later
+    # point at which it becomes standard to require it. Lenient does NOT fold
+    # chandrabindu (ँ) against anusvara (ं) -- schema keeps Devanagari marks
+    # that make a different letter -- so हँसना vs हंसना is a residual
+    # (TODO.md).
+    typing = {"caseSensitive": False, "accents": "lenient", "strictFromLevel": None}
     show_pron = True
     target_len = {"A1": 5, "A2": 6, "B1": 7}
     min_len = {"A1": 3, "A2": 4, "B1": 5}
