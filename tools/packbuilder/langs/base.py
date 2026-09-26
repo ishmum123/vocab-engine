@@ -175,6 +175,9 @@ class LanguageSpec:
 
     # ---- forced items / hand tables ------------------------------------------
     forced_closed = []          # [(lemma, group)] closed sets forced into A1
+    forced_level = {}           # (lemma, group) -> level a forced word ships at (default: bands[0][0]).
+        # Mostly populated from forced_a1_file's word@LEVEL annotations (ur: ماموں@A2); a subclass may
+        # also hand-set entries here directly, the same way level_floor is hand-set.
     no_article = set()          # nouns shown bare (days, months)
     allowed_num = set()         # numerals allowed as words
     fixed_gloss = {}            # (lemma, group) -> gloss
@@ -227,6 +230,8 @@ class LanguageSpec:
         p = self.repo / self.forced_a1_file
         if p.exists():
             self.a1_core = parse_forced_file(p.read_text())
+            if self.a1_core.levels:
+                self.forced_level = {**type(self).forced_level, **self.a1_core.levels}
         self.forced = list(self.forced_closed) + [(w, g) for g, ws in self.a1_core.items() for w in ws]
         self.forced = list(dict.fromkeys(self.forced))   # a word listed twice must not become two words
         return self
@@ -731,19 +736,36 @@ def parse_gender(g):
     return ("m" if has_m else "f" if has_f else None), plural
 
 
+class ForcedGroups(dict):
+    """dict {"NOUN": [word, ...], ...}, exactly like the old parse_forced_file return, plus
+    `.levels`: {(word, GROUP): "A2"} for words written as word@LEVEL. Every existing
+    forced_a1.txt (no @LEVEL anywhere) parses to a plain-looking dict with `.levels == {}`."""
+    def __init__(self):
+        super().__init__()
+        self.levels = {}
+
+
 def parse_forced_file(text):
     """'[NOUN]\\nword word\\n[VERB]\\n...' -> {"NOUN": [...], ...}, order kept.
-    '#' starts a comment."""
-    out, cur = {}, None
+    '#' starts a comment. A word may carry an explicit level as word@LEVEL (e.g. ماموں@A2);
+    the level is stripped from the returned word list and collected in the result's
+    `.levels` dict {(word, GROUP): LEVEL} instead (see ForcedGroups). A bare word (no @)
+    is unaffected: this is backwards compatible with every existing forced_a1.txt."""
+    out, cur, g = ForcedGroups(), None, None
     for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
         if not line:
             continue
         m = re.fullmatch(r"\[([A-Z]+)\]", line)
         if m:
-            cur = out.setdefault(m.group(1), [])
+            g = m.group(1)
+            cur = out.setdefault(g, [])
             continue
         if cur is None:
             raise ValueError(f"forced list: words before a [GROUP] header: {line!r}")
-        cur.extend(line.split())
+        for tok in line.split():
+            word, _, lvl = tok.partition("@")
+            cur.append(word)
+            if lvl:
+                out.levels[(word, g)] = lvl
     return out
