@@ -123,7 +123,7 @@ return {
   el: id => document.getElementById(id),
   goto: t => { tab = t; testSel = null; RD = null; render(); },
   hearItem, readItem, recallItem, typeItem, revealBlock, vocabTeach, wordListInto, speechNotice, speak, sayWord, canHearWord,
-  scriptDrillItem, scriptTeachHTML, scriptRevealBlock, unit: id => SUNIT_BY_ID[id], packAudio: () => PACK_AUDIO, hasSpeech: () => hasSpeech,
+  saySentence, sayUnitSound, scriptDrillItem, scriptTeachHTML, scriptRevealBlock, unit: id => SUNIT_BY_ID[id], packAudio: () => PACK_AUDIO, hasSpeech: () => hasSpeech,
   panelListeners: () => document.getElementById("panel")._listeners.click || [],
 };`;
   const names = ["document","window","SpeechSynthesisUtterance","navigator","location","localStorage","matchMedia","requestAnimationFrame","Audio","confirm","alert","PACK","WORDS","SENTENCES","LESSONS","PASSAGES","SCRIPT"];
@@ -271,6 +271,16 @@ async function appChecks(){
     rejectA(Object.assign(new Error("x"), { name: "NetworkError" })); await tick();
     check("a failure from a clip a later speak() replaced is ignored", log.spoken.length === 0);
     check("no hint shown while a voice exists", document.getElementById("audiohint") === null);
+    // A replaced clip's late AbortError must not strip "speaking" from a button the newer clip reuses.
+    const cls = new Set(); const btn = { classList: { add: c => cls.add(c), remove: c => cls.delete(c) } };
+    let rejA; log.ctl.play = () => new Promise((_, rej) => { rejA = rej; });
+    api.sayWord(c1, btn); const firstReject = rejA;
+    api.sayWord(c3, btn);
+    firstReject(Object.assign(new Error("x"), { name: "AbortError" })); await tick();
+    check("a stale AbortError leaves the reused button 'speaking' for the newer clip", cls.has("speaking"));
+    rejA(Object.assign(new Error("x"), { name: "AbortError" })); await tick();
+    check("the current clip's own end/abort clears 'speaking'", !cls.has("speaking"));
+    log.ctl.play = null;
   }
   {
     const { api, log, document } = await boot(D, { voices: NOVOICE, online: false });
@@ -280,6 +290,27 @@ async function appChecks(){
     check("no voice, offline, uncached clip: an 'Offline' hint toast, no TTS", !!hint && /Offline/.test(hint.textContent) && log.spoken.length === 0);
     api.sayWord(c1); await tick(); await tick();
     check("the hint is shown once at a time (replaced, not stacked)", document.body.children.filter(c => c.id === "audiohint").length === 1);
+    api.saySentence({ t: "x", audio: "https://audio.tatoeba.org/sentences/pes/1.mp3" }); await tick(); await tick();
+    check("offline, a cross-origin (Tatoeba) clip: 'Recording needs a connection.'", /^Recording needs a connection\.$/.test(document.getElementById("audiohint").textContent));
+  }
+  {
+    const { api, log, document } = await boot(D, { voices: NOVOICE, online: true });
+    log.ctl.play = a => { setTimeout(() => a.onerror && a.onerror(), 0); return new Promise(() => {}); };
+    api.saySentence({ t: "x", audio: "https://audio.tatoeba.org/sentences/pes/1.mp3" }); await tick(); await tick();
+    check("online, a clip that fails: 'This recording couldn't be played.'", /couldn't be played/.test(document.getElementById("audiohint").textContent));
+  }
+  {
+    // pack.script.tts on + a voice: a unit clip that fails falls back to the unit's say carrier.
+    const V = faData(true); V.pack = Object.assign({}, V.pack, { script: Object.assign({}, V.pack.script, { tts: true }) });
+    V.script = JSON.parse(JSON.stringify(V.script)); const be = V.script.units.find(u => u.id === "fa-be"); be.audio = "audio/x/fa-be.0123abcd.opus";
+    const { api, log } = await boot(V, { voices: FAVOICE });
+    log.ctl.play = () => Promise.reject(Object.assign(new Error("x"), { name: "NotSupportedError" }));
+    api.sayUnitSound(api.unit("fa-be")); await tick();
+    check("sayUnitSound: a failed unit clip falls back to TTS of its say carrier", log.played.join() === be.audio && log.spoken.join() === be.say);
+    const { api: api2, log: log2 } = await boot(Object.assign({}, faData(true), { script: V.script }), { voices: FAVOICE });   // shipped Persian: script tts false
+    log2.ctl.play = () => Promise.reject(Object.assign(new Error("x"), { name: "NotSupportedError" }));
+    api2.sayUnitSound(api2.unit("fa-be")); await tick();
+    check("sayUnitSound with pack.script.tts false: no TTS fallback for the carrier", log2.spoken.length === 0);
   }
 
   console.log("\n[4] clips without pack.audio: they play, the notices still show");
@@ -378,6 +409,11 @@ async function swChecks(){
     check("a 404 passes through and is not cached", r6.status === 404 && !sim.store.get(AUDIO).has(SCOPE + "audio/w/missing.opus"));
     const other = await sim.go(ORIGIN + "/german/audio/w/w1.opus");
     check("another site's audio is not intercepted", other === undefined);
+    // Content-addressed clips: a re-render is a new URL, fetched fresh; the old URL keeps its old bytes.
+    sim.net = u => new Response(/\.bbbbbbbb\./.test(u) ? "NEW" : "OLD", { status: 200 });
+    await sim.go(SCOPE + "audio/p/p1-0.aaaaaaaa.opus");
+    const rNew = await sim.go(SCOPE + "audio/p/p1-0.bbbbbbbb.opus");
+    check("a re-rendered clip (new <sha8> URL) is fetched from the network, not served the cached old clip", (await rNew.text()) === "NEW");
     // Cap: 805 more distinct clips -> the cache holds 800, the oldest (w1, then c0..) evicted.
     for(let i = 0; i < 805; i++) await sim.go(SCOPE + `audio/s/c${i}.opus`);
     const keys = [...sim.store.get(AUDIO).keys()];

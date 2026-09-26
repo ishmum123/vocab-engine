@@ -105,7 +105,9 @@ self.addEventListener("fetch", e => {
   if(url.href.indexOf(SCOPE) !== 0) return; // other origins and other sites: network only
   const rel = url.pathname.slice(new URL(SCOPE).pathname.length);
   if(rel === "" || rel === PAGE){ e.respondWith(pageResponse(req)); return; }
-  if(rel.indexOf("audio/") === 0){ e.respondWith(audioResponse(req, url.origin + url.pathname)); return; }
+  // Keyed by the full URL: clip names are content-addressed (<id>.<sha8>.opus, docs/AUDIO.md),
+  // so a re-rendered clip is a new URL and a cached one is never stale.
+  if(rel.indexOf("audio/") === 0){ e.respondWith(audioResponse(req, url.href)); return; }
   if(req.mode === "navigate"){
     e.respondWith(fetch(req).catch(() => caches.open(CACHE).then(c => c.match(PAGE_URL)).then(hit => hit || Response.error(), () => Response.error())));
   }

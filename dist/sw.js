@@ -1,5 +1,5 @@
 // Service worker for a built trainer page. build.sh writes it as sw.js next to the page,
-// filling in 1017913428-1518847 (cksum of the built page before its marker line) and zh.html
+// filling in 1082040250-1519580 (cksum of the built page before its marker line) and zh.html
 // (its file name), so every rebuild that changes the page also changes sw.js and the
 // browser installs it. build.sh ends the page with the marker <!--ve-build:<id>-->.
 //
@@ -27,7 +27,7 @@
 //   range behaviour is untested until the phase 3 live check (docs/AUDIO.md).
 // Kill switch / rollback: README "Offline and repeat loads"; never delete a published sw.js.
 "use strict";
-const BUILD = "1017913428-1518847";
+const BUILD = "1082040250-1519580";
 const PAGE = "zh.html";
 const MARK = "<!--ve-build:" + BUILD + "-->";
 const SCOPE = self.registration ? self.registration.scope : new URL("./", self.location.href).href;
@@ -105,7 +105,9 @@ self.addEventListener("fetch", e => {
   if(url.href.indexOf(SCOPE) !== 0) return; // other origins and other sites: network only
   const rel = url.pathname.slice(new URL(SCOPE).pathname.length);
   if(rel === "" || rel === PAGE){ e.respondWith(pageResponse(req)); return; }
-  if(rel.indexOf("audio/") === 0){ e.respondWith(audioResponse(req, url.origin + url.pathname)); return; }
+  // Keyed by the full URL: clip names are content-addressed (<id>.<sha8>.opus, docs/AUDIO.md),
+  // so a re-rendered clip is a new URL and a cached one is never stale.
+  if(rel.indexOf("audio/") === 0){ e.respondWith(audioResponse(req, url.href)); return; }
   if(req.mode === "navigate"){
     e.respondWith(fetch(req).catch(() => caches.open(CACHE).then(c => c.match(PAGE_URL)).then(hit => hit || Response.error(), () => Response.error())));
   }

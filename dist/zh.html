@@ -3059,9 +3059,11 @@ function speak(text, btn, audioUrl){
       const a = audioOut.play(audioUrl);
       a.onended = a.onerror = null;
       if(btn){ speakingBtn = btn; btn.classList.add("speaking"); }
-      const done = () => { if(btn) btn.classList.remove("speaking"); };
+      // done() is generation-guarded too: a replaced clip's late end/abort must not strip
+      // "speaking" from a button the newer speak() reuses.
+      const done = () => { if(btn && gen === speakGen) btn.classList.remove("speaking"); };
       let settled = false;
-      const failed = () => { if(settled || gen !== speakGen) return; settled = true; done(); clipFailed(text, btn); };
+      const failed = () => { if(settled || gen !== speakGen) return; settled = true; done(); clipFailed(text, btn, audioUrl); };
       a.onended = done; a.onerror = failed;
       const pr = a.play();
       if(pr && pr.catch) pr.catch(err => { if(err && (err.name === "NotAllowedError" || err.name === "AbortError")) done(); else failed(); });
@@ -3070,9 +3072,16 @@ function speak(text, btn, audioUrl){
   }
   speakTTS(text, btn);
 }
-function clipFailed(text, btn){
+// Offline, a clip from this site may just not be cached yet (sw.js caches clips on first play);
+// a cross-origin clip (Tatoeba) is never cached, so it only ever needs a connection.
+function clipFailed(text, btn, url){
   if(hasSpeech && text) { speakTTS(text, btn); return; }
-  audioHint(navigator.onLine === false ? "Offline: this recording isn't saved on this device yet." : "This recording couldn't be played.");
+  audioHint(navigator.onLine !== false ? "This recording couldn't be played."
+    : clipCrossOrigin(url) ? "Recording needs a connection." : "Offline: this recording isn't saved on this device yet.");
+}
+function clipCrossOrigin(url){
+  try{ return new URL(url, location.href).origin !== location.origin; }
+  catch(e){ return /^[a-z][a-z0-9+.-]*:/i.test(String(url)); }
 }
 // A short self-removing toast (the sw.js update toast's style), one at a time.
 function audioHint(msg){
@@ -3698,7 +3707,8 @@ function markScriptRec(unitId, ok){ VC.markScript(prog, unitId, ok); store.save(
 const sayScript = (it, btn) => speak(it.say || "", btn, it.audioUrl || undefined);
 // A unit's own sound: its recorded clip, else its `say` when the pack has a voice.
 const unitHasSound = u => !!(u && (u.audio || (scriptVoice() && u.say)));
-const sayUnitSound = (u, btn) => { if(u.audio) speak("", btn, String(u.audio)); else if(scriptVoice() && u.say) speak(String(u.say), btn); };
+// A unit's clip falls back (clipFailed) to its say carrier by TTS when the script is voiced.
+const sayUnitSound = (u, btn) => { if(u.audio) speak(scriptVoice() && u.say ? String(u.say) : "", btn, String(u.audio)); else if(scriptVoice() && u.say) speak(String(u.say), btn); };
 const FORM_LABEL = { isol:"isolated", init:"initial", medi:"medial", fina:"final" };
 function scriptRevealBlock(it){
   const r = it.reveal;
@@ -4910,4 +4920,4 @@ function legacyFailHTML(why){
 </script>
 </body>
 </html>
-<!--ve-build:1017913428-1518847-->
+<!--ve-build:1082040250-1519580-->
