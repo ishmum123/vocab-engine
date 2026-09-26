@@ -174,7 +174,10 @@
   /* Spread shadow widens the tint past a thin joined letter (fa medial ا, ی) without
      padding: padding/border on an inline breaks Arabic-script shaping across it. */
   .xhl{background:var(--ok-bg);border-radius:3px;box-shadow:0 0 0 2px var(--ok-bg)}
-  ::highlight(xhl){background-color:var(--ok-bg)}
+  /* ::highlight() takes no box-shadow/border-radius, so the span's spread (which keeps a
+     thin joined letter, medial ا or initial ل, visible) is replaced by tinting the glyph
+     itself: the letter turns --ok on the --ok-bg ground, visible at any width. */
+  ::highlight(xhl){background-color:var(--ok-bg);color:var(--ok)}
   .xrword{margin-top:8px}
   .xset{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px}
   .xsn{color:var(--mute);font-size:12px;min-width:14px;padding-top:12px;text-align:right}

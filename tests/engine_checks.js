@@ -934,6 +934,7 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     { id:"ana", w:"أنا", en:"I" }, { id:"madrasa", w:"مدرسة", en:"school" }, { id:"fi", w:"في", en:"in" },
     { id:"ala", w:"على", en:"on" }, { id:"imam", w:"إمام", en:"imam" }, { id:"quran", w:"القرآن", en:"Quran" },
     { id:"ibn", w:"ٱبن", en:"son" }, { id:"suel", w:"سؤال", en:"question" },
+    { id:"sael", w:"سائل", en:"liquid" }, { id:"masul", w:"مسئول", en:"responsible" }, { id:"moamen", w:"مؤمن", en:"believer" },
     { id:"miravam", w:"می‌روم", en:"I go" }, { id:"ketab", w:"کتاب", en:"book (fa)" }, { id:"khane", w:"خانهٔ", en:"house of" },
   ];
   const aids = q => VC.searchWords(AW, q).map(v => v.id);
@@ -945,6 +946,9 @@ const sample = (arr, n) => Array.from({length:n}, ()=>arr[Math.floor(Math.random
     aids("مدرسه").includes("madrasa") && aids("فى").includes("fi") && aids("علي").includes("ala"));
   check("fa search: Arabic ي/ك typed (مي‌روم, كتاب) find Persian ی/ک; ZWNJ-insensitive (میروم, می روم); خانه finds خانهٔ",
     aids("مي‌روم").includes("miravam") && aids("میروم").includes("miravam") && aids("می روم").includes("miravam") && aids("كتاب").includes("ketab") && aids("خانه").includes("khane"));
+  check("ar/fa search: a hamza carrier folds to the same canonical letter the typed side uses (سايل/سایل → سائل, مسيول/مسیول → مسئول, مومن → مؤمن)",
+    aids("سايل").includes("sael") && aids("سایل").includes("sael") && aids("مسيول").includes("masul") && aids("مسیول").includes("masul") && aids("مومن").includes("moamen")
+    && aids("سائل").includes("sael") && aids("مسئول").includes("masul"));
   check("searchFold leaves non-Arabic text exactly as normalizeTyped folds it; typed-answer check still keeps ة and ى distinct",
     VC.searchFold("Café  Été") === VC.normalizeTyped("Café  Été", { foldAccents: true }) && VC.normalizeTyped("مدرسة", { foldAccents: true }) !== VC.normalizeTyped("مدرسه", { foldAccents: true }));
 })();

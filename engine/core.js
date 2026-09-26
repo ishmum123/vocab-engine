@@ -532,11 +532,17 @@ function pronShown(x){
 // decomposition), alef wasla ٱ -> ا, teh marbuta ة -> ه, alef maksura ى -> ی (ي is
 // already ی). Harakat, tatweel and ZWNJ go in foldAccents; ي/ك -> ی/ک in normalizeTyped.
 // Anything without an Arabic-script letter is left exactly as normalizeTyped folds it.
-const AR_SEARCH_MAP = { "ٱ":"ا", "ة":"ه", "ى":"ی", "ۀ":"ه" };
+// Order matters: stripping a carrier's hamza can expose a letter normalizeTyped already
+// unified on the typed side (ئ = Arabic ي + hamza), so the keyboard-variant map
+// (ARABIC_VARIANTS: ي -> ی, ك -> ک) is applied again last: one canonical yeh and kaf.
+// ٲ ٳ ٵ / ٶ ٷ / ٸ (hamza/wavy-hamza letters with no canonical decomposition) map directly.
+const AR_SEARCH_MAP = { "ٱ":"ا", "ٲ":"ا", "ٳ":"ا", "ٵ":"ا", "ٶ":"و", "ٷ":"و", "ٸ":"ی",
+  "ة":"ه", "ى":"ی", "ۀ":"ه" };
 function searchFold(s){
   const f = normalizeTyped(s, { foldAccents: true });
   if(!/[؀-ۿ]/.test(f)) return f;
-  return f.replace(/[ٱةىۀ]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "").normalize("NFC");
+  return f.replace(/[ٱ-ٳٵ-ٸةىۀ]/g, c => AR_SEARCH_MAP[c]).normalize("NFD").replace(/[ٓ-ٕ]/g, "")
+    .replace(/[كي]/g, c => ARABIC_VARIANTS[c]).normalize("NFC");
 }
 // The Arabic definite article: a word-initial ال before at least two more letters is
 // optional in search (كتاب finds الكتاب, and الكتاب finds كتاب). Applied to folded text.
@@ -1972,7 +1978,8 @@ function scriptGlyphIn(glyph, text){
 // (joining context survives a boundary, a ligature does not), so a highlight or any other
 // element boundary inside a word must fall between clusters. A cluster is a grapheme
 // (base + marks: a haraka stays on its letter, a matra/nukta on its consonant), and then:
-//  - Arabic script: lam + alef (ل with ا أ إ آ ٱ ٲ ٳ ٵ, marks between allowed) is one
+//  - Arabic script: lam + alef (ل with ا أ إ آ ٱ ٲ ٳ ٵ, marks or a ZWJ between allowed: shapers ligate
+//    through ZWJ) is one
 //    mandatory ligature (لا). Tatweel between them blocks the ligature, so it splits.
 //  - Brahmic scripts: a grapheme ending in a virama (Devanagari ्, and the Bengali ..
 //    Sinhala viramas) joins the next one (क्ष, स्त्र, reph र्क). A ZWNJ after the virama
@@ -1988,7 +1995,7 @@ function graphemes(s){
   for(const ch of t){ if(out.length && /[\p{M}‌‍]/u.test(ch)) out[out.length - 1] += ch; else out.push(ch); }
   return out;
 }
-const LAM_END = /ل[ً-ٰٟ]*$/, ALEF_START = /^[اآأإٱٲٳٵ]/;
+const LAM_END = /ل[ً-ٰٟ‍]*$/, ALEF_START = /^[اآأإٱٲٳٵ]/;
 const VIRAMA_END = /[्্੍્୍்్್്්]‍?$/;
 function shapingClusters(s){
   const out = [];

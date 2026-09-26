@@ -436,9 +436,11 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     check("ar: a haraka stays inside its letter's tint (بَاب: ب tint holds the fatha)", HL("بَاب", "ب") === '<span class="xhl">بَ</span>ا<span class="xhl">ب</span>');
     check("hi: क in क्षमा tints the conjunct क्ष; ZWNJ after the virama (explicit halant) splits",
       HL("क्षमा", "क") === '<span class="xhl">क्ष</span>मा' && VC.shapingClusters("क्‌ष").length === 2 && VC.shapingClusters("क्ष").length === 1);
+    check("ar: a ZWJ between lam and alef keeps them one cluster (shapers ligate through ZWJ)", VC.shapingClusters("\u0644\u200d\u0627").length === 1 && HL("\u0644\u200d\u0627\u0645", "\u0627") === '<span class="xhl">\u0644\u200d\u0627</span>\u0645');
+    check("browser layer: the ::highlight tint also recolours the glyph (thin joined letters stay visible without the span's spread)", /::highlight\(xhl\)\{background-color:var\(--ok-bg\);color:var\(--ok\)\}/.test(appHtml));
     check("ar: tatweel between lam and alef blocks the ligature, so they are separate clusters", VC.shapingClusters("لـا").length >= 2);
     check("browser layer: paintScriptHL runs after both teach-card insertions and a ::highlight(xhl) rule exists",
-      /paintScriptHL\(\$\("xtl"\)\)/.test(appSrc) && /c\.innerHTML = scriptTeachHTML\(u\);\s*paintScriptHL\(c\);/.test(appSrc) && /::highlight\(xhl\)\{background-color:var\(--ok-bg\)\}/.test(appHtml));
+      /paintScriptHL\(\$\("xtl"\)\)/.test(appSrc) && /c\.innerHTML = scriptTeachHTML\(u\);\s*paintScriptHL\(c\);/.test(appSrc) && /::highlight\(xhl\)\{background-color:var\(--ok-bg\)/.test(appHtml));
     // Note equal to the roman is not shown twice ("b | b"); a real note still is.
     const dup = FX.fa(); const bu = dup.script.units.find(u => u.id === "fa-be"); bu.note = " " + String(bu.roman).toUpperCase() + " ";
     const db = await boot(dup);
