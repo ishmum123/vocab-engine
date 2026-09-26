@@ -771,6 +771,23 @@ function playDrillFrom(api, btnId){ api.el(btnId).click(); return playDrill(api)
     // Deliberately broken markup trips the audit (the audit itself is live).
     check("rtl audit catches Latin in a dir=rtl block, RTL outside data-tl, and Latin inside data-tl",
       rtlAudit('<div dir="rtl">79 words</div>').length === 1 && rtlAudit('<button dir="rtl"><span>✓ 3 / 4</span></button>').length === 1 && rtlAudit('<div dir="rtl">3 / 4 <bdi>x</bdi></div>').length === 1 && rtlAudit("<p>learn کتاب</p>").length === 2 && rtlAudit('<div data-tl lang="fa" dir="rtl">ketâb</div>').length === 2);
+    // Option spacing: b.num and .op carry UIA (dir=ltr), so their own margin-inline-*
+    // resolves against ltr regardless of the RTL button around them (rtlAudit only
+    // checks bidi/font, not layout, so this is a rule-shape check on the CSS itself).
+    // recallItem's button is dir=rtl for this fa pack: b.num is its first child (number
+    // sits at the visual start/right, word to its left) and .op is last (pron further
+    // left still, word to its right), so a plain ltr margin-inline-end on .num or
+    // margin-inline-start on .op lands on the OUTER edge, not the gap toward the word —
+    // the app.html style block must flip both under `.opts button[dir=rtl]`.
+    const FA2 = FX.fa(); FA2.pack.showPron = true; // this fixture's own pack has showPron:false, so .op never renders there
+    const b2 = await boot(FA2); const bk2 = FA2.words.find(w => w.w === "کتاب");
+    b2.api.drill([b2.api.recallItem(bk2)], () => {});
+    const recallRtlWithPron = optsMarkup(b2.api);
+    check("recallItem's RTL option button carries b.num first, target word, then .op (fa pack, showPron on)",
+      /<button dir="rtl"><b class="num" dir="ltr" data-ui>\d<\/b><bdi[^>]*>[^<]*<\/bdi><span class="op" dir="ltr" data-ui><bdi>[^<]*<\/bdi><\/span><\/button>/.test(recallRtlWithPron));
+    check("CSS: .opts button[dir=rtl] flips b.num to margin-inline-start and .op to margin-inline-end (the gap toward the word, not the button's outer edge)",
+      /\.opts button\[dir=rtl\]\s*b\.num\{margin-inline-end:0;margin-inline-start:8px\}/.test(appHtml) &&
+      /\.opts button\[dir=rtl\]\s*\.op\{margin-inline-start:0;margin-inline-end:8px\}/.test(appHtml));
     // LTR packs: the helpers are the old markup.
     const kb = await boot(FX.ko());
     // pack font stack: generic keywords are dropped for RTL packs only; an LTR pack's

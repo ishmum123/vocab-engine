@@ -94,6 +94,16 @@
      under a long one (профессиональный + its pron at 360px) instead of overflowing. */
   .opts button .op{display:inline-block;max-width:100%;color:var(--mute);font-size:14px;font-weight:400;margin-inline-start:8px}
   .opts button[dir=rtl]{text-align:right}
+  /* .num and .op carry UIA (dir=ltr data-ui, docs/PACK_SCHEMA.md "RTL rendering"), so
+     their own margin-inline-* resolves against their OWN ltr direction, not the RTL
+     button's. In an RTL button the number sits first (rightmost) with the word to its
+     left, and the pron span sits after the word (further left, word to ITS right): both
+     gaps are on each element's physical-left/right, the opposite of the ltr case, so the
+     inline-end/inline-start pair flips here rather than moving to a flex gap (the button
+     is a plain wrapping text run, not a flex row, and .opts uses grid for the button
+     list itself — restructuring it to flex would change dist bytes for every pack). */
+  .opts button[dir=rtl] b.num{margin-inline-end:0;margin-inline-start:8px}
+  .opts button[dir=rtl] .op{margin-inline-start:0;margin-inline-end:8px}
   .opts button.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
   .opts button.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
   .opts-hero button{font-size:18px;padding:18px 18px;min-height:58px;font-weight:500}
@@ -604,6 +614,13 @@ const wordAudio = VC.wordAudio;
 const sayWord = (w, btn) => speak(w.w, btn, wordAudio(w));
 const canHearWord = w => hasSpeech || !!wordAudio(w);
 const PACK_AUDIO = VC.packAudio(PACK);
+// Today's Listen line: the same 12 weakest words hearItem() would drill, counted by
+// VC.listenPlanCount with the session's own canHearWord, so a pack with no voice and no
+// clips shows no count instead of a "12 items" the session can't actually serve as Listen.
+function listenLine(lw){
+  const n = VC.listenPlanCount(lw, canHearWord);
+  return n ? `${n} items` : "no items until a voice or recording is available";
+}
 function speechNotice(){
   if(hasSpeech || PACK_AUDIO || noticeShown) return "";
   noticeShown = true;
@@ -1460,7 +1477,7 @@ function todayRender(){
   const steps = [
     ["Review", g.review ? reviewLine : (snap && snap.stage && snap.stage.kind === "script" ? "skipped until a set is learned" : "skipped until 5+ words are learned")],
     ["Learn", snap ? snapLearnLine(snap) : (nn ? `${levelLabel(nn.lv)}, set ${nn.set+1}` : "everything covered")],
-    ["Listen", g.listen ? "12 items" : "skipped until something is learned"],
+    ["Listen", g.listen ? listenLine(lw) : "skipped until something is learned"],
     ["Recall", g.recall ? "8 items" : "skipped until something is learned"],
     ["Sentences", g.sentences ? "8 items, weakest first" : "skipped until 8+ sentences are available"]
   ];
