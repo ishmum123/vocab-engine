@@ -1100,7 +1100,7 @@ function recallItem(entry){
 function typeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:"Type the word",
     html: `<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>`,
-    check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(val, entry, PACK, null, WORDS), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // pack.typing "pron": the word's production slot (kindMix "type", the slot recall also
@@ -1135,7 +1135,7 @@ function writtenTypeItem(entry){
     html: `${kindTag("characters", hear ? "listen" : "")}<div class="med" style="text-align:center">${ui(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
     placeholder: "characters…",
     mount: () => { if(hear){ const b = $("rp2"); sayWord(entry, b); b.onclick = () => sayWord(entry, b); } },
-    check: val => VC.acceptTyped(val, entry, PACK, [VC.affixBare(entry.w)]), reveal: revealBlock(entry),
+    check: val => VC.acceptTyped(val, entry, PACK, [VC.affixBare(entry.w)], WORDS), reveal: revealBlock(entry),
     onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // The characters item only for a word whose written form is on display (dispWord: under
@@ -1211,7 +1211,7 @@ function gapSentence(s, typed){
     onReveal: () => saySentence(s) };
   if(typed && TYPING){
     return Object.assign(base, { kind:"type", label:"Type the missing word", html,
-      check: val => VC.acceptTyped(val, entry, PACK, [match.text]) });
+      check: val => VC.acceptTyped(val, entry, PACK, [match.text], WORDS) });
   }
   const gc = VC.gapChoices(entry, match, WORDS, PACK);
   return Object.assign(base, { kind:"mc", label:"What's the missing word?", optsClass:"opts-hero opts-w", html,
