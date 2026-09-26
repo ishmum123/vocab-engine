@@ -945,6 +945,16 @@ function isSamsungBrowser(ua){
 }
 
 // ------------------------------------------------------------------ audio
+// Recorded clips (docs/AUDIO.md). wordAudio: a word's clip URL (words[].audio), or
+// undefined. packAudio: whether pack.json declares shipped recordings (audio {voice,
+// version}); the app then hides its no-voice notices. Both are false/undefined for every
+// pack without the new fields, which is what keeps those packs byte-identical.
+function wordAudio(w){
+  return isObj(w) && typeof w.audio === "string" && w.audio ? w.audio : undefined;
+}
+function packAudio(pack){
+  return isObj(pack) && isObj(pack.audio) && typeof pack.audio.voice === "string" && !!pack.audio.voice;
+}
 // One shared playback slot for recorded audio. play(url) pauses whatever the slot played
 // last and reuses a single audio object (created once via make()), so repeated or
 // duplicated taps can never stack parallel players or requests.
@@ -1888,8 +1898,11 @@ function scriptKindFits(kind, unit, ctx){
 }
 // The kind actually asked: wordHear is wordRead when the pack has no voice (tts false, or
 // ctx.tts false); null when the unit cannot carry it (scriptKindFits, with ctx).
+// A wordHear stays wordHear without a voice when every example word of the unit has a
+// recorded clip (exRecorded; needs ctx words).
 function scriptKindFor(kind, unit, cfg, ctx){
-  const k = kind === "wordHear" && ((cfg && !cfg.tts) || (isObj(ctx) && ctx.tts === false)) ? "wordRead" : kind;
+  const byId = isObj(ctx) ? (ctx.byId || (Array.isArray(ctx.words) ? Object.fromEntries(ctx.words.map(w => [w.id, w])) : null)) : null;
+  const k = kind === "wordHear" && ((cfg && !cfg.tts) || (isObj(ctx) && ctx.tts === false)) && !exRecorded(unit, byId) ? "wordRead" : kind;
   return scriptKindFits(k, unit, ctx) ? k : null;
 }
 // One fitting kind from `kinds` at random; else the first fitting of wordRead, symSound,
@@ -1983,6 +1996,11 @@ function scriptOpts(unit, pool, all, kind, rng){
 // symSound options: the distractors' romans.
 function scriptRomanOpts(unit, pool, all, rng){ return scriptOpts(unit, pool, all, "symSound", rng).map(v => String(v.roman)); }
 // A unit's example words that exist in the pack: [{id, w, roman, unitId}].
+function exRecorded(unit, byId){
+  if(!byId || !isObj(unit)) return false;
+  const ex = scriptExamples(unit, byId);
+  return ex.length > 0 && ex.every(e => !!wordAudio(byId[e.id]));
+}
 function scriptExamples(unit, byId){
   return (Array.isArray(unit && unit.ex) ? unit.ex : []).filter(e => Array.isArray(e) && byId[e[0]] && byId[e[0]].w)
     .map(e => ({ id: e[0], w: String(byId[e[0]].w), roman: String(e[1] == null ? "" : e[1]), unitId: unit.id }));
@@ -2045,7 +2063,7 @@ function scriptItem(kind, unit, ctx){
   const byId = c.byId || Object.fromEntries((c.words || []).map(w => [w.id, w]));
   const voice = c.tts !== false;
   if(!SCRIPT_KINDS.includes(kind)) throw new Error(`unknown script item kind ${kind}`);
-  const k = kind === "wordHear" && !voice ? "wordRead" : kind;
+  const k = kind === "wordHear" && !voice && !exRecorded(unit, byId) ? "wordRead" : kind;
   if(!scriptKindShape(k, unit)) throw new Error(`script unit ${unit && unit.id} cannot carry a ${k} item`);
   const glyph = scriptGlyph(unit), roman = String(unit.roman || "");
   const unitSay = voice && unit.say ? String(unit.say) : null, unitUrl = unit.audio ? String(unit.audio) : null;
@@ -2057,7 +2075,8 @@ function scriptItem(kind, unit, ctx){
   const it = { kind: k, key: "x:" + unit.id, unitId: unit.id, show: null, hint: null, form: null, audio: null, say: null, audioUrl: null,
     wordId: null, options: null, answer: null, accept: null, reveal };
   const unitSound = when => { if(unitAudio){ it.audio = when; it.say = unitSay; it.audioUrl = unitUrl; } };
-  const wordSound = (when, e) => { if(voice){ it.audio = when; it.say = e.w; } };
+  // An example word's clip (words[].audio) beats TTS and plays with no voice, as unitSound.
+  const wordSound = (when, e) => { const url = wordAudio(byId[e.id]); if(voice || url){ it.audio = when; it.say = voice ? e.w : null; it.audioUrl = url || null; } };
   let others = [];
   if(k === "symSound"){ it.show = glyph; it.answer = roman; others = scriptRomanOpts(unit, pool, all, r); unitSound("after"); }
   else if(k === "soundSym"){
@@ -2491,7 +2510,7 @@ const API = { shuffle, escapeHtml, gloss, firstTwoWords, normKey,
   surfaces, sharesSurface, samePron,
   findSurface, locateWord, packSurfaces, spannedByLonger, gapMatch, gapCandidateIndices, blankSentence,
   strata, placementItemCount, placementStopIndex, applyPlacement, dedupeMisses,
-  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable, isSamsungBrowser,
+  parseStored, dropUnknownSets, bootProg, lessonItemKey, lessonSayMode, applyImport, todayGates, testGates, pickVoice, speechUsable, isSamsungBrowser, wordAudio, packAudio,
   PROG_VERSION, WORD_MASTERED, SENTENCE_MASTERED, storageKey, defaultProg, validateProgShape, normalizeProg,
   markRec, weakScore, weakFirst, provPick, learnedWords, nextNewSet, currentLevelIndex, availableSentences,
   PRODUCTION_KINDS, REVIEW_SIZE, REVIEW_PRODUCTION_SHARE, kindMix, buildReviewPlan, buildRecallPlan, sentenceKind,

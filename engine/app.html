@@ -496,7 +496,14 @@ if(speechAPI){
 // tap that somehow fires twice restarts one sound instead of stacking players.
 const audioOut = VC.audioSlot(() => new Audio());
 let speakingBtn = null;
+// Fallback order (docs/AUDIO.md): the pack's clip, else TTS when a voice is usable. A clip
+// that fails to load (offline and not cached by sw.js, or a 404) falls back to TTS of the
+// same text; with no voice it shows a short hint instead. speakGen drops the failure of a
+// clip that a later speak() already replaced (its pause rejects play() with AbortError),
+// and a blocked autoplay (NotAllowedError) is not a failure of the clip.
+let speakGen = 0;
 function speak(text, btn, audioUrl){
+  const gen = ++speakGen;
   audioOut.stop();
   if(SS){ try{ SS.cancel(); }catch(e){} }
   if(speakingBtn){ speakingBtn.classList.remove("speaking"); speakingBtn = null; }
@@ -504,11 +511,30 @@ function speak(text, btn, audioUrl){
     try{
       const a = audioOut.play(audioUrl);
       a.onended = a.onerror = null;
-      if(btn){ speakingBtn = btn; btn.classList.add("speaking"); a.onended = a.onerror = () => btn.classList.remove("speaking"); }
-      a.play().catch(()=>{ if(btn) btn.classList.remove("speaking"); });
+      if(btn){ speakingBtn = btn; btn.classList.add("speaking"); }
+      const done = () => { if(btn) btn.classList.remove("speaking"); };
+      let settled = false;
+      const failed = () => { if(settled || gen !== speakGen) return; settled = true; done(); clipFailed(text, btn); };
+      a.onended = done; a.onerror = failed;
+      const pr = a.play();
+      if(pr && pr.catch) pr.catch(err => { if(err && (err.name === "NotAllowedError" || err.name === "AbortError")) done(); else failed(); });
       return;
     }catch(e){}
   }
+  speakTTS(text, btn);
+}
+function clipFailed(text, btn){
+  if(hasSpeech && text) { speakTTS(text, btn); return; }
+  audioHint(navigator.onLine === false ? "Offline: this recording isn't saved on this device yet." : "This recording couldn't be played.");
+}
+// A short self-removing toast (the sw.js update toast's style), one at a time.
+function audioHint(msg){
+  const old = document.getElementById("audiohint"); if(old) old.remove();
+  const t = document.createElement("div"); t.id = "audiohint"; t.className = "swtoast"; t.setAttribute("role", "status"); t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { if(t.parentNode) t.remove(); }, 3500);
+}
+function speakTTS(text, btn){
   if(!hasSpeech) return;
   try{
     const u = new SpeechSynthesisUtterance(text); u.lang = TTS_LANG; if(ttsVoice) u.voice = ttsVoice; u.rate = TTS_RATE;
@@ -522,8 +548,16 @@ function speak(text, btn, audioUrl){
 const say = t => speak(t);
 const saySentence = (s, btn) => speak(s.t, btn, s.audio);
 const canHearSentence = s => hasSpeech || !!s.audio;
+// Recorded word clips (words[].audio, docs/AUDIO.md). Every site that speaks a pack word
+// goes through sayWord, and every "can this word be heard" gate through canHearWord, so a
+// word with a clip is playable with no voice. PACK_AUDIO (pack.json audio) means the pack
+// ships recordings: the no-voice notices are then not shown.
+const wordAudio = VC.wordAudio;
+const sayWord = (w, btn) => speak(w.w, btn, wordAudio(w));
+const canHearWord = w => hasSpeech || !!wordAudio(w);
+const PACK_AUDIO = VC.packAudio(PACK);
 function speechNotice(){
-  if(hasSpeech || noticeShown) return "";
+  if(hasSpeech || PACK_AUDIO || noticeShown) return "";
   noticeShown = true;
   return `<div class="warn">This browser has no text-to-speech voice for this language, so listening items show the word instead of playing audio.</div>`;
 }
@@ -780,7 +814,8 @@ function tokTap(t){
     bringIntoView(g); // appended below the sentence: a tap on its last line can open it under the tab bar
   }
   announce(html);
-  say(head ? head.surface : w.w);
+  // A phrase head (这个 for 这) speaks its own surface by TTS; the word itself its clip.
+  if(head && head.surface !== w.w) say(head.surface); else sayWord(w);
 }
 // Hides the popover of the tap's data-tokbox and clears its highlight; true when there was
 // something to close (an open popover or a highlighted token).
@@ -808,8 +843,8 @@ $("panel").addEventListener("click", e => {
   // pack.script: data-xs a unit's own sound (data-xopen, a Script-tab chart cell, also
   // shows that unit's teach card), data-xw an example word as the primer shows it.
   if(t.dataset.xs !== undefined){ const u = SUNIT_BY_ID[t.dataset.xs]; if(!u) return; if(t.dataset.xopen !== undefined) scriptOpenCard(u, e); sayUnitSound(u, t); return; }
-  if(t.dataset.xw !== undefined){ const w = SCRIPT_BYID[t.dataset.xw]; if(w && scriptVoice()) speak(w.w); return; }
-  if(t.dataset.wid !== undefined){ const w = WORDS_BY_ID[t.dataset.wid]; if(w) say(w.w); return; }
+  if(t.dataset.xw !== undefined){ const w = SCRIPT_BYID[t.dataset.xw]; if(w && (wordAudio(w) || scriptVoice())) sayWord(w); return; }
+  if(t.dataset.wid !== undefined){ const w = WORDS_BY_ID[t.dataset.wid]; if(w) sayWord(w); return; }
   const s = SENTENCES[+t.dataset.sent]; if(s) saySentence(s);
 });
 // Keyboard for word taps (role=button): Enter/Space. Attached once, here, like the above.
@@ -939,26 +974,26 @@ function exampleSentencesHTML(entry){
   return `<p class="q" style="margin-top:12px">Example${ex.length>1?"s":""}:</p>${ex.map(s => sentenceRowHTML(s, entry)).join("")}`;
 }
 function revealBlock(entry){
-  const p = pronBeside(entry);
-  const icon = hasSpeech ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
-  return `<div${hasSpeech ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${wordFormHTML(entry)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
+  const p = pronBeside(entry), hear = canHearWord(entry);
+  const icon = hear ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
+  return `<div${hear ? ` data-wid="${escapeHtml(entry.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${wordFormHTML(entry)}${icon}</div>${p ? `<div class="rp">${readingHTML(p)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(VC.gloss(entry))}</div></div>${exampleSentencesHTML(entry)}`;
 }
 const meaningChoices = entry => [VC.gloss(entry), ...VC.meaningOpts(entry, WORDS).map(d=>VC.gloss(d))];
-// hear — TTS plays the word; pick the meaning. Without speech it degrades to read.
+// hear — the word's clip or TTS plays it; pick the meaning. Unhearable, it degrades to read.
 function hearItem(entry){
-  if(!hasSpeech) return Object.assign(readItem(entry), { needsNotice: true });
+  if(!canHearWord(entry)) return Object.assign(readItem(entry), { needsNotice: true });
   return { kind:"mc", key:"w:"+entry.id, label:"What does it mean?", optsClass:"opts-hero",
     html: `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`,
     opts: meaningChoices(entry), a: VC.gloss(entry), reveal: `<div class="q">You heard:</div>${revealBlock(entry)}`,
     onAnswer: ok=>markWord(entry.id, ok),
-    mount: () => { const btn = $("sp"); speak(entry.w, btn); btn.onclick = ()=>speak(entry.w, btn); },
+    mount: () => { const btn = $("sp"); sayWord(entry, btn); btn.onclick = ()=>sayWord(entry, btn); },
     };
 }
 // read — word shown; pick the meaning. Audio auto-plays.
 function readItem(entry){
   return { kind:"mc", key:"w:"+entry.id, label:"What does it mean?", optsClass:"opts-hero",
     html: bigWordHTML(entry), opts: meaningChoices(entry), a: VC.gloss(entry), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), mount: () => say(entry.w), };
+    onAnswer: ok=>markWord(entry.id, ok), mount: () => sayWord(entry), };
 }
 // recall — meaning shown; pick the word (wordOpts: same pos/level first, never a
 // distractor that would also be a right answer).
@@ -970,14 +1005,14 @@ function recallItem(entry){
   return { kind:"mc", key:"w:"+entry.id, label:"Which word is this?", optsClass:"opts-hero opts-w",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
     opts: [entry.id, ...ds.map(d=>d.id)], a: entry.id, optHtml: wordOptHtml(byId, o => byId[o].w), optsT: true, reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // type — meaning shown; type the word (normalised per pack.typing, alt forms accepted).
 function typeItem(entry){
   return { kind:"type", key:"w:"+entry.id, label:"Type the word",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>`,
     check: val => VC.acceptTyped(val, entry, PACK), reveal: revealBlock(entry),
-    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
+    onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 // typePron — pack.typing "pron": meaning shown (plus a replay button for the word's
 // audio); type its reading. Accepted: tone marks or numbers (VC.checkPronTyped: neutral as
@@ -986,14 +1021,14 @@ function typeItem(entry){
 // word's production slot (kindMix "type"), the same slot recall fills: the reading is
 // never drilled on its own. A word with no pron gets recall instead.
 function pronTypeItem(entry){
-  const hear = hasSpeech;
+  const hear = canHearWord(entry);
   return { kind:"type", key:"w:"+entry.id, label:"Type the reading (tone marks or numbers)",
     html: `<div class="med" style="text-align:center">${escapeHtml(VC.gloss(entry))}</div>${hear ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""}`,
     placeholder: "tone marks or numbers…", inputTA: "",
-    mount: () => { if(hear){ const b = $("rp2"); b.onclick = () => speak(entry.w, b); } },
+    mount: () => { if(hear){ const b = $("rp2"); b.onclick = () => sayWord(entry, b); } },
     check: val => VC.checkPronTyped(val, entry.pron) === "ok",
     feedback: val => VC.checkPronTyped(val, entry.pron) === "tones" ? `<div class="diff">tones missing: <span class="tpron">${readingHTML(entry.pron)}</span></div>` : "",
-    reveal: revealBlock(entry), onAnswer: ok=>markWord(entry.id, ok), onReveal: () => say(entry.w) };
+    reveal: revealBlock(entry), onAnswer: ok=>markWord(entry.id, ok), onReveal: () => sayWord(entry) };
 }
 const WORD_ITEM = { hear: hearItem, read: readItem, recall: recallItem, type: e => PRON_TYPING && e.pron ? pronTypeItem(e) : TYPING ? typeItem(e) : recallItem(e) };
 const itemFromPlan = p => WORD_ITEM[p.kind](p.word);
@@ -1077,9 +1112,10 @@ function sentenceItemFor(s){
 // item's `show` says: charRead/charSound the written form alone (no reading, no audio),
 // charPick the reading plus the linked word's audio, charRecall the meaning. The reveal
 // always gives form, reading and meaning. Scoring writes prog.chars.c only (markChar).
-const sayUnit = (it, btn) => { const w = WORDS_BY_ID[it.wordId]; speak(w ? w.w : it.t, btn); };
+const sayUnit = (it, btn) => { const w = WORDS_BY_ID[it.wordId]; if(w) sayWord(w, btn); else speak(it.t, btn); };
+const canHearUnit = it => { const w = WORDS_BY_ID[it.wordId]; return w ? canHearWord(w) : hasSpeech; };
 function charRevealBlock(it){
-  const tap = hasSpeech && WORDS_BY_ID[it.wordId];
+  const tap = WORDS_BY_ID[it.wordId] && canHearWord(WORDS_BY_ID[it.wordId]);
   const icon = tap ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : "";
   return `<div${tap ? ` data-wid="${escapeHtml(it.wordId)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(it.t)}${icon}</div>${it.reading ? `<div class="rp">${readingHTML(it.reading)}</div>` : ""}<div style="color:var(--mute)">${escapeHtml(it.gloss)}</div></div>`;
 }
@@ -1092,7 +1128,7 @@ function charDrillItem(kind, unit){
   if(kind === "charRead") return Object.assign(base, { label:"What does it mean?", optsClass:"opts-hero", html: form });
   if(kind === "charSound") return Object.assign(base, { label:"How is it said?", optsClass:"opts-hero", html: form, optHtml: o => `<bdi>${readingHTML(o)}</bdi>` });
   if(kind === "charPick"){
-    const hear = it.audio && hasSpeech;
+    const hear = it.audio && canHearUnit(it);
     return Object.assign(base, formOpts, { label:"How is it written?",
       html: `${hear ? `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : ""}<div class="med" style="text-align:center">${readingHTML(it.reading)}</div>`,
       mount: () => { if(!hear) return; const btn = $("sp"); sayUnit(it, btn); btn.onclick = () => sayUnit(it, btn); },
@@ -1122,7 +1158,7 @@ function scriptRevealBlock(it){
   // A composed syllable is mixed text (parts, "+", "="): each target piece is isolated by tw().
   const head = r.syll ? `<div class="rw xrs">${r.syll.parts.map(p => tw(p)).join(" + ")} = ${tw(r.syll.t)}</div>` : `<div class="rw"${TA}>${escapeHtml(r.t)}</div>`;
   const w = r.word;
-  const wordTap = w && scriptVoice();
+  const wordTap = w && (scriptVoice() || !!wordAudio(SCRIPT_BYID[w.id]));
   return `<div>${head}<div>${r.name ? `${tw(r.name)} · ` : ""}<b>${escapeHtml(r.roman)}</b></div>${r.note ? `<div style="color:var(--mute)">${escapeHtml(r.note)}</div>` : ""}${w ? `<div class="xrword"${wordTap ? ` data-xw="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><div class="rw"${TA}>${escapeHtml(w.w)}${wordTap ? ` <span style="color:var(--mute);vertical-align:middle">${TEACH_PLAY_SVG}</span>` : ""}</div><div class="rp">${escapeHtml(w.roman)}</div><div style="color:var(--mute)">${escapeHtml(w.en || "")}</div></div>` : ""}</div>`;
 }
 function scriptDrillItem(kind, unit, ctx){
@@ -1181,7 +1217,7 @@ function scriptTeachHTML(u){
   }
   const ital = u.italic ? `<div class="xrow2">italic <span class="xit"${TA}>${escapeHtml(u.italic)}</span></div>` : "";
   const exs = VC.scriptExamples(u, SCRIPT_BYID).map(e => {
-    const tap = scriptVoice();
+    const tap = scriptVoice() || !!wordAudio(SCRIPT_BYID[e.id]);
     return `<div class="rowset"${tap ? ` data-xw="${escapeHtml(e.id)}" style="cursor:pointer"` : ""}><span class="wd"${TA}>${scriptHL(e.w, g)}</span><span class="info"><span class="pr">${escapeHtml(e.roman)}</span><span class="en">${escapeHtml(VC.gloss(SCRIPT_BYID[e.id]))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>`;
   }).join("");
   return `<div class="xteach"><div class="xhead"${DISP.rtl ? ' dir="rtl"' : ""}><span class="cform xg"${TA}>${escapeHtml(u.t)}</span><span class="info" dir="ltr">${u.name ? `<span class="xnm">${tw(u.name)}</span>` : ""}<b class="xrm">${escapeHtml(u.roman)}</b>${u.note ? `<span class="en">${escapeHtml(u.note)}</span>` : ""}</span>${play}</div>${row2}${ital}${exs}</div>`;
@@ -1428,14 +1464,15 @@ function wordRowHTML(w, cls){
 function vocabTeach(list, lv, onDrill){
   setScore(0,0); screenTop();
   const P = $("panel");
-  const hint = hasSpeech ? " Tap a word to hear it." : "";
+  const hint = hasSpeech || list.some(canHearWord) ? " Tap a word to hear it." : "";
   P.innerHTML = `<p class="q">${escapeHtml(levelLabel(lv))}, new set.${hint}</p>
     <div id="tl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
   const tl = $("tl");
   list.forEach(w => {
     const row = document.createElement("div"); row.className = "rowset";
-    row.innerHTML = `${wordRowHTML(w, "rowset")}${hasSpeech ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}`;
-    if(hasSpeech){ row.onclick = () => say(w.w); row.style.cursor = "pointer"; }
+    const hear = canHearWord(w);
+    row.innerHTML = `${wordRowHTML(w, "rowset")}${hear ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}`;
+    if(hear){ row.onclick = () => sayWord(w); row.style.cursor = "pointer"; }
     tl.appendChild(row);
     const exHtml = exampleSentencesHTML(w);
     if(exHtml){
@@ -1453,10 +1490,10 @@ function vocabTeach(list, lv, onDrill){
 function charTeach(cs, stage, onDrill){
   setScore(0,0); screenTop();
   const P = $("panel");
-  const hint = hasSpeech ? " Tap one to hear it." : "";
+  const hint = hasSpeech || cs.units.some(u => { const w = VC.unitWord(u, WORDS_BY_ID); return w && canHearWord(w); }) ? " Tap one to hear it." : "";
   const cards = cs.units.map(u => {
     const w = VC.unitWord(u, WORDS_BY_ID), reading = VC.unitReading(u, WORDS_BY_ID);
-    const tap = hasSpeech && w;
+    const tap = w && canHearWord(w);
     const ex = VC.unitExampleSentences(u, w, SENTENCES, PACK, 1); // prefers one showing the unit written with ruby
     return `<div class="charteach"><div class="chead"${tap ? ` data-wid="${escapeHtml(w.id)}" style="cursor:pointer"` : ""}><span class="cform"${TA}>${escapeHtml(u.t)}</span><span class="info">${reading ? `<span class="pr">${readingHTML(reading)}</span>` : ""}<span class="en">${escapeHtml(VC.unitGloss(u, WORDS_BY_ID))}</span></span>${tap ? `<span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>` : ""}</div>${ex.map(s => sentenceRowHTML(s, w, u.words)).join("")}</div>`;
   }).join("");
@@ -1470,7 +1507,7 @@ function scriptTeach(ss, stage, onDrill){
   setScore(0,0); screenTop();
   const P = $("panel");
   const set = ss.units.length ? ss.units[0].set : null;
-  P.innerHTML = `<p class="q">${tw(stage.label)}, set ${ss.index+1} of ${ss.total}: ${ss.units.length} new symbol${ss.units.length === 1 ? "" : "s"}.${scriptVoice() ? " Tap the speaker to hear one." : ""}</p>
+  P.innerHTML = `<p class="q">${tw(stage.label)}, set ${ss.index+1} of ${ss.total}: ${ss.units.length} new symbol${ss.units.length === 1 ? "" : "s"}.${scriptVoice() || ss.units.some(u => u.audio) ? " Tap the speaker to hear one." : ""}</p>
     <div id="xtl">${scriptNotesHTML(stage.key, set)}${ss.units.map(scriptTeachHTML).join("")}</div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
   $("dr").onclick = onDrill;
 }
@@ -1615,7 +1652,7 @@ function wordListInto(wl, list){
   list.forEach(w => {
     const row = document.createElement("div"); row.className = "wl";
     row.innerHTML = wordRowHTML(w, "wl");
-    if(hasSpeech){ row.style.cursor = "pointer"; row.onclick = () => say(w.w); }
+    if(canHearWord(w)){ row.style.cursor = "pointer"; row.onclick = () => sayWord(w); }
     wl.appendChild(row);
   });
 }
@@ -2027,11 +2064,11 @@ function placeVocabNext(){
   if(V.i >= V.items.length){ placeResult(); return; }
   const it = V.items[V.i++]; const w = it.w; setScore(V.i - 1, V.items.length);
   const opts = shuffle(meaningChoices(w));
-  const asHear = hasSpeech && Math.random() < 0.5;
+  const asHear = canHearWord(w) && Math.random() < 0.5;
   P.innerHTML = `<p class="q">Words ${V.i} / ${V.items.length}</p>
     ${asHear ? `<div class="hear-stage"><button class="speaker" id="rp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : bigWordHTML(w)}
     <div class="opts" id="o"></div>`;
-  if(asHear){ const btn = $("rp"); speak(w.w, btn); btn.onclick = ()=>speak(w.w, btn); }
+  if(asHear){ const btn = $("rp"); sayWord(w, btn); btn.onclick = ()=>sayWord(w, btn); }
   opts.forEach(o => {
     const b = document.createElement("button"); b.textContent = o;
     b.onclick = () => { PL.res[it.b].n++; if(o===VC.gloss(w)) PL.res[it.b].r++; placeVocabNext(); };
@@ -2075,7 +2112,7 @@ function progressRender(){
   const weak = weakFirst(lwAll.filter(w=>VC.weakScore(prog.w[w.id])>0), 10);
   const cp = HAS_CHARACTERS ? charProgress() : null;
   const xp = HAS_SCRIPT ? scriptProgress() : null;
-  P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
+  P.innerHTML = `${hasSpeech || PACK_AUDIO ? "" : `<div class="warn">No text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
     <table class="stats">${xp ? xp.rows : ""}${rows}${cp ? cp.rows : ""}
       ${HAS_PASSAGES ? VC.readingStats(PASSAGE_LIST, PACK, prog).map(r => `<tr><td>${escapeHtml(levelLabel(r.lv))} reading</td><td>${r.done} / ${r.total} passages${r.avg != null ? ` · avg ${r.avg}%` : ""}</td></tr>`).join("") : ""}
       ${HAS_LESSONS ? `<tr><td>Sounds</td><td>${LESSON_LIST.filter(l=>prog.lessons[l.id]).length} / ${LESSON_LIST.length} lessons done</td></tr>` : ""}

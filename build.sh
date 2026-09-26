@@ -83,9 +83,14 @@ mv "$TMP" "$OUT"
 
 SW="$(dirname "$OUT")/sw.js"
 SWTMP="$SW.tmp.$$"
-VE_BUILD="$BUILD_ID" VE_PAGE="$PAGE" awk '
-  BEGIN { b = ENVIRON["VE_BUILD"]; p = ENVIRON["VE_PAGE"] }
-  { gsub(/__VE_BUILD__/, b); gsub(/__VE_PAGE__/, p); print }
+# Audio cache version: pack.json audio.version (docs/AUDIO.md), 0 for a pack without
+# recordings. sw.js keeps played clips in a cache named by it, so re-rendered audio
+# (a new version) never plays a stale cached clip.
+VE_AUDIO="$(grep -o '"audio":{[^{}]*"version":[0-9]*' "$PACKDIR/pack.js" | head -1 | sed 's/.*"version"://')"
+[ -n "$VE_AUDIO" ] || VE_AUDIO=0
+VE_BUILD="$BUILD_ID" VE_PAGE="$PAGE" VE_AUDIO="$VE_AUDIO" awk '
+  BEGIN { b = ENVIRON["VE_BUILD"]; p = ENVIRON["VE_PAGE"]; a = ENVIRON["VE_AUDIO"] }
+  { gsub(/__VE_BUILD__/, b); gsub(/__VE_PAGE__/, p); gsub(/__VE_AUDIO__/, a); print }
 ' "$SWT" > "$SWTMP" || { rm -f "$SWTMP"; exit 1; }
 mv "$SWTMP" "$SW"
 echo "Built $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes) from $PACKDIR, and $SW"
