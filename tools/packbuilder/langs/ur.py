@@ -936,7 +936,16 @@ class Urdu(LanguageSpec):
     }
     versions = {"corpus": "c1", "tag": "t2", "lex": "l2"}
 
-    typing = None
+    # Typed production on (2026-09-26): lenient accents fold harakat, tatweel
+    # and ZWNJ (PACK_SCHEMA.md typing.accents) -- none of which real Urdu text
+    # ever writes -- so nothing is ever required that a learner would
+    # reasonably omit there. strictFromLevel is null: harakat are never
+    # written, at any level, so there's no level at which requiring them
+    # becomes appropriate. Lenient does NOT fold ہ (heh) against ھ
+    # (do-chashmi heh, the aspiration marker in بھ/ٹھ/تھ/دھ etc.) -- that
+    # fold is not in the schema's list -- so a learner's ہ/ھ mix-up is a
+    # residual (TODO.md).
+    typing = {"caseSensitive": False, "accents": "lenient", "strictFromLevel": None}
     show_pron = True
     target_len = {"A1": 5, "A2": 6, "B1": 7}
     min_len = {"A1": 3, "A2": 4, "B1": 5}
