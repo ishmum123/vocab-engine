@@ -548,7 +548,15 @@ class Arabic(LanguageSpec):
     versions = {"corpus": "c1", "tag": "t45", "lex": "l1"}
     fix_links_floor = 2     # a homograph-link drop never leaves a word under 2 sentences
 
-    typing = None
+    # typed production on: lenient accents fold harakat/tatweel/ZWNJ/ZWJ on
+    # both sides (PACK_SCHEMA typing.accents), so an unvocalized typed answer
+    # still matches a vocalized pack word. strictFromLevel null: harakat are
+    # never written in ordinary Arabic text at any level, so strict is never
+    # appropriate. Note: the search-only Arabic folds (hamza/madda carrier
+    # drop, ة/ه/ۃ/ۀ->ہ, ى<->ی/ي, optional leading ال) do NOT apply to typed
+    # answers (PACK_SCHEMA: "typed-answer checking ... is unaffected by any
+    # of the folds below"), so those spelling variants remain unfolded here.
+    typing = {"caseSensitive": False, "accents": "lenient", "strictFromLevel": None}
     show_pron = True
     target_len = {"A1": 5, "A2": 6, "B1": 7}
     min_len = {"A1": 3, "A2": 4, "B1": 5}
