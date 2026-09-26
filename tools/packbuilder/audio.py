@@ -30,6 +30,9 @@ and regenerates the pack .js files. Items and rules:
   --limit: dev use) links what it rendered but leaves pack.audio unset.
 - Words and script carriers render slower with silence padding (spec.AUDIO short_*);
   sentences at normal speed.
+- Every clip is peak-normalised before Opus encoding: ffmpeg's `volumedetect` measures the raw
+  synth's true peak, then `-af volume=<gain>dB` brings it to spec.AUDIO `peak` (default -1.0
+  dBFS, never > 0). `peak` is part of the clip key, so changing it re-renders every clip.
 
 Options: --check (report missing / stale / orphan clips, dangling URLs and stale overrides, plus notes
 for foreign URLs and unowned files;
@@ -49,7 +52,8 @@ from pathlib import Path
 KINDS = ("w", "s", "p", "x")
 ABSOLUTE = re.compile(r"^[a-z][a-z0-9+.-]*:", re.I)
 DEFAULTS = {"codec": "opus", "bitrate": "24k", "rate": 24000, "short_length_scale": 1.25,
-            "short_pad_ms": [150, 250], "length_scale": 1.0}
+            "short_pad_ms": [150, 250], "length_scale": 1.0, "peak": -1.0}
+VOLUME_RE = re.compile(r"max_volume:\s*(-?\d+(?:\.\d+)?) dB")
 
 
 def config(spec):
@@ -61,6 +65,8 @@ def config(spec):
     for k in ("voice", "version", "licence"):
         if not cfg.get(k):
             raise SystemExit(f"audio: spec.AUDIO needs {k!r}")
+    if cfg["peak"] > 0:
+        raise SystemExit("audio: spec.AUDIO peak must be <= 0 dBFS (never boost above 0 dBFS)")
     return cfg
 
 
@@ -132,7 +138,7 @@ def override_notes(overrides, texts):
 def clip_key(spoken, short, cfg):
     params = [spoken, cfg["voice"], cfg["version"], cfg["codec"], cfg["bitrate"], cfg["rate"],
               cfg["short_length_scale"] if short else cfg["length_scale"],
-              cfg["short_pad_ms"] if short else [0, 0]]
+              cfg["short_pad_ms"] if short else [0, 0], cfg["peak"]]
     return hashlib.sha1(json.dumps(params, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
@@ -160,11 +166,29 @@ class PiperRenderer:
         with wave.open(buf, "wb") as wf:
             self.voice.synthesize_wav(text, wf, syn_config=self.SC(
                 length_scale=cfg["short_length_scale"] if short else cfg["length_scale"]))
+        wav_bytes = buf.getvalue()
+        gain = self.peak_gain(wav_bytes, cfg["peak"])
         pad = cfg["short_pad_ms"] if short else [0, 0]
-        af = ["-af", f"adelay={pad[0]},apad=pad_dur={pad[1] / 1000}"] if short else []
+        filters = []
+        if short:
+            filters.append(f"adelay={pad[0]},apad=pad_dur={pad[1] / 1000}")
+        filters.append(f"volume={gain:.2f}dB")
+        af = ["-af", ",".join(filters)]
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "wav", "-i", "pipe:0", *af, "-ac", "1",
                         "-ar", str(cfg["rate"]), "-c:a", "libopus", "-b:a", cfg["bitrate"],
-                        "-application", "voip", str(out)], input=buf.getvalue(), check=True)
+                        "-application", "voip", str(out)], input=wav_bytes, check=True)
+
+    @staticmethod
+    def peak_gain(wav_bytes, target_dbfs):
+        """Gain (dB) to apply so the clip's true peak lands at `target_dbfs` (<= 0). Measures the
+        raw synth's peak with ffmpeg's volumedetect filter; never returns a gain that would push
+        the peak above 0 dBFS, since `target_dbfs` itself is validated <= 0 (config())."""
+        p = subprocess.run(["ffmpeg", "-v", "info", "-f", "wav", "-i", "pipe:0",
+                            "-af", "volumedetect", "-f", "null", "-"],
+                           input=wav_bytes, capture_output=True)
+        m = VOLUME_RE.search(p.stderr.decode("utf-8", "replace"))
+        measured = float(m.group(1)) if m else 0.0
+        return target_dbfs - measured
 
 
 def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=None, now=None, out=print):
@@ -298,8 +322,8 @@ def run(repo, spec, check=False, prune=False, only=None, limit=None, renderer=No
         adir.mkdir(parents=True, exist_ok=True)
         ts = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
         doc = {"voice": cfg["voice"], "engine": cfg.get("engine", "piper-tts"), "version": cfg["version"],
-               "codec": cfg["codec"], "bitrate": cfg["bitrate"], "rate": cfg["rate"], "count": len(owned),
-               "generated": ts, "licence": cfg["licence"], "files": files_sorted}
+               "codec": cfg["codec"], "bitrate": cfg["bitrate"], "rate": cfg["rate"], "peak": cfg["peak"],
+               "count": len(owned), "generated": ts, "licence": cfg["licence"], "files": files_sorted}
         mpath.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         changed = True
 
